@@ -1,0 +1,31 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A" />
+      <stop offset="100%" stop-color="#1E293B" />
+    </linearGradient>
+    <linearGradient id="egg-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F8FAFC" />
+      <stop offset="100%" stop-color="#CBD5E1" />
+    </linearGradient>
+    <linearGradient id="chart-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#000000" flood-opacity="0.4" />
+    </filter>
+  </defs>
+  
+  <rect width="512" height="512" rx="112" fill="url(#bg-grad)" />
+  
+  <g filter="url(#shadow)">
+    <!-- Stylized Egg representing Poultry -->
+    <path d="M 256 430 C 366 430, 406 320, 406 240 C 406 130, 336 60, 256 60 C 176 60, 106 130, 106 240 C 106 320, 146 430, 256 430 Z" fill="url(#egg-grad)" />
+    
+    <!-- Projection Bars -->
+    <rect x="176" y="270" width="36" height="90" rx="12" fill="url(#chart-grad)" />
+    <rect x="238" y="210" width="36" height="150" rx="12" fill="url(#chart-grad)" />
+    <rect x="300" y="130" width="36" height="230" rx="12" fill="url(#chart-grad)" />
+  </g>
+</svg>
