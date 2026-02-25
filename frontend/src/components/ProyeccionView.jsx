@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen } from 'lucide-react'
+import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { eliminarLote, moverLote } from '../services/api'
+import { exportProyeccionPDF } from '../utils/pdfExport'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
 
@@ -165,12 +166,17 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
       )}
 
       {/* Toggle vista */}
-      <motion.div variants={itemVariants} className="tabs">
-        <button className={`tab ${viewMode === 'cards' ? 'active' : ''}`} onClick={() => setViewMode('cards')}>
-          <KanbanSquare size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Vista por Día
-        </button>
-        <button className={`tab ${viewMode === 'table' ? 'active' : ''}`} onClick={() => setViewMode('table')}>
-          <Table size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Vista Tabla
+      <motion.div variants={itemVariants} className="tabs" style={{ justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button className={`tab ${viewMode === 'cards' ? 'active' : ''}`} onClick={() => setViewMode('cards')}>
+            <KanbanSquare size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Vista por Día
+          </button>
+          <button className={`tab ${viewMode === 'table' ? 'active' : ''}`} onClick={() => setViewMode('table')}>
+            <Table size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Vista Tabla
+          </button>
+        </div>
+        <button className="btn btn-sm btn-outline" onClick={() => exportProyeccionPDF(proyeccion)} style={{ marginBottom: '0.5rem' }}>
+          <Download size={14} /> Descargar PDF
         </button>
       </motion.div>
 

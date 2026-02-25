@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { BarChart2, Activity, Home, List, AlertCircle } from 'lucide-react'
+import { BarChart2, Activity, Home, List, AlertCircle, Download } from 'lucide-react'
 import { generarProyeccion } from '../services/api'
+import { exportOfertaPDF } from '../utils/pdfExport'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
 
@@ -165,6 +166,9 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
       <motion.div variants={itemVariants} className="card">
         <div className="card-header">
           <h2><Home size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Resumen por Granja</h2>
+          <button className="btn btn-sm btn-outline" onClick={() => exportOfertaPDF(oferta)}>
+            <Download size={14} /> Descargar PDF
+          </button>
         </div>
         <div className="card-body">
           <div className="table-container">

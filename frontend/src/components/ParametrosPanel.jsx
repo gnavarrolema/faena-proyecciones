@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Settings2, Save, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Settings2, Save, CheckCircle2, AlertCircle, Download } from 'lucide-react'
 import { getParametros, updateParametros } from '../services/api'
+import { exportParametrosPDF } from '../utils/pdfExport'
 
 export default function ParametrosPanel() {
   const [params, setParams] = useState(null)
@@ -97,13 +98,18 @@ export default function ParametrosPanel() {
       <div className="card">
         <div className="card-header">
           <h2><Settings2 size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Parámetros de Cálculo</h2>
-          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-            {saving ? (
-              <><span className="spinner" style={{ width: 14, height: 14, marginRight: 6 }}></span> Guardando...</>
-            ) : (
-              <><Save size={14} style={{ marginRight: 4 }} /> Guardar</>
-            )}
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button className="btn btn-sm btn-outline" onClick={() => exportParametrosPDF(params)}>
+              <Download size={14} /> Descargar PDF
+            </button>
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+              {saving ? (
+                <><span className="spinner" style={{ width: 14, height: 14, marginRight: 6 }}></span> Guardando...</>
+              ) : (
+                <><Save size={14} style={{ marginRight: 4 }} /> Guardar</>
+              )}
+            </button>
+          </div>
         </div>
         <div className="card-body">
           <AnimatePresence>

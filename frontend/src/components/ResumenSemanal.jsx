@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
-import { TrendingUp, Calendar, Home } from 'lucide-react'
+import { TrendingUp, Calendar, Home, Download } from 'lucide-react'
+import { exportResumenPDF } from '../utils/pdfExport'
 
 function formatNumber(n) {
   if (n == null) return '-'
@@ -87,6 +88,9 @@ export default function ResumenSemanal({ proyeccion }) {
       <motion.div variants={itemVariants} className="card">
         <div className="card-header">
           <h2><Calendar size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Resumen Diario</h2>
+          <button className="btn btn-sm btn-outline" onClick={() => exportResumenPDF(proyeccion)}>
+            <Download size={14} /> Descargar PDF
+          </button>
         </div>
         <div className="card-body">
           <div className="table-container">

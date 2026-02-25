@@ -3,14 +3,14 @@
   "configurations": [
     {
       "name": "backend",
-      "runtimeExecutable": "python",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "5000", "--reload"],
       "port": 5000
     },
     {
       "name": "frontend",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
+      "runtimeExecutable": "wsl",
+      "runtimeArgs": ["-e", "bash", "-lc", "cd /mnt/d/gnavarro/Escritorio/Desarrollos/proyección-faena/frontend && npx vite --host 0.0.0.0 --port 5173"],
       "port": 5173
     }
   ]
