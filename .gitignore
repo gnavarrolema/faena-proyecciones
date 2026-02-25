@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual env
+.venv/
+venv/
+ENV/
+
+# Local storage (datos de desarrollo)
+local_storage/
+
+# Entorno
+.env
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Docker
+docker-compose.override.yml
+
+# Archivos temporales de Excel
+*.xlsx
+*.xls
+!Anexos/

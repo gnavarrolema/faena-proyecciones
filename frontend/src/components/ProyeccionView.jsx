@@ -1,0 +1,341 @@
+import React, { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { eliminarLote, moverLote } from '../services/api'
+
+const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+
+function formatNumber(n) {
+  if (n == null) return '-'
+  return n.toLocaleString('es-AR')
+}
+
+function formatDate(d) {
+  if (!d) return '-'
+  const dt = new Date(d + 'T12:00:00')
+  return dt.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
+function getEdadColor(dif) {
+  if (Math.abs(dif) <= 1) return 'green'
+  if (Math.abs(dif) <= 3) return 'orange'
+  return 'red'
+}
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: { staggerChildren: 0.08 }
+  }
+}
+
+const itemVariants = {
+  hidden: { opacity: 0, scale: 0.95, y: 15 },
+  show: { opacity: 1, scale: 1, y: 0, transition: { duration: 0.3 } }
+}
+
+export default function ProyeccionView({ proyeccion, setProyeccion }) {
+  const [viewMode, setViewMode] = useState('cards') // 'cards' | 'table'
+  const [movingLote, setMovingLote] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  if (!proyeccion || !proyeccion.dias) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="card"
+      >
+        <div className="card-body" style={{ textAlign: 'center', padding: '3rem' }}>
+          <p style={{ fontSize: '1.1rem', color: 'var(--text-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <BarChart size={20} /> No hay proyección generada. Genérela desde la pestaña "Oferta".
+          </p>
+        </div>
+      </motion.div>
+    )
+  }
+
+  const handleDelete = async (diaIdx, loteIdx) => {
+    if (!window.confirm('¿Eliminar este lote de la proyección?')) return
+    setLoading(true)
+    try {
+      const data = await eliminarLote(diaIdx, loteIdx)
+      setProyeccion(data)
+    } catch (err) {
+      toast.error('Error al eliminar: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleMove = async (diaOrigen, loteIdx, diaDestino) => {
+    setLoading(true)
+    try {
+      const data = await moverLote({
+        lote_index: loteIdx,
+        dia_origen: diaOrigen,
+        dia_destino: diaDestino,
+      })
+      setProyeccion(data)
+      setMovingLote(null)
+    } catch (err) {
+      toast.error('Error al mover: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const { dias } = proyeccion
+
+  return (
+    <motion.div
+      variants={containerVariants}
+      initial="hidden"
+      animate="show"
+    >
+      {/* Stats generales */}
+      <motion.div variants={itemVariants} className="stats-grid">
+        <div className="stat-card">
+          <div className="stat-label">Total Pollos Semana</div>
+          <div className="stat-value green">{formatNumber(proyeccion.total_pollos_semana)}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Promedio Edad Semana</div>
+          <div className="stat-value blue">{proyeccion.promedio_edad_semana?.toFixed(1)}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Cajas Semanales</div>
+          <div className="stat-value orange">{formatNumber(proyeccion.produccion_cajas_semanales)}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Sofía (Total - 10.000)</div>
+          <div className="stat-value">{formatNumber(proyeccion.sofia)}</div>
+        </div>
+      </motion.div>
+
+      {/* Toggle vista */}
+      <motion.div variants={itemVariants} className="tabs">
+        <button className={`tab ${viewMode === 'cards' ? 'active' : ''}`} onClick={() => setViewMode('cards')}>
+          <KanbanSquare size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Vista por Día
+        </button>
+        <button className={`tab ${viewMode === 'table' ? 'active' : ''}`} onClick={() => setViewMode('table')}>
+          <Table size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Vista Tabla
+        </button>
+      </motion.div>
+
+      {/* Modal de mover */}
+      <AnimatePresence>
+        {movingLote && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="modal-overlay"
+            onClick={() => setMovingLote(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="modal"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="modal-header">
+                <h3><ArrowLeftRight size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Mover lote a otro día</h3>
+                <button className="btn btn-sm btn-outline" onClick={() => setMovingLote(null)}>
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="modal-body">
+                <p style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
+                  Mover <strong>{movingLote.lote.granja} G{movingLote.lote.galpon}</strong> ({formatNumber(movingLote.lote.cantidad)} pollos) desde {DIAS_SEMANA[movingLote.diaIdx]}:
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {dias.map((d, idx) => (
+                    idx !== movingLote.diaIdx && (
+                      <button
+                        key={idx}
+                        className="btn btn-outline"
+                        onClick={() => handleMove(movingLote.diaIdx, movingLote.loteIdx, idx)}
+                        disabled={loading}
+                        style={{ justifyContent: 'flex-start' }}
+                      >
+                        <Calendar size={16} style={{ marginRight: 6 }} /> {DIAS_SEMANA[idx]} ({formatDate(d.fecha)}) — {formatNumber(d.total_pollos)} pollos
+                      </button>
+                    )
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Vista Cards */}
+      {viewMode === 'cards' && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="proyeccion-grid"
+        >
+          {dias.map((dia, diaIdx) => (
+            <div className="day-column" key={diaIdx}>
+              <div className="day-header">
+                <span>{DIAS_SEMANA[diaIdx]}</span>
+                <span className="day-total">{formatNumber(dia.total_pollos)}</span>
+              </div>
+              <div className="day-body">
+                {dia.lotes.length === 0 ? (
+                  <p style={{ textAlign: 'center', color: 'var(--text-light)', padding: '1rem', fontSize: '0.8rem' }}>
+                    Sin lotes asignados
+                  </p>
+                ) : (
+                  dia.lotes.map((lote, loteIdx) => (
+                    <motion.div
+                      key={loteIdx}
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: loteIdx * 0.05 }}
+                      className="lote-card"
+                    >
+                      <div className="lote-header">
+                        <span>{lote.granja} G{lote.galpon}</span>
+                        <span className={`badge badge-${lote.sexo === 'M' ? 'info' : lote.sexo === 'H' ? 'warning' : 'success'}`}>
+                          {lote.sexo || '-'}
+                        </span>
+                      </div>
+                      <div className="lote-detail">
+                        <span>Pollos: {formatNumber(lote.cantidad)}</span>
+                        <span>Edad: {lote.edad_fin_retiro}</span>
+                      </div>
+                      <div className="lote-detail">
+                        <span>Peso: {lote.peso_vivo_retiro?.toFixed(2)} kg</span>
+                        <span style={{ color: `var(--${getEdadColor(lote.diferencia_edad_ideal)})` }}>
+                          Dif: {lote.diferencia_edad_ideal > 0 ? '+' : ''}{lote.diferencia_edad_ideal}
+                        </span>
+                      </div>
+                      <div className="lote-detail">
+                        <span>Faenado: {lote.peso_faenado?.toFixed(2)}</span>
+                        <span>Cajas: {formatNumber(lote.cajas)}</span>
+                      </div>
+                      <div className="lote-actions">
+                        <button
+                          className="btn btn-sm btn-outline"
+                          onClick={() => setMovingLote({ diaIdx, loteIdx, lote })}
+                        >
+                          <ArrowLeftRight size={12} style={{ marginRight: 2 }} /> Mover
+                        </button>
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={() => handleDelete(diaIdx, loteIdx)}
+                        >
+                          <X size={12} style={{ marginRight: 2 }} /> Eliminar
+                        </button>
+                      </div>
+                    </motion.div>
+                  ))
+                )}
+              </div>
+              <div className="day-summary">
+                <span className="label">Peso prom.</span>
+                <span className="value">{dia.peso_promedio_ponderado?.toFixed(2)} kg</span>
+                <span className="label">Dif. edad prom.</span>
+                <span className="value" style={{ color: `var(--${getEdadColor(dia.diferencia_edad_promedio)})` }}>
+                  {dia.diferencia_edad_promedio?.toFixed(1)}
+                </span>
+                <span className="label">Cajas</span>
+                <span className="value">{formatNumber(dia.cajas_totales)}</span>
+              </div>
+            </div>
+          ))}
+        </motion.div>
+      )}
+
+      {/* Vista Tabla */}
+      {viewMode === 'table' && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="card"
+        >
+          <div className="card-body">
+            <div className="table-container" style={{ maxHeight: '600px', overflowY: 'auto' }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Día</th>
+                    <th>Fecha</th>
+                    <th>Granja</th>
+                    <th>Galpón</th>
+                    <th>Núcleo</th>
+                    <th className="text-right">Cantidad</th>
+                    <th>Sexo</th>
+                    <th className="text-right">Edad Fin</th>
+                    <th className="text-right">Dif. Edad</th>
+                    <th className="text-right">Peso Vivo</th>
+                    <th className="text-right">Peso Faenado</th>
+                    <th className="text-right">Calibre</th>
+                    <th className="text-right">Cajas</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dias.map((dia, diaIdx) => (
+                    <React.Fragment key={`day-${diaIdx}`}>
+                      {dia.lotes.map((lote, loteIdx) => (
+                        <tr key={`${diaIdx}-${loteIdx}`}>
+                          {loteIdx === 0 && (
+                            <td rowSpan={dia.lotes.length + 1} style={{ verticalAlign: 'top', fontWeight: 600 }}>
+                              {DIAS_SEMANA[diaIdx]}
+                            </td>
+                          )}
+                          <td>{formatDate(dia.fecha)}</td>
+                          <td><strong>{lote.granja}</strong></td>
+                          <td className="text-center">{lote.galpon}</td>
+                          <td className="text-center">{lote.nucleo}</td>
+                          <td className="text-right">{formatNumber(lote.cantidad)}</td>
+                          <td className="text-center">
+                            <span className={`badge badge-${lote.sexo === 'M' ? 'info' : lote.sexo === 'H' ? 'warning' : 'success'}`}>
+                              {lote.sexo || '-'}
+                            </span>
+                          </td>
+                          <td className="text-right">{lote.edad_fin_retiro}</td>
+                          <td className="text-right" style={{ color: `var(--${getEdadColor(lote.diferencia_edad_ideal)})` }}>
+                            {lote.diferencia_edad_ideal > 0 ? '+' : ''}{lote.diferencia_edad_ideal}
+                          </td>
+                          <td className="text-right">{lote.peso_vivo_retiro?.toFixed(2)}</td>
+                          <td className="text-right">{lote.peso_faenado?.toFixed(2)}</td>
+                          <td className="text-right">{lote.calibre_promedio?.toFixed(2)}</td>
+                          <td className="text-right">{formatNumber(lote.cajas)}</td>
+                          <td>
+                            <button className="btn btn-sm btn-danger" onClick={() => handleDelete(diaIdx, loteIdx)}>✕</button>
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="row-subtotal" key={`sub-${diaIdx}`}>
+                        <td colSpan={4}><strong>Subtotal {DIAS_SEMANA[diaIdx]}</strong></td>
+                        <td className="text-right"><strong>{formatNumber(dia.total_pollos)}</strong></td>
+                        <td></td>
+                        <td></td>
+                        <td className="text-right" style={{ color: `var(--${getEdadColor(dia.diferencia_edad_promedio)})` }}>
+                          {dia.diferencia_edad_promedio?.toFixed(1)}
+                        </td>
+                        <td className="text-right">{dia.peso_promedio_ponderado?.toFixed(2)}</td>
+                        <td></td>
+                        <td className="text-right">{dia.calibre_promedio_ponderado?.toFixed(2)}</td>
+                        <td className="text-right">{formatNumber(dia.cajas_totales)}</td>
+                        <td></td>
+                      </tr>
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </motion.div>
+  )
+}

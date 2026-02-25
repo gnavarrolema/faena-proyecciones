@@ -1,0 +1,32 @@
+# Git
+.git
+.gitignore
+.github
+
+# Desarrollo local
+local_storage/
+.venv/
+venv/
+__pycache__/
+
+# Frontend node_modules (no se necesita en backend image)
+frontend/node_modules/
+
+# IDE
+.vscode/
+.idea/
+
+# Docs
+*.md
+prompt_vibe_coding.md
+Anexos/
+
+# Env files
+.env
+.env.example
+
+# Docker
+docker-compose.yml
+docker-compose.override.yml
+Dockerfile.frontend
+Dockerfile.backend
