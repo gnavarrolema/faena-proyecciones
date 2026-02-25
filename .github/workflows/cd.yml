@@ -63,7 +63,6 @@ jobs:
             --set-env-vars "SECRET_KEY=${{ secrets.SECRET_KEY }}" \
             --set-env-vars "ADMIN_USERNAME=${{ secrets.ADMIN_USERNAME }}" \
             --set-env-vars "ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}" \
-            --set-env-vars "PORT=8080" \
             --set-env-vars "CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}"
 
   deploy-frontend:
