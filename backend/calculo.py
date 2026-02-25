@@ -81,6 +81,17 @@ class DiaFaena(BaseModel):
     cajas_totales: float = 0.0
 
 
+class LoteNoAsignado(BaseModel):
+    """Eligible lot that could not be assigned due to capacity constraints."""
+    granja: str
+    galpon: int
+    nucleo: int
+    cantidad: int
+    sexo: str
+    dias_elegibles: List[date] = []
+    motivo: str
+
+
 class SemanaFaena(BaseModel):
     """Agrupación de días para una semana de faena."""
     fecha_inicio: date  # lunes
@@ -90,6 +101,8 @@ class SemanaFaena(BaseModel):
     promedio_edad_semana: float = 0.0
     produccion_cajas_semanales: float = 0.0
     sofia: int = 0
+    lotes_no_asignados: List[LoteNoAsignado] = []
+    total_pollos_no_asignados: int = 0
 
 
 # ─── Funciones de cálculo ───────────────────────────────────────────────────────
@@ -329,7 +342,8 @@ def calcular_dia_faena(fecha: date, lotes: List[LoteProyectado]) -> DiaFaena:
 def calcular_semana_faena(
     fecha_inicio: date,
     dias: List[DiaFaena],
-    params: Parametros
+    params: Parametros,
+    lotes_no_asignados: Optional[List[LoteNoAsignado]] = None,
 ) -> SemanaFaena:
     """Calcula los agregados de una semana de faena."""
     fecha_fin = fecha_inicio + timedelta(days=5)  # lunes a sábado
@@ -345,7 +359,11 @@ def calcular_semana_faena(
     cal_pond = calibre_promedio_ponderado(todos_lotes)
     cajas_sem = cajas_semanales(total, cal_pond)
 
+    # descuento_sofia is applied only in the final weekly summary (not in assignment)
     sofia = total - params.descuento_sofia
+
+    no_asignados = lotes_no_asignados or []
+    total_no_asignados = sum(l.cantidad for l in no_asignados)
 
     return SemanaFaena(
         fecha_inicio=fecha_inicio,
@@ -355,6 +373,8 @@ def calcular_semana_faena(
         promedio_edad_semana=prom_edad,
         produccion_cajas_semanales=cajas_sem,
         sofia=sofia,
+        lotes_no_asignados=no_asignados,
+        total_pollos_no_asignados=total_no_asignados,
     )
 
 
@@ -453,6 +473,7 @@ def generar_proyeccion(
         params.pollos_diarios_objetivo_min,
         min(pollos_por_dia, params.pollos_diarios_objetivo_max),
     )
+    objetivo_max = params.pollos_diarios_objetivo_max
 
     fechas_dias = [
         fecha_inicio_semana + timedelta(days=i) for i in range(dias_faena)
@@ -475,12 +496,17 @@ def generar_proyeccion(
     asignaciones: dict[int, list[int]] = {d: [] for d in range(dias_faena)}
     pollos_dia: dict[int, int] = {d: 0 for d in range(dias_faena)}
     asignados: set[int] = set()
+    no_asignados: dict[int, str] = {}
 
     def _asignar(lote_idx: int, dia_idx: int):
         """Asigna un lote a un día y actualiza estructuras."""
         asignaciones[dia_idx].append(lote_idx)
         pollos_dia[dia_idx] += ofertas[lote_idx].cantidad
         asignados.add(lote_idx)
+
+    def _puede_asignarse(lote_idx: int, dia_idx: int) -> bool:
+        """Checks hard daily maximum capacity."""
+        return pollos_dia[dia_idx] + ofertas[lote_idx].cantidad <= objetivo_max
 
     # ── Fase 2: Propagación de restricciones ────────────────────────────────
     cambio = True
@@ -489,27 +515,43 @@ def generar_proyeccion(
 
         # 2a: Lotes elegibles en un solo día → asignación forzada
         for i in list(elegibilidad.keys()):
-            if i in asignados:
+            if i in asignados or i in no_asignados:
                 continue
             dias_eleg = [d for d, _, _ in elegibilidad[i]]
             if len(dias_eleg) == 1:
-                _asignar(i, dias_eleg[0])
-                cambio = True
+                dia_unico = dias_eleg[0]
+                if _puede_asignarse(i, dia_unico):
+                    _asignar(i, dia_unico)
+                    cambio = True
+                else:
+                    no_asignados[i] = (
+                        f"Lote con único día elegible ({fechas_dias[dia_unico].isoformat()}) "
+                        f"excede tope diario máximo de {objetivo_max}"
+                    )
+                    cambio = True
 
         # 2b: Días con un solo lote elegible no asignado → reservar
         for d_idx in range(dias_faena):
             candidatos_dia = [
                 i for i, dias_eleg in elegibilidad.items()
                 if i not in asignados
+                and i not in no_asignados
                 and any(d == d_idx for d, _, _ in dias_eleg)
             ]
             if len(candidatos_dia) == 1:
-                _asignar(candidatos_dia[0], d_idx)
+                lote_idx = candidatos_dia[0]
+                if _puede_asignarse(lote_idx, d_idx):
+                    _asignar(lote_idx, d_idx)
+                else:
+                    no_asignados[lote_idx] = (
+                        f"Único candidato para {fechas_dias[d_idx].isoformat()} "
+                        f"excede tope diario máximo de {objetivo_max}"
+                    )
                 cambio = True
 
     # ── Fase 3: Asignación flexible (lotes restantes, bajo objetivo) ───────
     restantes = [
-        i for i in elegibilidad if i not in asignados
+        i for i in elegibilidad if i not in asignados and i not in no_asignados
     ]
     # Ordenar por peso descendente (faenar los más pesados primero)
     restantes_con_peso = []
@@ -528,6 +570,8 @@ def generar_proyeccion(
         mayor_deficit = -1
 
         for d_idx, peso_proy, edad_fin in dias_eleg:
+            if not _puede_asignarse(i, d_idx):
+                continue
             deficit = objetivo_preferido - pollos_dia[d_idx]
             if deficit > 0 and deficit > mayor_deficit:
                 mayor_deficit = deficit
@@ -538,10 +582,7 @@ def generar_proyeccion(
         else:
             pendientes.append(i)
 
-    # ── Fase 4: Excedentes → día menos cargado (sin tope) ─────────────────
-    # No aplicar tope: es preferible faenar un lote elegible en un día con
-    # algo de exceso que perder la producción.  El usuario puede ajustar
-    # manualmente después si lo necesita.
+    # ── Fase 4: Excedentes → día menos cargado (con tope duro) ─────────────
     for i in pendientes:
         dias_eleg = elegibilidad[i]
 
@@ -550,12 +591,16 @@ def generar_proyeccion(
 
         for d_idx, peso_proy, edad_fin in dias_eleg:
             pollos_actuales = pollos_dia[d_idx]
-            if pollos_actuales < mejor_pollos:
+            if _puede_asignarse(i, d_idx) and pollos_actuales < mejor_pollos:
                 mejor_pollos = pollos_actuales
                 mejor_dia = d_idx
 
         if mejor_dia is not None:
             _asignar(i, mejor_dia)
+        else:
+            no_asignados[i] = (
+                f"Excede tope diario máximo de {objetivo_max} en todos los días elegibles"
+            )
 
     # ── Construir DiaFaena con lotes proyectados ────────────────────────────
     dias_resultado: List[DiaFaena] = []
@@ -582,5 +627,26 @@ def generar_proyeccion(
         dia_faena_obj = calcular_dia_faena(fecha_dia, lotes_dia)
         dias_resultado.append(dia_faena_obj)
 
-    semana = calcular_semana_faena(fecha_inicio_semana, dias_resultado, params)
+    lotes_no_asignados_resultado: List[LoteNoAsignado] = []
+    for i, motivo in no_asignados.items():
+        oferta = ofertas[i]
+        dias = [fechas_dias[d] for d, _, _ in elegibilidad.get(i, [])]
+        lotes_no_asignados_resultado.append(
+            LoteNoAsignado(
+                granja=oferta.granja,
+                galpon=oferta.galpon,
+                nucleo=oferta.nucleo,
+                cantidad=oferta.cantidad,
+                sexo=oferta.sexo,
+                dias_elegibles=dias,
+                motivo=motivo,
+            )
+        )
+
+    semana = calcular_semana_faena(
+        fecha_inicio_semana,
+        dias_resultado,
+        params,
+        lotes_no_asignados=lotes_no_asignados_resultado,
+    )
     return semana

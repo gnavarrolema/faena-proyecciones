@@ -17,6 +17,15 @@ function formatDate(d) {
   return dt.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
+function formatDiasElegibles(dias) {
+  if (!dias || dias.length === 0) return '-'
+  return dias.map((dia) => {
+    const fecha = new Date(dia + 'T12:00:00')
+    const idx = (fecha.getDay() + 6) % 7
+    return DIAS_SEMANA[idx] || dia
+  }).join(', ')
+}
+
 function getEdadColor(dif) {
   if (Math.abs(dif) <= 1) return 'green'
   if (Math.abs(dif) <= 3) return 'orange'
@@ -88,6 +97,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
   }
 
   const { dias } = proyeccion
+  const lotesNoAsignados = proyeccion.lotes_no_asignados || []
 
   return (
     <motion.div
@@ -114,6 +124,45 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
           <div className="stat-value">{formatNumber(proyeccion.sofia)}</div>
         </div>
       </motion.div>
+
+      {lotesNoAsignados.length > 0 && (
+        <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid var(--warning)' }}>
+          <div className="card-header">
+            <h2><PackageOpen size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Lotes no asignados por tope diario</h2>
+          </div>
+          <div className="card-body">
+            <p style={{ marginBottom: '0.8rem', fontSize: '0.9rem', color: 'var(--text-light)' }}>
+              {lotesNoAsignados.length} lotes no asignados ({formatNumber(proyeccion.total_pollos_no_asignados || 0)} pollos). Revise estos lotes para decidir ajuste manual o cambio de parámetros.
+            </p>
+            <div className="table-container" style={{ maxHeight: '260px', overflowY: 'auto' }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Granja</th>
+                    <th>Galpón</th>
+                    <th>Núcleo</th>
+                    <th className="text-right">Cantidad</th>
+                    <th>Días elegibles</th>
+                    <th>Motivo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lotesNoAsignados.map((lote, idx) => (
+                    <tr key={`no-asignado-${idx}`}>
+                      <td><strong>{lote.granja}</strong></td>
+                      <td className="text-center">{lote.galpon}</td>
+                      <td className="text-center">{lote.nucleo}</td>
+                      <td className="text-right">{formatNumber(lote.cantidad)}</td>
+                      <td>{formatDiasElegibles(lote.dias_elegibles)}</td>
+                      <td style={{ color: 'var(--warning)' }}>{lote.motivo}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Toggle vista */}
       <motion.div variants={itemVariants} className="tabs">
