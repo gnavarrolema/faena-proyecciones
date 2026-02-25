@@ -1,5 +1,5 @@
 import jsPDF from 'jspdf'
-import 'jspdf-autotable'
+import autoTable from 'jspdf-autotable'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
 
@@ -133,7 +133,7 @@ export function exportOfertaPDF(oferta) {
     .sort((a, b) => b[1].pollos - a[1].pollos)
     .map(([nombre, info]) => [nombre, info.lotes, formatNumber(info.pollos)])
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     head: [['Granja', 'Lotes', 'Pollos']],
     body: farmRows,
@@ -173,7 +173,7 @@ export function exportOfertaPDF(oferta) {
     o.fecha_ingreso || '-',
   ])
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     head: [['#', 'Fecha Peso', 'Granja', 'Galpón', 'Núcleo', 'Cantidad', 'Sexo', 'Edad Proy.', 'Peso Proy.', 'Ganancia', 'Días Proy.', 'Edad Real', 'Peso Real', 'F. Ingreso']],
     body: ofertaRows,
@@ -255,7 +255,7 @@ export function exportProyeccionPDF(proyeccion) {
     })
   })
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     head: [['Día', 'Fecha', 'Granja', 'Galpón', 'Núcleo', 'Cantidad', 'Sexo', 'Edad Fin', 'Dif. Edad', 'Peso Vivo', 'Peso Faen.', 'Calibre', 'Cajas']],
     body: bodyRows.map(r => r.content),
@@ -315,7 +315,7 @@ export function exportProyeccionPDF(proyeccion) {
       l.motivo || '-',
     ])
 
-    doc.autoTable({
+    autoTable(doc, {
       startY: y,
       head: [['Granja', 'Galpón', 'Núcleo', 'Cantidad', 'Días Elegibles', 'Motivo']],
       body: naRows,
@@ -415,7 +415,7 @@ export function exportResumenPDF(proyeccion) {
     formatNumber(proyeccion.produccion_cajas_semanales),
   ]
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     head: [['Día', 'Fecha', 'Pollos', 'Lotes', 'Peso Prom.', 'Dif. Edad', 'Calibre', 'Cajas']],
     body: [...dailyRows, totalRow],
@@ -481,7 +481,7 @@ export function exportResumenPDF(proyeccion) {
     farmColStyles[i] = { halign: 'right' }
   }
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     head: [farmHeaders],
     body: [...farmBody, farmTotalRow],
@@ -565,7 +565,7 @@ export function exportParametrosPDF(params) {
     const tableWidth = Math.min(pageWidth - 40, 160)
     const marginLeft = (pageWidth - tableWidth) / 2
 
-    doc.autoTable({
+    autoTable(doc, {
       startY: y,
       head: [['Parámetro', 'Valor']],
       body: section.items.map(([label, value]) => [label, value ?? '-']),
