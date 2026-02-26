@@ -62,8 +62,7 @@ jobs:
             --set-env-vars "GCS_PREFIX=data/" \
             --set-env-vars "SECRET_KEY=${{ secrets.SECRET_KEY }}" \
             --set-env-vars "ADMIN_USERNAME=${{ secrets.ADMIN_USERNAME }}" \
-            --set-env-vars "ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}" \
-            --set-env-vars "CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}"
+            --set-env-vars "ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}"
 
   deploy-frontend:
     runs-on: ubuntu-latest
@@ -116,3 +115,13 @@ jobs:
             --cpu 1 \
             --min-instances 0 \
             --max-instances 2
+
+      - name: Update backend CORS_ORIGINS with real frontend URL
+        run: |
+          FRONTEND_URL=$(gcloud run services describe ${{ env.FRONTEND_SERVICE }} \
+            --region ${{ env.REGION }} \
+            --format 'value(status.url)')
+          echo "Frontend URL: $FRONTEND_URL"
+          gcloud run services update ${{ env.BACKEND_SERVICE }} \
+            --region ${{ env.REGION }} \
+            --update-env-vars "CORS_ORIGINS=$FRONTEND_URL"
