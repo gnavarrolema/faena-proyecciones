@@ -279,6 +279,23 @@ def delete_ofertas() -> None:
     get_storage().delete(OFERTAS_KEY)
 
 
+# ─── Ofertas Martes (ajuste semanal) ─────────────────────────────────────────
+
+OFERTAS_MARTES_KEY = "ofertas_martes"
+
+
+def save_ofertas_martes(ofertas_data: list[dict]) -> None:
+    get_storage().save(OFERTAS_MARTES_KEY, ofertas_data)
+
+
+def load_ofertas_martes() -> Optional[list[dict]]:
+    return get_storage().load(OFERTAS_MARTES_KEY)
+
+
+def delete_ofertas_martes() -> None:
+    get_storage().delete(OFERTAS_MARTES_KEY)
+
+
 def save_upload(filename: str, content: bytes) -> str:
     """Guarda un archivo Excel subido. Retorna la key usada."""
     from datetime import datetime

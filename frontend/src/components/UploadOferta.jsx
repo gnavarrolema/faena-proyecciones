@@ -42,13 +42,18 @@ export default function UploadOferta({ onUpload }) {
     >
       <div className="card">
         <div className="card-header">
-          <h2><FolderUp size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Cargar Oferta de Granjas</h2>
+          <h2><FolderUp size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Cargar Oferta de Granjas (Jueves)</h2>
         </div>
         <div className="card-body">
           <p style={{ marginBottom: '1rem', color: 'var(--text-light)', fontSize: '0.9rem' }}>
-            Suba el archivo Excel con la oferta de granjas (formato OFERTA JUEV).
-            El sistema detectará automáticamente la pestaña de oferta y parseará los datos.
+            Suba el archivo Excel con la <strong>oferta del jueves</strong> de granjas (formato OFERTA JUEV).
+            Esta es la oferta base para armar la programación de faena de la próxima semana.
+            Luego podrá ajustarla con la <strong>oferta del martes</strong> desde la pestaña Proyección.
           </p>
+          <div style={{ marginBottom: '1rem', padding: '0.6rem 0.9rem', background: 'var(--info-light, #e0f2fe)', borderRadius: 8, fontSize: '0.85rem', color: 'var(--info, #0284c7)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlertCircle size={16} />
+            <span><strong>Flujo:</strong> Jueves → cargar oferta y generar proyección → Martes → ajustar con nueva oferta para mayor precisión.</span>
+          </div>
 
           <div
             className={`upload-zone ${dragging ? 'dragging' : ''}`}

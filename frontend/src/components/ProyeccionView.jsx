@@ -1,8 +1,8 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download } from 'lucide-react'
+import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { eliminarLote, moverLote } from '../services/api'
+import { eliminarLote, moverLote, uploadAjusteMartes } from '../services/api'
 import { exportProyeccionPDF } from '../utils/pdfExport'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
@@ -50,6 +50,11 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
   const [viewMode, setViewMode] = useState('cards') // 'cards' | 'table'
   const [movingLote, setMovingLote] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [ajusteFile, setAjusteFile] = useState(null)
+  const [ajusteLoading, setAjusteLoading] = useState(false)
+  const [ajusteResumen, setAjusteResumen] = useState(null)
+  const [ajusteOpen, setAjusteOpen] = useState(false)
+  const ajusteInputRef = React.useRef(null)
 
   if (!proyeccion || !proyeccion.dias) {
     return (
@@ -97,6 +102,30 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
     }
   }
 
+  const handleAjusteMartes = async () => {
+    if (!ajusteFile) return
+    setAjusteLoading(true)
+    try {
+      const data = await uploadAjusteMartes(ajusteFile)
+      setProyeccion(data.proyeccion)
+      setAjusteResumen(data.resumen_ajuste)
+      setAjusteFile(null)
+      toast.success('Proyección ajustada con oferta del martes')
+    } catch (err) {
+      toast.error('Error al ajustar: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setAjusteLoading(false)
+    }
+  }
+
+  const handleAjusteFile = (f) => {
+    if (f && (f.name.endsWith('.xlsx') || f.name.endsWith('.xls'))) {
+      setAjusteFile(f)
+    } else {
+      toast.error('Solo se aceptan archivos .xlsx o .xls')
+    }
+  }
+
   const { dias } = proyeccion
   const lotesNoAsignados = proyeccion.lotes_no_asignados || []
 
@@ -124,6 +153,151 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
           <div className="stat-label">Sofía (Total - 10.000)</div>
           <div className="stat-value">{formatNumber(proyeccion.sofia)}</div>
         </div>
+      </motion.div>
+
+      {/* Ajuste con Oferta del Martes */}
+      <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid var(--info)' }}>
+        <div
+          className="card-header"
+          style={{ cursor: 'pointer', userSelect: 'none' }}
+          onClick={() => setAjusteOpen(!ajusteOpen)}
+        >
+          <h2><RefreshCw size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Ajustar con Oferta del Martes</h2>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
+            {ajusteOpen ? '▲ Cerrar' : '▼ Abrir'}
+          </span>
+        </div>
+        <AnimatePresence>
+          {ajusteOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              style={{ overflow: 'hidden' }}
+            >
+              <div className="card-body">
+                <p style={{ marginBottom: '1rem', fontSize: '0.9rem', color: 'var(--text-light)' }}>
+                  Suba la oferta del martes para actualizar los datos de peso, edad y ganancia de los lotes.
+                  Las asignaciones de día se mantienen.
+                </p>
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div
+                    style={{
+                      flex: 1,
+                      minWidth: 200,
+                      border: '1px dashed var(--border)',
+                      borderRadius: 8,
+                      padding: '0.75rem 1rem',
+                      cursor: 'pointer',
+                      background: ajusteFile ? 'var(--info-light)' : '#f8fafc',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontSize: '0.85rem',
+                      transition: 'all 0.2s',
+                    }}
+                    onClick={() => ajusteInputRef.current?.click()}
+                  >
+                    {ajusteFile ? (
+                      <><FileSpreadsheet size={16} color="var(--info)" /> {ajusteFile.name}</>
+                    ) : (
+                      <><UploadCloud size={16} color="var(--text-light)" /> Seleccionar archivo Excel...</>
+                    )}
+                    <input
+                      ref={ajusteInputRef}
+                      type="file"
+                      accept=".xlsx,.xls"
+                      style={{ display: 'none' }}
+                      onChange={(e) => handleAjusteFile(e.target.files[0])}
+                    />
+                  </div>
+                  <button
+                    className="btn btn-primary"
+                    disabled={!ajusteFile || ajusteLoading}
+                    onClick={handleAjusteMartes}
+                    style={{ whiteSpace: 'nowrap' }}
+                  >
+                    {ajusteLoading ? (
+                      <><span className="spinner" style={{ width: 14, height: 14, marginRight: 6 }}></span> Ajustando...</>
+                    ) : (
+                      <><RefreshCw size={14} /> Aplicar Ajuste</>
+                    )}
+                  </button>
+                  {ajusteFile && (
+                    <button className="btn btn-sm btn-outline" onClick={() => setAjusteFile(null)}>
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Resumen del ajuste */}
+                {ajusteResumen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    style={{ marginTop: '1rem', padding: '1rem', background: '#f8fafc', borderRadius: 8, border: '1px solid var(--border)' }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <strong style={{ fontSize: '0.9rem' }}>Resultado del ajuste</strong>
+                      <button className="btn btn-sm btn-outline" onClick={() => setAjusteResumen(null)}>
+                        <X size={12} />
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                      {ajusteResumen.lotes_actualizados > 0 && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem', color: 'var(--success)' }}>
+                          <CheckCircle2 size={14} /> {ajusteResumen.lotes_actualizados} lotes actualizados
+                        </span>
+                      )}
+                      {ajusteResumen.lotes_nuevos > 0 && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem', color: 'var(--info)' }}>
+                          <PlusCircle size={14} /> {ajusteResumen.lotes_nuevos} lotes nuevos (no asignados)
+                        </span>
+                      )}
+                      {ajusteResumen.lotes_faltantes > 0 && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem', color: 'var(--warning)' }}>
+                          <AlertTriangle size={14} /> {ajusteResumen.lotes_faltantes} lotes no encontrados en martes
+                        </span>
+                      )}
+                      {ajusteResumen.lotes_actualizados === 0 && ajusteResumen.lotes_nuevos === 0 && ajusteResumen.lotes_faltantes === 0 && (
+                        <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>Sin cambios detectados.</span>
+                      )}
+                    </div>
+
+                    {/* Detalle de actualizaciones */}
+                    {ajusteResumen.detalle_actualizados?.length > 0 && (
+                      <div style={{ marginBottom: '0.5rem' }}>
+                        <p style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: 4 }}>Cambios:</p>
+                        <div className="table-container" style={{ maxHeight: 180, overflowY: 'auto' }}>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Granja</th>
+                                <th>Galpón</th>
+                                <th>Día</th>
+                                <th>Cambios</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ajusteResumen.detalle_actualizados.map((d, i) => (
+                                <tr key={i}>
+                                  <td><strong>{d.granja}</strong></td>
+                                  <td className="text-center">{d.galpon}</td>
+                                  <td>{d.dia}</td>
+                                  <td style={{ fontSize: '0.8rem' }}>{d.cambios}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.div>
 
       {lotesNoAsignados.length > 0 && (

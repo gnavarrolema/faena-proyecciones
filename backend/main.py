@@ -24,6 +24,7 @@ from .auth import (
 
 from .calculo import (
     Parametros, LoteOferta, LoteProyectado, DiaFaena, SemanaFaena,
+    AjusteMartesResumen, aplicar_ajuste_martes,
     calcular_lote_proyectado, calcular_dia_faena, calcular_semana_faena,
     generar_proyeccion, ordenar_oferta_por_prioridad,
     calcular_edad_fin_retiro_v2, diferencia_edad_ideal,
@@ -224,8 +225,54 @@ def get_oferta(current_user: TokenData = Depends(get_current_user)):
 def clear_oferta(current_user: TokenData = Depends(get_current_user)):
     """Limpiar la oferta cargada."""
     storage.delete_ofertas()
+    storage.delete_ofertas_martes()
     storage.delete_proyeccion()
     return {"message": "Oferta limpiada"}
+
+
+@app.post("/oferta/ajuste-martes")
+async def upload_ajuste_martes(
+    file: UploadFile = File(...),
+    sheet_name: Optional[str] = None,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """
+    Subir oferta del martes para ajustar la proyección existente.
+    Matchea lotes por (granja, galpon, nucleo), actualiza datos y recalcula
+    preservando las asignaciones de día.
+    """
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        raise HTTPException(400, "El archivo debe ser .xlsx o .xls")
+
+    # Verificar que existe una proyección para ajustar
+    semana = _get_proyeccion()
+    if semana is None:
+        raise HTTPException(400, "No hay proyección existente para ajustar. Genere una primero desde la pestaña Oferta.")
+
+    content = await file.read()
+    try:
+        ofertas_martes = leer_oferta_excel(content, sheet_name)
+    except Exception as e:
+        raise HTTPException(400, f"Error al leer el archivo: {str(e)}")
+
+    if not ofertas_martes:
+        raise HTTPException(400, "El archivo no contiene lotes válidos.")
+
+    # Guardar oferta martes y archivo original
+    storage.save_ofertas_martes([o.model_dump() for o in ofertas_martes])
+    storage.save_upload(file.filename, content)
+
+    # Aplicar ajuste
+    params = _get_parametros()
+    resultado, resumen = aplicar_ajuste_martes(ofertas_martes, semana, params)
+
+    # Guardar proyección actualizada
+    storage.save_proyeccion(resultado.model_dump())
+
+    return {
+        "proyeccion": resultado.model_dump(),
+        "resumen_ajuste": resumen.model_dump(),
+    }
 
 
 @app.post("/proyeccion/generar")

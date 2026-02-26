@@ -64,6 +64,15 @@ export const uploadOferta = (file, sheetName) => {
 export const getOferta = () => api.get('/oferta').then(r => r.data);
 export const clearOferta = () => api.delete('/oferta').then(r => r.data);
 
+export const uploadAjusteMartes = (file, sheetName) => {
+  const form = new FormData();
+  form.append('file', file);
+  if (sheetName) form.append('sheet_name', sheetName);
+  return api.post('/oferta/ajuste-martes', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+
 // ─── Proyección ────────────────────────────────────────────────────────────────
 
 export const generarProyeccion = (params) =>

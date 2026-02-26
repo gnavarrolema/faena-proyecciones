@@ -105,6 +105,16 @@ class SemanaFaena(BaseModel):
     total_pollos_no_asignados: int = 0
 
 
+class AjusteMartesResumen(BaseModel):
+    """Resumen de cambios al aplicar la oferta del martes."""
+    lotes_actualizados: int = 0
+    lotes_nuevos: int = 0
+    lotes_faltantes: int = 0
+    detalle_actualizados: List[dict] = []
+    detalle_nuevos: List[dict] = []
+    detalle_faltantes: List[dict] = []
+
+
 # ─── Funciones de cálculo ───────────────────────────────────────────────────────
 
 def calcular_edad_fin_retiro(
@@ -650,3 +660,153 @@ def generar_proyeccion(
         lotes_no_asignados=lotes_no_asignados_resultado,
     )
     return semana
+
+
+# ─── Ajuste con oferta del martes ──────────────────────────────────────────────
+
+def aplicar_ajuste_martes(
+    ofertas_martes: List[LoteOferta],
+    semana: SemanaFaena,
+    params: Optional[Parametros] = None,
+) -> tuple:
+    """
+    Aplica la oferta del martes a una proyección existente.
+
+    Matchea lotes por (granja, galpon, nucleo):
+    - Lotes matcheados: actualiza datos y recalcula en el MISMO día asignado.
+    - Lotes nuevos (en martes pero no en proyección): van a lotes_no_asignados.
+    - Lotes faltantes (en proyección pero no en martes): se marcan en el resumen.
+
+    Retorna (SemanaFaena actualizada, AjusteMartesResumen).
+    """
+    if params is None:
+        params = Parametros()
+
+    # 1. Indexar oferta martes por clave compuesta
+    martes_index: dict[tuple, LoteOferta] = {}
+    for o in ofertas_martes:
+        key = (o.granja, o.galpon, o.nucleo)
+        martes_index[key] = o  # Si hay duplicados, toma el último
+
+    matched_keys: set[tuple] = set()
+    resumen = AjusteMartesResumen()
+
+    DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+
+    # 2. Recorrer cada día y cada lote de la proyección
+    for dia_idx, dia in enumerate(semana.dias):
+        nuevos_lotes: List[LoteProyectado] = []
+
+        for lote in dia.lotes:
+            key = (lote.granja, lote.galpon, lote.nucleo)
+
+            if key in martes_index:
+                oferta_martes = martes_index[key]
+                matched_keys.add(key)
+
+                # Guardar valores previos para el diff
+                peso_antes = lote.peso_vivo_retiro
+                edad_antes = lote.edad_fin_retiro
+                cantidad_antes = lote.cantidad
+
+                # Recalcular con datos del martes en el MISMO día
+                nuevo_lote = calcular_lote_proyectado(
+                    oferta_martes, lote.fecha_fin_retiro, params
+                )
+                nuevos_lotes.append(nuevo_lote)
+
+                # Registrar cambios
+                cambios = []
+                if abs(nuevo_lote.peso_vivo_retiro - peso_antes) > 0.001:
+                    cambios.append(f"Peso: {peso_antes:.2f} → {nuevo_lote.peso_vivo_retiro:.2f}")
+                if nuevo_lote.edad_fin_retiro != edad_antes:
+                    cambios.append(f"Edad: {edad_antes} → {nuevo_lote.edad_fin_retiro}")
+                if nuevo_lote.cantidad != cantidad_antes:
+                    cambios.append(f"Cantidad: {cantidad_antes} → {nuevo_lote.cantidad}")
+
+                if cambios:
+                    resumen.lotes_actualizados += 1
+                    resumen.detalle_actualizados.append({
+                        "granja": lote.granja,
+                        "galpon": lote.galpon,
+                        "nucleo": lote.nucleo,
+                        "dia": DIAS_SEMANA[dia_idx] if dia_idx < len(DIAS_SEMANA) else str(dia_idx),
+                        "cambios": ", ".join(cambios),
+                    })
+                else:
+                    # Match sin cambios, mantener igual
+                    nuevos_lotes.append(nuevo_lote)
+            else:
+                # Lote en proyección no está en oferta martes → faltante
+                resumen.lotes_faltantes += 1
+                resumen.detalle_faltantes.append({
+                    "granja": lote.granja,
+                    "galpon": lote.galpon,
+                    "nucleo": lote.nucleo,
+                    "cantidad": lote.cantidad,
+                    "sexo": lote.sexo,
+                    "dia": DIAS_SEMANA[dia_idx] if dia_idx < len(DIAS_SEMANA) else str(dia_idx),
+                })
+                # Mantener el lote como está (no se elimina automáticamente)
+                nuevos_lotes.append(lote)
+
+        dia.lotes = nuevos_lotes
+
+    # 3. Lotes nuevos del martes que no están en la proyección
+    lotes_no_asignados_nuevos: List[LoteNoAsignado] = []
+
+    for key, oferta in martes_index.items():
+        if key not in matched_keys:
+            resumen.lotes_nuevos += 1
+            resumen.detalle_nuevos.append({
+                "granja": oferta.granja,
+                "galpon": oferta.galpon,
+                "nucleo": oferta.nucleo,
+                "cantidad": oferta.cantidad,
+                "sexo": oferta.sexo,
+            })
+            lotes_no_asignados_nuevos.append(
+                LoteNoAsignado(
+                    granja=oferta.granja,
+                    galpon=oferta.galpon,
+                    nucleo=oferta.nucleo,
+                    cantidad=oferta.cantidad,
+                    sexo=oferta.sexo,
+                    dias_elegibles=[],
+                    motivo="Lote nuevo en oferta del martes",
+                )
+            )
+
+    # 4. Combinar lotes no asignados previos + nuevos
+    # Actualizar también los lotes_no_asignados previos si hay match en martes
+    lotes_no_asignados_previos: List[LoteNoAsignado] = []
+    for lna in semana.lotes_no_asignados:
+        key = (lna.granja, lna.galpon, lna.nucleo)
+        if key in martes_index:
+            oferta_martes = martes_index[key]
+            if key not in matched_keys:
+                matched_keys.add(key)
+                # Actualizar datos del lote no asignado
+                lna.cantidad = oferta_martes.cantidad
+                lna.sexo = oferta_martes.sexo
+                lna.motivo = f"{lna.motivo} (datos actualizados con oferta martes)"
+            lotes_no_asignados_previos.append(lna)
+        else:
+            lotes_no_asignados_previos.append(lna)
+
+    todos_no_asignados = lotes_no_asignados_previos + lotes_no_asignados_nuevos
+
+    # 5. Recalcular agregados de cada día y de la semana
+    dias_recalculados: List[DiaFaena] = []
+    for dia in semana.dias:
+        dia_recalc = calcular_dia_faena(dia.fecha, dia.lotes)
+        dias_recalculados.append(dia_recalc)
+
+    resultado = calcular_semana_faena(
+        semana.fecha_inicio,
+        dias_recalculados,
+        params,
+        lotes_no_asignados=todos_no_asignados,
+    )
+
+    return resultado, resumen

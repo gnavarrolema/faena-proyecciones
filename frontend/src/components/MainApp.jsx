@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FolderUp, List, KanbanSquare, TrendingUp, Settings2, Bird, LogOut } from 'lucide-react'
+import { FolderUp, List, KanbanSquare, TrendingUp, Settings2, Bird, LogOut, Loader2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { getOferta, getProyeccion } from '../services/api'
 import UploadOferta from './UploadOferta'
 import OfertaTable from './OfertaTable'
 import ProyeccionView from './ProyeccionView'
@@ -27,8 +28,41 @@ const MainApp = () => {
     const [activeTab, setActiveTab] = useState('upload')
     const [oferta, setOferta] = useState(null)
     const [proyeccion, setProyeccion] = useState(null)
+    const [initialLoading, setInitialLoading] = useState(true)
     const { logout } = useAuth();
     const navigate = useNavigate();
+
+    // Cargar datos persistidos del backend al iniciar
+    useEffect(() => {
+        const cargarDatos = async () => {
+            try {
+                const [ofertaData, proyeccionData] = await Promise.allSettled([
+                    getOferta(),
+                    getProyeccion(),
+                ]);
+
+                if (ofertaData.status === 'fulfilled' && ofertaData.value?.ofertas?.length > 0) {
+                    setOferta(ofertaData.value);
+                }
+                if (proyeccionData.status === 'fulfilled' && proyeccionData.value?.dias) {
+                    setProyeccion(proyeccionData.value);
+                }
+
+                // Navegar a la pestaña más relevante según los datos existentes
+                if (proyeccionData.status === 'fulfilled' && proyeccionData.value?.dias) {
+                    setActiveTab('proyeccion');
+                } else if (ofertaData.status === 'fulfilled' && ofertaData.value?.ofertas?.length > 0) {
+                    setActiveTab('oferta');
+                }
+            } catch (err) {
+                // Si falla (ej: no autenticado), simplemente empezar desde cero
+                console.warn('No se pudieron cargar datos previos:', err);
+            } finally {
+                setInitialLoading(false);
+            }
+        };
+        cargarDatos();
+    }, []);
 
     const handleLogout = () => {
         logout();
@@ -57,6 +91,12 @@ const MainApp = () => {
             </header>
 
             <main className="app-content">
+                {initialLoading ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem', gap: '1rem' }}>
+                        <Loader2 size={36} className="spin" style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
+                        <p style={{ color: 'var(--text-light)' }}>Cargando datos guardados...</p>
+                    </div>
+                ) : (
                 <AnimatePresence mode="wait">
                     <motion.div
                         key={activeTab}
@@ -101,6 +141,7 @@ const MainApp = () => {
                         )}
                     </motion.div>
                 </AnimatePresence>
+                )}
             </main>
         </>
     )
