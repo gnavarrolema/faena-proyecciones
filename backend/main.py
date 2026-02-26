@@ -358,8 +358,12 @@ def mover_lote(asignacion: AsignacionManual, current_user: TokenData = Depends(g
     semana.dias[asignacion.dia_origen] = calcular_dia_faena(dia_origen.fecha, dia_origen.lotes)
     semana.dias[asignacion.dia_destino] = calcular_dia_faena(dia_destino.fecha, dia_destino.lotes)
 
-    # Recalcular semana
-    resultado = calcular_semana_faena(semana.fecha_inicio, semana.dias, params)
+    # Recalcular semana (preservar lotes no asignados y fuera de rango)
+    resultado = calcular_semana_faena(
+        semana.fecha_inicio, semana.dias, params,
+        lotes_no_asignados=semana.lotes_no_asignados,
+        lotes_fuera_rango=semana.lotes_fuera_rango,
+    )
     storage.save_proyeccion(resultado.model_dump())
 
     return resultado.model_dump()
@@ -401,8 +405,12 @@ def agregar_lote(lote_req: LoteManualRequest, current_user: TokenData = Depends(
     dia = semana.dias[lote_req.dia_faena]
     semana.dias[lote_req.dia_faena] = calcular_dia_faena(dia.fecha, dia.lotes)
 
-    # Recalcular semana
-    resultado = calcular_semana_faena(semana.fecha_inicio, semana.dias, params)
+    # Recalcular semana (preservar lotes no asignados y fuera de rango)
+    resultado = calcular_semana_faena(
+        semana.fecha_inicio, semana.dias, params,
+        lotes_no_asignados=semana.lotes_no_asignados,
+        lotes_fuera_rango=semana.lotes_fuera_rango,
+    )
     storage.save_proyeccion(resultado.model_dump())
 
     return resultado.model_dump()
@@ -424,10 +432,14 @@ def eliminar_lote(dia_index: int, lote_index: int, current_user: TokenData = Dep
 
     dia.lotes.pop(lote_index)
 
-    # Recalcular
+    # Recalcular (preservar lotes no asignados y fuera de rango)
     semana.dias[dia_index] = calcular_dia_faena(dia.fecha, dia.lotes)
     params = _get_parametros()
-    resultado = calcular_semana_faena(semana.fecha_inicio, semana.dias, params)
+    resultado = calcular_semana_faena(
+        semana.fecha_inicio, semana.dias, params,
+        lotes_no_asignados=semana.lotes_no_asignados,
+        lotes_fuera_rango=semana.lotes_fuera_rango,
+    )
     storage.save_proyeccion(resultado.model_dump())
 
     return resultado.model_dump()

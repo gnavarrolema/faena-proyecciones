@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet } from 'lucide-react'
+import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { eliminarLote, moverLote, uploadAjusteMartes } from '../services/api'
 import { exportProyeccionPDF } from '../utils/pdfExport'
@@ -54,6 +54,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
   const [ajusteLoading, setAjusteLoading] = useState(false)
   const [ajusteResumen, setAjusteResumen] = useState(null)
   const [ajusteOpen, setAjusteOpen] = useState(false)
+  const [expandedFR, setExpandedFR] = useState(new Set())
   const ajusteInputRef = React.useRef(null)
 
   if (!proyeccion || !proyeccion.dias) {
@@ -128,6 +129,16 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
 
   const { dias } = proyeccion
   const lotesNoAsignados = proyeccion.lotes_no_asignados || []
+  const lotesFueraRango = proyeccion.lotes_fuera_rango || []
+
+  const toggleFR = (idx) => {
+    setExpandedFR(prev => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
+  }
 
   return (
     <motion.div
@@ -249,9 +260,19 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                           <CheckCircle2 size={14} /> {ajusteResumen.lotes_actualizados} lotes actualizados
                         </span>
                       )}
-                      {ajusteResumen.lotes_nuevos > 0 && (
+                      {ajusteResumen.lotes_nuevos_asignados > 0 && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem', color: 'var(--success)' }}>
+                          <CheckCircle2 size={14} /> {ajusteResumen.lotes_nuevos_asignados} lotes nuevos asignados
+                        </span>
+                      )}
+                      {(ajusteResumen.lotes_nuevos - (ajusteResumen.lotes_nuevos_asignados || 0) - (ajusteResumen.lotes_nuevos_fuera_rango || 0)) > 0 && (
                         <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem', color: 'var(--info)' }}>
-                          <PlusCircle size={14} /> {ajusteResumen.lotes_nuevos} lotes nuevos (no asignados)
+                          <PlusCircle size={14} /> {ajusteResumen.lotes_nuevos - (ajusteResumen.lotes_nuevos_asignados || 0) - (ajusteResumen.lotes_nuevos_fuera_rango || 0)} lotes nuevos sin capacidad
+                        </span>
+                      )}
+                      {ajusteResumen.lotes_nuevos_fuera_rango > 0 && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem', color: 'var(--danger, #ef4444)' }}>
+                          <Ban size={14} /> {ajusteResumen.lotes_nuevos_fuera_rango} lotes nuevos fuera de rango
                         </span>
                       )}
                       {ajusteResumen.lotes_faltantes > 0 && (
@@ -331,6 +352,84 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                       <td>{formatDiasElegibles(lote.dias_elegibles)}</td>
                       <td style={{ color: 'var(--warning)' }}>{lote.motivo}</td>
                     </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {lotesFueraRango.length > 0 && (
+        <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid var(--danger, #ef4444)' }}>
+          <div className="card-header">
+            <h2><Ban size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Lotes fuera de rango (edad/peso)</h2>
+          </div>
+          <div className="card-body">
+            <p style={{ marginBottom: '0.8rem', fontSize: '0.9rem', color: 'var(--text-light)' }}>
+              {lotesFueraRango.length} lotes fuera de rango ({formatNumber(proyeccion.total_pollos_fuera_rango || 0)} pollos).
+              No cumplen los requisitos de edad o peso para ningún día de faena.
+            </p>
+            <div className="table-container" style={{ maxHeight: '360px', overflowY: 'auto' }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width: 28 }}></th>
+                    <th>Granja</th>
+                    <th>Galpón</th>
+                    <th>Núcleo</th>
+                    <th className="text-right">Cantidad</th>
+                    <th>Sexo</th>
+                    <th>Motivo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lotesFueraRango.map((lote, idx) => (
+                    <React.Fragment key={`fr-${idx}`}>
+                      <tr
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => toggleFR(idx)}
+                      >
+                        <td style={{ padding: '0.3rem 0.4rem' }}>
+                          {expandedFR.has(idx)
+                            ? <ChevronDown size={14} />
+                            : <ChevronRight size={14} />
+                          }
+                        </td>
+                        <td><strong>{lote.granja}</strong></td>
+                        <td className="text-center">{lote.galpon}</td>
+                        <td className="text-center">{lote.nucleo}</td>
+                        <td className="text-right">{formatNumber(lote.cantidad)}</td>
+                        <td className="text-center">{lote.sexo || '-'}</td>
+                        <td style={{ color: 'var(--danger, #ef4444)', fontSize: '0.85rem' }}>{lote.motivo}</td>
+                      </tr>
+                      {expandedFR.has(idx) && lote.detalle_por_dia?.length > 0 && (
+                        <tr>
+                          <td colSpan={7} style={{ padding: '0 0.5rem 0.5rem 2rem', background: '#fef2f2' }}>
+                            <table style={{ width: '100%', fontSize: '0.8rem' }}>
+                              <thead>
+                                <tr>
+                                  <th>Día</th>
+                                  <th className="text-right">Edad Proy.</th>
+                                  <th className="text-right">Peso Proy.</th>
+                                  <th>Razón</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {lote.detalle_por_dia.map((d, dIdx) => (
+                                  <tr key={dIdx}>
+                                    <td>{formatDate(d.fecha)}</td>
+                                    <td className="text-right">{d.edad_proyectada}</td>
+                                    <td className="text-right">{d.peso_proyectado?.toFixed(2)}</td>
+                                    <td style={{ color: 'var(--danger, #ef4444)' }}>{d.razon}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>

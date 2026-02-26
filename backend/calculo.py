@@ -92,6 +92,17 @@ class LoteNoAsignado(BaseModel):
     motivo: str
 
 
+class LoteFueraRango(BaseModel):
+    """Lote que no pasó el filtro de elegibilidad (edad/peso) para ningún día."""
+    granja: str
+    galpon: int
+    nucleo: int
+    cantidad: int
+    sexo: str
+    motivo: str
+    detalle_por_dia: List[dict] = []
+
+
 class SemanaFaena(BaseModel):
     """Agrupación de días para una semana de faena."""
     fecha_inicio: date  # lunes
@@ -103,15 +114,20 @@ class SemanaFaena(BaseModel):
     sofia: int = 0
     lotes_no_asignados: List[LoteNoAsignado] = []
     total_pollos_no_asignados: int = 0
+    lotes_fuera_rango: List[LoteFueraRango] = []
+    total_pollos_fuera_rango: int = 0
 
 
 class AjusteMartesResumen(BaseModel):
     """Resumen de cambios al aplicar la oferta del martes."""
     lotes_actualizados: int = 0
     lotes_nuevos: int = 0
+    lotes_nuevos_asignados: int = 0
+    lotes_nuevos_fuera_rango: int = 0
     lotes_faltantes: int = 0
     detalle_actualizados: List[dict] = []
     detalle_nuevos: List[dict] = []
+    detalle_nuevos_asignados: List[dict] = []
     detalle_faltantes: List[dict] = []
 
 
@@ -354,6 +370,7 @@ def calcular_semana_faena(
     dias: List[DiaFaena],
     params: Parametros,
     lotes_no_asignados: Optional[List[LoteNoAsignado]] = None,
+    lotes_fuera_rango: Optional[List[LoteFueraRango]] = None,
 ) -> SemanaFaena:
     """Calcula los agregados de una semana de faena."""
     fecha_fin = fecha_inicio + timedelta(days=5)  # lunes a sábado
@@ -375,6 +392,9 @@ def calcular_semana_faena(
     no_asignados = lotes_no_asignados or []
     total_no_asignados = sum(l.cantidad for l in no_asignados)
 
+    fuera_rango = lotes_fuera_rango or []
+    total_fuera_rango = sum(l.cantidad for l in fuera_rango)
+
     return SemanaFaena(
         fecha_inicio=fecha_inicio,
         fecha_fin=fecha_fin,
@@ -385,6 +405,8 @@ def calcular_semana_faena(
         sofia=sofia,
         lotes_no_asignados=no_asignados,
         total_pollos_no_asignados=total_no_asignados,
+        lotes_fuera_rango=fuera_rango,
+        total_pollos_fuera_rango=total_fuera_rango,
     )
 
 
@@ -420,6 +442,62 @@ def _peso_proyectado_en_fecha(
         oferta.peso_muestreo_proy, params,
         ganancia_diaria_lote=oferta.ganancia_diaria,
     )
+
+
+def _detalle_rechazo_dia(
+    oferta: LoteOferta,
+    fecha_dia: date,
+    params: Parametros,
+) -> dict:
+    """Construye el detalle de por qué un lote no es elegible para un día."""
+    edad_fin = calcular_edad_fin_retiro_v2(
+        fecha_dia, oferta.fecha_peso, oferta.edad_proyectada
+    )
+    peso_proy = _peso_proyectado_en_fecha(oferta, fecha_dia, params)
+    razones = []
+    if edad_fin < params.edad_min_faena:
+        razones.append(f"Edad {edad_fin} < mín {params.edad_min_faena}")
+    if edad_fin > params.edad_max_faena:
+        razones.append(f"Edad {edad_fin} > máx {params.edad_max_faena}")
+    if peso_proy < params.peso_min_faena:
+        razones.append(f"Peso {peso_proy:.2f} < mín {params.peso_min_faena:.2f}")
+    if peso_proy > params.peso_max_faena:
+        razones.append(f"Peso {peso_proy:.2f} > máx {params.peso_max_faena:.2f}")
+    return {
+        "fecha": fecha_dia.isoformat(),
+        "edad_proyectada": edad_fin,
+        "peso_proyectado": round(peso_proy, 2),
+        "razon": "; ".join(razones) if razones else "OK",
+    }
+
+
+def _construir_motivo_fuera_rango(
+    oferta: LoteOferta,
+    fechas_dias: List[date],
+    params: Parametros,
+) -> str:
+    """Construye un motivo resumido de por qué el lote está fuera de rango."""
+    edad_primer = calcular_edad_fin_retiro_v2(
+        fechas_dias[0], oferta.fecha_peso, oferta.edad_proyectada
+    )
+    edad_ultimo = calcular_edad_fin_retiro_v2(
+        fechas_dias[-1], oferta.fecha_peso, oferta.edad_proyectada
+    )
+    peso_primer = _peso_proyectado_en_fecha(oferta, fechas_dias[0], params)
+    peso_ultimo = _peso_proyectado_en_fecha(oferta, fechas_dias[-1], params)
+
+    razones = []
+    if edad_ultimo < params.edad_min_faena:
+        razones.append(f"Edad: {edad_primer}–{edad_ultimo} días (mín. {params.edad_min_faena})")
+    elif edad_primer > params.edad_max_faena:
+        razones.append(f"Edad: {edad_primer}–{edad_ultimo} días (máx. {params.edad_max_faena})")
+
+    if peso_ultimo < params.peso_min_faena:
+        razones.append(f"Peso: {peso_primer:.2f}–{peso_ultimo:.2f} kg (mín. {params.peso_min_faena:.2f})")
+    elif peso_primer > params.peso_max_faena:
+        razones.append(f"Peso: {peso_primer:.2f}–{peso_ultimo:.2f} kg (máx. {params.peso_max_faena:.2f})")
+
+    return "; ".join(razones) if razones else "Fuera de rango edad/peso en todos los días"
 
 
 def _evaluar_elegibilidad_lote(
@@ -491,16 +569,24 @@ def generar_proyeccion(
 
     # ── Fase 1: Matriz de elegibilidad ──────────────────────────────────────
     elegibilidad: dict[int, list[tuple[int, float, int]]] = {}
+    fuera_rango_data: dict[int, list[dict]] = {}  # idx → detalle por día
 
     for i, oferta in enumerate(ofertas):
         dias_elegibles = []
+        detalle_rechazo = []
         for d_idx, fecha_dia in enumerate(fechas_dias):
             resultado = _evaluar_elegibilidad_lote(oferta, fecha_dia, params)
             if resultado:
                 peso_proy, edad_fin = resultado
                 dias_elegibles.append((d_idx, peso_proy, edad_fin))
+            else:
+                detalle_rechazo.append(
+                    _detalle_rechazo_dia(oferta, fecha_dia, params)
+                )
         if dias_elegibles:
             elegibilidad[i] = dias_elegibles
+        else:
+            fuera_rango_data[i] = detalle_rechazo
 
     # Estructuras de asignación
     asignaciones: dict[int, list[int]] = {d: [] for d in range(dias_faena)}
@@ -653,13 +739,136 @@ def generar_proyeccion(
             )
         )
 
+    # ── Lotes fuera de rango (no elegibles para ningún día) ───────────────
+    lotes_fuera_rango_resultado: List[LoteFueraRango] = []
+    for i, detalle in fuera_rango_data.items():
+        oferta = ofertas[i]
+        motivo = _construir_motivo_fuera_rango(oferta, fechas_dias, params)
+        lotes_fuera_rango_resultado.append(
+            LoteFueraRango(
+                granja=oferta.granja,
+                galpon=oferta.galpon,
+                nucleo=oferta.nucleo,
+                cantidad=oferta.cantidad,
+                sexo=oferta.sexo,
+                motivo=motivo,
+                detalle_por_dia=detalle,
+            )
+        )
+
     semana = calcular_semana_faena(
         fecha_inicio_semana,
         dias_resultado,
         params,
         lotes_no_asignados=lotes_no_asignados_resultado,
+        lotes_fuera_rango=lotes_fuera_rango_resultado,
     )
     return semana
+
+
+def _intentar_asignar_lotes_nuevos(
+    nuevos: List[LoteOferta],
+    dias: List[DiaFaena],
+    params: Parametros,
+) -> tuple:
+    """
+    Intenta asignar lotes nuevos del martes a días existentes.
+
+    Retorna:
+        (dias_actualizados, no_asignados, fuera_rango, detalle_asignados)
+    """
+    objetivo_max = params.pollos_diarios_objetivo_max
+    objetivo_pref = params.pollos_diarios_objetivo_min
+
+    no_asignados_resultado: List[LoteNoAsignado] = []
+    fuera_rango_resultado: List[LoteFueraRango] = []
+    detalle_asignados: List[dict] = []
+
+    DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+
+    for oferta in nuevos:
+        # Evaluar elegibilidad para cada día
+        dias_elegibles = []
+        detalle_rechazo = []
+
+        for d_idx, dia in enumerate(dias):
+            resultado = _evaluar_elegibilidad_lote(oferta, dia.fecha, params)
+            if resultado:
+                peso_proy, edad_fin = resultado
+                dias_elegibles.append((d_idx, peso_proy, edad_fin))
+            else:
+                detalle_rechazo.append(
+                    _detalle_rechazo_dia(oferta, dia.fecha, params)
+                )
+
+        if not dias_elegibles:
+            # Fuera de rango: no elegible para ningún día
+            fechas = [d.fecha for d in dias]
+            motivo = _construir_motivo_fuera_rango(oferta, fechas, params)
+            fuera_rango_resultado.append(
+                LoteFueraRango(
+                    granja=oferta.granja,
+                    galpon=oferta.galpon,
+                    nucleo=oferta.nucleo,
+                    cantidad=oferta.cantidad,
+                    sexo=oferta.sexo,
+                    motivo=motivo,
+                    detalle_por_dia=detalle_rechazo,
+                )
+            )
+            continue
+
+        # Buscar día elegible con mayor déficit
+        mejor_dia = None
+        mayor_deficit = -1
+
+        for d_idx, peso_proy, edad_fin in dias_elegibles:
+            pollos_actuales = dias[d_idx].total_pollos
+            if pollos_actuales + oferta.cantidad > objetivo_max:
+                continue
+            deficit = objetivo_pref - pollos_actuales
+            if deficit > mayor_deficit:
+                mayor_deficit = deficit
+                mejor_dia = d_idx
+
+        if mejor_dia is None:
+            # Intentar día menos cargado (fase 4 simplificada)
+            mejor_pollos = float("inf")
+            for d_idx, peso_proy, edad_fin in dias_elegibles:
+                pollos_actuales = dias[d_idx].total_pollos
+                if pollos_actuales + oferta.cantidad <= objetivo_max and pollos_actuales < mejor_pollos:
+                    mejor_pollos = pollos_actuales
+                    mejor_dia = d_idx
+
+        if mejor_dia is not None:
+            # Asignar
+            lote = calcular_lote_proyectado(oferta, dias[mejor_dia].fecha, params)
+            dias[mejor_dia].lotes.append(lote)
+            dias[mejor_dia] = calcular_dia_faena(dias[mejor_dia].fecha, dias[mejor_dia].lotes)
+            dia_nombre = DIAS_SEMANA[mejor_dia] if mejor_dia < len(DIAS_SEMANA) else str(mejor_dia)
+            detalle_asignados.append({
+                "granja": oferta.granja,
+                "galpon": oferta.galpon,
+                "nucleo": oferta.nucleo,
+                "cantidad": oferta.cantidad,
+                "dia": dia_nombre,
+            })
+        else:
+            # Elegible pero sin capacidad
+            dias_eleg_fechas = [dias[d].fecha for d, _, _ in dias_elegibles]
+            no_asignados_resultado.append(
+                LoteNoAsignado(
+                    granja=oferta.granja,
+                    galpon=oferta.galpon,
+                    nucleo=oferta.nucleo,
+                    cantidad=oferta.cantidad,
+                    sexo=oferta.sexo,
+                    dias_elegibles=dias_eleg_fechas,
+                    motivo=f"Lote nuevo del martes: excede tope diario máximo de {objetivo_max}",
+                )
+            )
+
+    return dias, no_asignados_resultado, fuera_rango_resultado, detalle_asignados
 
 
 # ─── Ajuste con oferta del martes ──────────────────────────────────────────────
@@ -733,9 +942,7 @@ def aplicar_ajuste_martes(
                         "dia": DIAS_SEMANA[dia_idx] if dia_idx < len(DIAS_SEMANA) else str(dia_idx),
                         "cambios": ", ".join(cambios),
                     })
-                else:
-                    # Match sin cambios, mantener igual
-                    nuevos_lotes.append(nuevo_lote)
+                # Si no hay cambios, el lote ya fue agregado arriba
             else:
                 # Lote en proyección no está en oferta martes → faltante
                 resumen.lotes_faltantes += 1
@@ -752,9 +959,8 @@ def aplicar_ajuste_martes(
 
         dia.lotes = nuevos_lotes
 
-    # 3. Lotes nuevos del martes que no están en la proyección
-    lotes_no_asignados_nuevos: List[LoteNoAsignado] = []
-
+    # 3. Lotes nuevos del martes: intentar asignar automáticamente
+    lotes_nuevos_oferta: List[LoteOferta] = []
     for key, oferta in martes_index.items():
         if key not in matched_keys:
             resumen.lotes_nuevos += 1
@@ -765,17 +971,21 @@ def aplicar_ajuste_martes(
                 "cantidad": oferta.cantidad,
                 "sexo": oferta.sexo,
             })
-            lotes_no_asignados_nuevos.append(
-                LoteNoAsignado(
-                    granja=oferta.granja,
-                    galpon=oferta.galpon,
-                    nucleo=oferta.nucleo,
-                    cantidad=oferta.cantidad,
-                    sexo=oferta.sexo,
-                    dias_elegibles=[],
-                    motivo="Lote nuevo en oferta del martes",
-                )
-            )
+            lotes_nuevos_oferta.append(oferta)
+
+    # Intentar asignar lotes nuevos a días con capacidad
+    lotes_no_asignados_nuevos: List[LoteNoAsignado] = []
+    lotes_fuera_rango_nuevos: List[LoteFueraRango] = []
+    detalle_asignados_nuevos: List[dict] = []
+
+    if lotes_nuevos_oferta:
+        _, lotes_no_asignados_nuevos, lotes_fuera_rango_nuevos, detalle_asignados_nuevos = (
+            _intentar_asignar_lotes_nuevos(lotes_nuevos_oferta, semana.dias, params)
+        )
+
+    resumen.lotes_nuevos_asignados = len(detalle_asignados_nuevos)
+    resumen.detalle_nuevos_asignados = detalle_asignados_nuevos
+    resumen.lotes_nuevos_fuera_rango = len(lotes_fuera_rango_nuevos)
 
     # 4. Combinar lotes no asignados previos + nuevos
     # Actualizar también los lotes_no_asignados previos si hay match en martes
@@ -796,6 +1006,10 @@ def aplicar_ajuste_martes(
 
     todos_no_asignados = lotes_no_asignados_previos + lotes_no_asignados_nuevos
 
+    # Combinar fuera de rango previos + nuevos del martes
+    fuera_rango_previos = list(semana.lotes_fuera_rango) if semana.lotes_fuera_rango else []
+    todos_fuera_rango = fuera_rango_previos + lotes_fuera_rango_nuevos
+
     # 5. Recalcular agregados de cada día y de la semana
     dias_recalculados: List[DiaFaena] = []
     for dia in semana.dias:
@@ -807,6 +1021,7 @@ def aplicar_ajuste_martes(
         dias_recalculados,
         params,
         lotes_no_asignados=todos_no_asignados,
+        lotes_fuera_rango=todos_fuera_rango,
     )
 
     return resultado, resumen

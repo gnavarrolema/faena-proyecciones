@@ -335,6 +335,51 @@ export function exportProyeccionPDF(proyeccion) {
     })
   }
 
+  // Out-of-range lots
+  const lotesFR = proyeccion.lotes_fuera_rango || []
+  if (lotesFR.length > 0) {
+    y = doc.lastAutoTable.finalY + 10
+
+    if (y > doc.internal.pageSize.getHeight() - 40) {
+      doc.addPage()
+      y = 20
+    }
+
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(239, 68, 68) // danger color
+    doc.text(`Lotes fuera de rango (${lotesFR.length} lotes — ${formatNumber(proyeccion.total_pollos_fuera_rango || 0)} pollos)`, 20, y)
+    y += 4
+
+    const frRows = lotesFR.map(l => [
+      l.granja,
+      l.galpon,
+      l.nucleo,
+      formatNumber(l.cantidad),
+      l.sexo || '-',
+      l.motivo || '-',
+    ])
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Granja', 'Galpón', 'Núcleo', 'Cantidad', 'Sexo', 'Motivo']],
+      body: frRows,
+      ...tableStyles(),
+      headStyles: {
+        ...tableStyles().headStyles,
+        fillColor: [239, 68, 68],
+      },
+      columnStyles: {
+        0: { fontStyle: 'bold', halign: 'left' },
+        1: { halign: 'center' },
+        2: { halign: 'center' },
+        3: { halign: 'right' },
+        4: { halign: 'center' },
+        5: { halign: 'left' },
+      },
+    })
+  }
+
   addPageNumbers(doc)
   doc.save(`proyeccion-semana-${fechaInicio || todayISO()}.pdf`)
 }
@@ -494,6 +539,60 @@ export function exportResumenPDF(proyeccion) {
       }
     },
   })
+
+  // Offer coverage section (only if there are exclusions)
+  const pollosFR = proyeccion.total_pollos_fuera_rango || 0
+  const pollosNA = proyeccion.total_pollos_no_asignados || 0
+  if (pollosFR > 0 || pollosNA > 0) {
+    y = doc.lastAutoTable.finalY + 10
+
+    if (y > doc.internal.pageSize.getHeight() - 50) {
+      doc.addPage()
+      y = 20
+    }
+
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...PRIMARY)
+    doc.text('Cobertura de la Oferta', 20, y)
+    y += 4
+
+    const totalOfertados = proyeccion.total_pollos_semana + pollosFR + pollosNA
+    const lotesFR = proyeccion.lotes_fuera_rango || []
+    const lotesNA = proyeccion.lotes_no_asignados || []
+    const lotesAsignados = dias.reduce((sum, d) => sum + d.lotes.filter(l => l.cantidad > 0).length, 0)
+
+    const coverageRows = [
+      ['Asignados a proyección', lotesAsignados, formatNumber(proyeccion.total_pollos_semana)],
+    ]
+    if (pollosFR > 0) {
+      coverageRows.push(['Fuera de rango (edad/peso)', lotesFR.length, formatNumber(pollosFR)])
+    }
+    if (pollosNA > 0) {
+      coverageRows.push(['Exceso de capacidad diaria', lotesNA.length, formatNumber(pollosNA)])
+    }
+    coverageRows.push(['TOTAL OFERTADOS', lotesAsignados + lotesFR.length + lotesNA.length, formatNumber(totalOfertados)])
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Categoría', 'Lotes', 'Pollos']],
+      body: coverageRows,
+      ...tableStyles(),
+      tableWidth: Math.min(pageWidth - 40, 140),
+      margin: { left: 20 },
+      columnStyles: {
+        0: { fontStyle: 'bold', halign: 'left' },
+        1: { halign: 'center' },
+        2: { halign: 'right' },
+      },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.row.index === coverageRows.length - 1) {
+          data.cell.styles.fillColor = SUBTOTAL_BG
+          data.cell.styles.fontStyle = 'bold'
+        }
+      },
+    })
+  }
 
   addPageNumbers(doc)
   doc.save(`resumen-semana-${fechaInicio || todayISO()}.pdf`)
