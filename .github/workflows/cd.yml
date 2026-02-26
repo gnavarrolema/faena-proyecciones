@@ -116,12 +116,17 @@ jobs:
             --min-instances 0 \
             --max-instances 2
 
-      - name: Update backend CORS_ORIGINS with real frontend URL
+      - name: Update backend CORS_ORIGINS with real frontend URLs
         run: |
+          # URL formato .a.run.app (hash)
           FRONTEND_URL=$(gcloud run services describe ${{ env.FRONTEND_SERVICE }} \
             --region ${{ env.REGION }} \
             --format 'value(status.url)')
-          echo "Frontend URL: $FRONTEND_URL"
+          # URL formato .us-central1.run.app (número de proyecto) — también válida en Cloud Run
+          PROJECT_NUMBER=$(gcloud projects describe ${{ env.PROJECT_ID }} --format='value(projectNumber)')
+          FRONTEND_URL_ALT="https://${{ env.FRONTEND_SERVICE }}-${PROJECT_NUMBER}.${{ env.REGION }}.run.app"
+          CORS_VALUE="${FRONTEND_URL},${FRONTEND_URL_ALT}"
+          echo "Setting CORS_ORIGINS: $CORS_VALUE"
           gcloud run services update ${{ env.BACKEND_SERVICE }} \
             --region ${{ env.REGION }} \
-            --update-env-vars "CORS_ORIGINS=$FRONTEND_URL"
+            --update-env-vars "^|^CORS_ORIGINS=${CORS_VALUE}"
