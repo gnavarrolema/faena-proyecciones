@@ -275,6 +275,11 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                           <Ban size={14} /> {ajusteResumen.lotes_nuevos_fuera_rango} lotes nuevos fuera de rango
                         </span>
                       )}
+                      {ajusteResumen.lotes_fuera_rango_post_ajuste > 0 && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem', color: 'var(--danger, #ef4444)' }}>
+                          <AlertTriangle size={14} /> {ajusteResumen.lotes_fuera_rango_post_ajuste} lotes existentes ahora fuera de rango
+                        </span>
+                      )}
                       {ajusteResumen.lotes_faltantes > 0 && (
                         <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem', color: 'var(--warning)' }}>
                           <AlertTriangle size={14} /> {ajusteResumen.lotes_faltantes} lotes no encontrados en martes
@@ -306,6 +311,37 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                                   <td className="text-center">{d.galpon}</td>
                                   <td>{d.dia}</td>
                                   <td style={{ fontSize: '0.8rem' }}>{d.cambios}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Lotes existentes ahora fuera de rango tras ajuste martes */}
+                    {ajusteResumen.detalle_fuera_rango_post_ajuste?.length > 0 && (
+                      <div style={{ marginBottom: '0.5rem' }}>
+                        <p style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--danger, #ef4444)', marginBottom: 4 }}>⚠ Lotes existentes ahora fuera de rango (revisar manualmente):</p>
+                        <div className="table-container" style={{ maxHeight: 180, overflowY: 'auto' }}>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Granja</th>
+                                <th>Galpón</th>
+                                <th>Cantidad</th>
+                                <th>Día</th>
+                                <th>Alerta</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ajusteResumen.detalle_fuera_rango_post_ajuste.map((d, i) => (
+                                <tr key={i}>
+                                  <td><strong>{d.granja}</strong></td>
+                                  <td className="text-center">{d.galpon}</td>
+                                  <td className="text-right">{formatNumber(d.cantidad)}</td>
+                                  <td>{d.dia}</td>
+                                  <td style={{ fontSize: '0.8rem', color: 'var(--danger, #ef4444)' }}>{d.alerta}</td>
                                 </tr>
                               ))}
                             </tbody>

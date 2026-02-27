@@ -334,9 +334,15 @@ def mover_lote(asignacion: AsignacionManual, current_user: TokenData = Depends(g
     params = _get_parametros()
     nueva_fecha = dia_destino.fecha
 
-    # Recalcular edad y peso para la nueva fecha
+    # Usar datos originales de la oferta si están disponibles (preservados
+    # desde calcular_lote_proyectado). Si no existen (proyecciones antiguas),
+    # caemos al fallback anterior para compatibilidad.
+    fecha_peso = lote.fecha_peso_original or lote.fecha_fin_retiro
+    ganancia = lote.ganancia_diaria_original if lote.ganancia_diaria_original is not None else params.ganancia_diaria_macho
+    fecha_ingreso = lote.fecha_ingreso_original or fecha_peso
+
     oferta_equiv = LoteOferta(
-        fecha_peso=date.today(),
+        fecha_peso=fecha_peso,
         granja=lote.granja,
         galpon=lote.galpon,
         nucleo=lote.nucleo,
@@ -344,11 +350,11 @@ def mover_lote(asignacion: AsignacionManual, current_user: TokenData = Depends(g
         sexo=lote.sexo,
         edad_proyectada=lote.edad_actual,
         peso_muestreo_proy=lote.peso_actual,
-        ganancia_diaria=params.ganancia_diaria_macho,
+        ganancia_diaria=ganancia,
         dias_proyectados=0,
         edad_real=lote.edad_actual,
         peso_muestreo_real=lote.peso_actual,
-        fecha_ingreso=date.today(),
+        fecha_ingreso=fecha_ingreso,
     )
 
     nuevo_lote = calcular_lote_proyectado(oferta_equiv, nueva_fecha, params)

@@ -1,13 +1,14 @@
 import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { UploadCloud, CheckCircle2, FileSpreadsheet, XCircle, AlertCircle, Trash2, FolderUp } from 'lucide-react'
+import { UploadCloud, CheckCircle2, FileSpreadsheet, AlertCircle, Trash2, FolderUp, TriangleAlert } from 'lucide-react'
 import { uploadOferta } from '../services/api'
 
-export default function UploadOferta({ onUpload }) {
+export default function UploadOferta({ onUpload, hayDatosExistentes }) {
   const [file, setFile] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [dragging, setDragging] = useState(false)
+  const [confirmado, setConfirmado] = useState(false)
   const inputRef = useRef(null)
 
   const handleFile = (f) => {
@@ -21,6 +22,7 @@ export default function UploadOferta({ onUpload }) {
 
   const handleUpload = async () => {
     if (!file) return
+    if (hayDatosExistentes && !confirmado) return
     setLoading(true)
     setError(null)
     try {
@@ -54,6 +56,44 @@ export default function UploadOferta({ onUpload }) {
             <AlertCircle size={16} />
             <span><strong>Flujo:</strong> Jueves → cargar oferta y generar proyección → Martes → ajustar con nueva oferta para mayor precisión.</span>
           </div>
+
+          {/* Advertencia de sobreescritura */}
+          <AnimatePresence>
+            {hayDatosExistentes && (
+              <motion.div
+                initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                animate={{ opacity: 1, height: 'auto', marginBottom: '1rem' }}
+                exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                style={{
+                  padding: '0.85rem 1rem',
+                  background: 'rgba(251, 146, 60, 0.12)',
+                  border: '1px solid rgba(251, 146, 60, 0.45)',
+                  borderRadius: 8,
+                  fontSize: '0.875rem',
+                  color: '#ea580c',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.6rem', fontWeight: 600 }}>
+                  <TriangleAlert size={17} />
+                  <span>¡Atención! Ya existen datos cargados en el sistema</span>
+                </div>
+                <p style={{ margin: 0, marginBottom: '0.75rem', lineHeight: 1.5 }}>
+                  Cargar un nuevo archivo <strong>reemplazará completamente</strong> la oferta actual y la proyección/planificación generada.
+                  Si solo desea actualizar datos manteniendo la planificación, use la opción{' '}
+                  <strong>«Ajuste Martes»</strong> en la pestaña Proyección.
+                </p>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 500, userSelect: 'none' }}>
+                  <input
+                    type="checkbox"
+                    checked={confirmado}
+                    onChange={(e) => setConfirmado(e.target.checked)}
+                    style={{ width: 16, height: 16, accentColor: '#ea580c', cursor: 'pointer' }}
+                  />
+                  Entiendo que los datos actuales serán reemplazados y deseo continuar
+                </label>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <div
             className={`upload-zone ${dragging ? 'dragging' : ''}`}
@@ -107,7 +147,7 @@ export default function UploadOferta({ onUpload }) {
           <div style={{ marginTop: '1.5rem', display: 'flex', gap: '0.75rem' }}>
             <button
               className="btn btn-primary"
-              disabled={!file || loading}
+              disabled={!file || loading || (hayDatosExistentes && !confirmado)}
               onClick={handleUpload}
             >
               {loading ? (

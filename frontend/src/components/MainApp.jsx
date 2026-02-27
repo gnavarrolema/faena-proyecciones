@@ -97,50 +97,51 @@ const MainApp = () => {
                         <p style={{ color: 'var(--text-light)' }}>Cargando datos guardados...</p>
                     </div>
                 ) : (
-                <AnimatePresence mode="wait">
-                    <motion.div
-                        key={activeTab}
-                        variants={tabVariants}
-                        initial="initial"
-                        animate="animate"
-                        exit="exit"
-                        transition={{ duration: 0.3, ease: 'easeInOut' }}
-                    >
-                        {activeTab === 'upload' && (
-                            <UploadOferta
-                                onUpload={(data) => {
-                                    setOferta(data)
-                                    setActiveTab('oferta')
-                                }}
-                            />
-                        )}
+                    <AnimatePresence mode="wait">
+                        <motion.div
+                            key={activeTab}
+                            variants={tabVariants}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
+                            transition={{ duration: 0.3, ease: 'easeInOut' }}
+                        >
+                            {activeTab === 'upload' && (
+                                <UploadOferta
+                                    onUpload={(data) => {
+                                        setOferta(data)
+                                        setActiveTab('oferta')
+                                    }}
+                                    hayDatosExistentes={!!(oferta || proyeccion)}
+                                />
+                            )}
 
-                        {activeTab === 'oferta' && (
-                            <OfertaTable
-                                oferta={oferta}
-                                onGenerarProyeccion={(proy) => {
-                                    setProyeccion(proy)
-                                    setActiveTab('proyeccion')
-                                }}
-                            />
-                        )}
+                            {activeTab === 'oferta' && (
+                                <OfertaTable
+                                    oferta={oferta}
+                                    onGenerarProyeccion={(proy) => {
+                                        setProyeccion(proy)
+                                        setActiveTab('proyeccion')
+                                    }}
+                                />
+                            )}
 
-                        {activeTab === 'proyeccion' && (
-                            <ProyeccionView
-                                proyeccion={proyeccion}
-                                setProyeccion={setProyeccion}
-                            />
-                        )}
+                            {activeTab === 'proyeccion' && (
+                                <ProyeccionView
+                                    proyeccion={proyeccion}
+                                    setProyeccion={setProyeccion}
+                                />
+                            )}
 
-                        {activeTab === 'resumen' && (
-                            <ResumenSemanal proyeccion={proyeccion} />
-                        )}
+                            {activeTab === 'resumen' && (
+                                <ResumenSemanal proyeccion={proyeccion} />
+                            )}
 
-                        {activeTab === 'parametros' && (
-                            <ParametrosPanel />
-                        )}
-                    </motion.div>
-                </AnimatePresence>
+                            {activeTab === 'parametros' && (
+                                <ParametrosPanel />
+                            )}
+                        </motion.div>
+                    </AnimatePresence>
                 )}
             </main>
         </>

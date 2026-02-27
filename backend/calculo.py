@@ -68,6 +68,10 @@ class LoteProyectado(BaseModel):
     calibre_promedio_diario: Optional[float] = None
     pollos_dia: Optional[int] = None
     produccion_cajas_semanales: Optional[float] = None
+    # Datos originales de la oferta para recálculo (mover lote, etc.)
+    fecha_peso_original: Optional[date] = None
+    ganancia_diaria_original: Optional[float] = None
+    fecha_ingreso_original: Optional[date] = None
 
 
 class DiaFaena(BaseModel):
@@ -125,10 +129,12 @@ class AjusteMartesResumen(BaseModel):
     lotes_nuevos_asignados: int = 0
     lotes_nuevos_fuera_rango: int = 0
     lotes_faltantes: int = 0
+    lotes_fuera_rango_post_ajuste: int = 0
     detalle_actualizados: List[dict] = []
     detalle_nuevos: List[dict] = []
     detalle_nuevos_asignados: List[dict] = []
     detalle_faltantes: List[dict] = []
+    detalle_fuera_rango_post_ajuste: List[dict] = []
 
 
 # ─── Funciones de cálculo ───────────────────────────────────────────────────────
@@ -342,6 +348,10 @@ def calcular_lote_proyectado(
         peso_faenado=p_faenado,
         calibre_promedio=calibre,
         cajas=cajas,
+        # Preservar datos originales de la oferta para recálculo
+        fecha_peso_original=oferta.fecha_peso,
+        ganancia_diaria_original=oferta.ganancia_diaria,
+        fecha_ingreso_original=oferta.fecha_ingreso,
     )
 
 
@@ -661,7 +671,9 @@ def generar_proyeccion(
     for i, _ in restantes_con_peso:
         dias_eleg = elegibilidad[i]
 
-        # Buscar día elegible con mayor déficit respecto al objetivo
+        # Buscar día elegible con mayor déficit respecto al objetivo.
+        # A igual déficit, preferir el día más temprano (los pollos pesados
+        # deben faenarse cuanto antes para evitar exceder peso máximo).
         mejor_dia = None
         mayor_deficit = -1
 
@@ -669,7 +681,9 @@ def generar_proyeccion(
             if not _puede_asignarse(i, d_idx):
                 continue
             deficit = objetivo_preferido - pollos_dia[d_idx]
-            if deficit > 0 and deficit > mayor_deficit:
+            if deficit > 0 and (deficit > mayor_deficit or
+                                (deficit == mayor_deficit and
+                                 (mejor_dia is None or d_idx < mejor_dia))):
                 mayor_deficit = deficit
                 mejor_dia = d_idx
 
@@ -923,6 +937,38 @@ def aplicar_ajuste_martes(
                     oferta_martes, lote.fecha_fin_retiro, params
                 )
                 nuevos_lotes.append(nuevo_lote)
+
+                # Verificar si el lote sigue dentro del rango de elegibilidad
+                # después de la actualización con datos del martes
+                alertas_rango = []
+                if nuevo_lote.edad_fin_retiro < params.edad_min_faena:
+                    alertas_rango.append(
+                        f"Edad {nuevo_lote.edad_fin_retiro} < mín {params.edad_min_faena}"
+                    )
+                if nuevo_lote.edad_fin_retiro > params.edad_max_faena:
+                    alertas_rango.append(
+                        f"Edad {nuevo_lote.edad_fin_retiro} > máx {params.edad_max_faena}"
+                    )
+                if nuevo_lote.peso_vivo_retiro < params.peso_min_faena:
+                    alertas_rango.append(
+                        f"Peso {nuevo_lote.peso_vivo_retiro:.2f} < mín {params.peso_min_faena:.2f}"
+                    )
+                if nuevo_lote.peso_vivo_retiro > params.peso_max_faena:
+                    alertas_rango.append(
+                        f"Peso {nuevo_lote.peso_vivo_retiro:.2f} > máx {params.peso_max_faena:.2f}"
+                    )
+
+                if alertas_rango:
+                    dia_nombre = DIAS_SEMANA[dia_idx] if dia_idx < len(DIAS_SEMANA) else str(dia_idx)
+                    resumen.lotes_fuera_rango_post_ajuste += 1
+                    resumen.detalle_fuera_rango_post_ajuste.append({
+                        "granja": lote.granja,
+                        "galpon": lote.galpon,
+                        "nucleo": lote.nucleo,
+                        "cantidad": nuevo_lote.cantidad,
+                        "dia": dia_nombre,
+                        "alerta": "; ".join(alertas_rango),
+                    })
 
                 # Registrar cambios
                 cambios = []
