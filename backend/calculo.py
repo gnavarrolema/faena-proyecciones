@@ -92,6 +92,7 @@ class LoteNoAsignado(BaseModel):
     nucleo: int
     cantidad: int
     sexo: str
+    fecha_ingreso: Optional[date] = None
     dias_elegibles: List[date] = []
     motivo: str
 
@@ -103,6 +104,7 @@ class LoteFueraRango(BaseModel):
     nucleo: int
     cantidad: int
     sexo: str
+    fecha_ingreso: Optional[date] = None
     motivo: str
     detalle_por_dia: List[dict] = []
 
@@ -155,12 +157,19 @@ def calcular_edad_fin_retiro(
 def calcular_edad_fin_retiro_v2(
     fecha_fin_retiro: date,
     fecha_peso: date,
-    edad_proyectada: int
+    edad_proyectada: int,
+    dias_proyectados: int = 0,
 ) -> int:
     """
-    Edad al fin del retiro calculada a partir de la fecha de peso y edad proyectada.
+    Edad al fin del retiro calculada a partir de la fecha base de la oferta.
+
+    La fecha base es fecha_peso + dias_proyectados (fecha en que se emitió la
+    oferta).  edad_proyectada ya incluye esos días de proyección, por lo que
+    la base correcta para contar "días extra" hasta el retiro es la fecha de
+    la oferta, no la fecha de pesaje individual.
     """
-    dias_extra = (fecha_fin_retiro - fecha_peso).days
+    fecha_base = fecha_peso + timedelta(days=dias_proyectados)
+    dias_extra = (fecha_fin_retiro - fecha_base).days
     return edad_proyectada + dias_extra
 
 
@@ -318,7 +327,8 @@ def calcular_lote_proyectado(
     """Calcula todos los campos de un lote proyectado a partir de la oferta."""
 
     edad_fin = calcular_edad_fin_retiro_v2(
-        fecha_fin_retiro, oferta.fecha_peso, oferta.edad_proyectada
+        fecha_fin_retiro, oferta.fecha_peso, oferta.edad_proyectada,
+        dias_proyectados=oferta.dias_proyectados,
     )
 
     dif_edad = diferencia_edad_ideal(oferta.sexo, edad_fin, params)
@@ -392,9 +402,8 @@ def calcular_semana_faena(
     total = sum(d.total_pollos for d in dias)
     prom_edad = promedio_edades_semana(todos_lotes)
 
-    # Calibre ponderado semanal
-    cal_pond = calibre_promedio_ponderado(todos_lotes)
-    cajas_sem = cajas_semanales(total, cal_pond)
+    # Cajas semanales: suma de cajas diarias (como en Excel)
+    cajas_sem = sum(d.cajas_totales for d in dias)
 
     # descuento_sofia is applied only in the final weekly summary (not in assignment)
     sofia = total - params.descuento_sofia
@@ -445,7 +454,8 @@ def _peso_proyectado_en_fecha(
     usando la ganancia diaria individual del lote (si está disponible).
     """
     edad_fin = calcular_edad_fin_retiro_v2(
-        fecha_dia, oferta.fecha_peso, oferta.edad_proyectada
+        fecha_dia, oferta.fecha_peso, oferta.edad_proyectada,
+        dias_proyectados=oferta.dias_proyectados,
     )
     return peso_vivo_retiro(
         oferta.sexo, edad_fin, oferta.edad_proyectada,
@@ -461,7 +471,8 @@ def _detalle_rechazo_dia(
 ) -> dict:
     """Construye el detalle de por qué un lote no es elegible para un día."""
     edad_fin = calcular_edad_fin_retiro_v2(
-        fecha_dia, oferta.fecha_peso, oferta.edad_proyectada
+        fecha_dia, oferta.fecha_peso, oferta.edad_proyectada,
+        dias_proyectados=oferta.dias_proyectados,
     )
     peso_proy = _peso_proyectado_en_fecha(oferta, fecha_dia, params)
     razones = []
@@ -488,10 +499,12 @@ def _construir_motivo_fuera_rango(
 ) -> str:
     """Construye un motivo resumido de por qué el lote está fuera de rango."""
     edad_primer = calcular_edad_fin_retiro_v2(
-        fechas_dias[0], oferta.fecha_peso, oferta.edad_proyectada
+        fechas_dias[0], oferta.fecha_peso, oferta.edad_proyectada,
+        dias_proyectados=oferta.dias_proyectados,
     )
     edad_ultimo = calcular_edad_fin_retiro_v2(
-        fechas_dias[-1], oferta.fecha_peso, oferta.edad_proyectada
+        fechas_dias[-1], oferta.fecha_peso, oferta.edad_proyectada,
+        dias_proyectados=oferta.dias_proyectados,
     )
     peso_primer = _peso_proyectado_en_fecha(oferta, fechas_dias[0], params)
     peso_ultimo = _peso_proyectado_en_fecha(oferta, fechas_dias[-1], params)
@@ -520,7 +533,8 @@ def _evaluar_elegibilidad_lote(
     Retorna (peso_proy, edad_fin) si es elegible, None si no.
     """
     edad_fin = calcular_edad_fin_retiro_v2(
-        fecha_dia, oferta.fecha_peso, oferta.edad_proyectada
+        fecha_dia, oferta.fecha_peso, oferta.edad_proyectada,
+        dias_proyectados=oferta.dias_proyectados,
     )
 
     if edad_fin < params.edad_min_faena or edad_fin > params.edad_max_faena:
@@ -748,6 +762,7 @@ def generar_proyeccion(
                 nucleo=oferta.nucleo,
                 cantidad=oferta.cantidad,
                 sexo=oferta.sexo,
+                fecha_ingreso=oferta.fecha_ingreso,
                 dias_elegibles=dias,
                 motivo=motivo,
             )
@@ -765,6 +780,7 @@ def generar_proyeccion(
                 nucleo=oferta.nucleo,
                 cantidad=oferta.cantidad,
                 sexo=oferta.sexo,
+                fecha_ingreso=oferta.fecha_ingreso,
                 motivo=motivo,
                 detalle_por_dia=detalle,
             )
@@ -826,6 +842,7 @@ def _intentar_asignar_lotes_nuevos(
                     nucleo=oferta.nucleo,
                     cantidad=oferta.cantidad,
                     sexo=oferta.sexo,
+                    fecha_ingreso=oferta.fecha_ingreso,
                     motivo=motivo,
                     detalle_por_dia=detalle_rechazo,
                 )
@@ -877,6 +894,7 @@ def _intentar_asignar_lotes_nuevos(
                     nucleo=oferta.nucleo,
                     cantidad=oferta.cantidad,
                     sexo=oferta.sexo,
+                    fecha_ingreso=oferta.fecha_ingreso,
                     dias_elegibles=dias_eleg_fechas,
                     motivo=f"Lote nuevo del martes: excede tope diario máximo de {objetivo_max}",
                 )
@@ -895,7 +913,11 @@ def aplicar_ajuste_martes(
     """
     Aplica la oferta del martes a una proyección existente.
 
-    Matchea lotes por (granja, galpon, nucleo):
+    Matchea lotes por (granja, galpon, nucleo, sexo, fecha_ingreso).
+    La fecha_ingreso identifica de forma unívoca cada lote dentro de un
+    mismo galpón/núcleo/sexo, ya que representa la fecha de ingreso de
+    las aves a la granja (dato estático que no cambia entre ofertas).
+
     - Lotes matcheados: actualiza datos y recalcula en el MISMO día asignado.
     - Lotes nuevos (en martes pero no en proyección): van a lotes_no_asignados.
     - Lotes faltantes (en proyección pero no en martes): se marcan en el resumen.
@@ -905,12 +927,15 @@ def aplicar_ajuste_martes(
     if params is None:
         params = Parametros()
 
-    # 1. Indexar oferta martes por clave compuesta
-    martes_index: dict[tuple, LoteOferta] = {}
+    # 1. Indexar oferta martes por clave 5-tupla.
+    #    fecha_ingreso distingue lotes del mismo galpón/núcleo/sexo que
+    #    ingresaron en fechas distintas (común en datos reales).
+    martes_index: dict[tuple, list[LoteOferta]] = {}
     for o in ofertas_martes:
-        key = (o.granja, o.galpon, o.nucleo)
-        martes_index[key] = o  # Si hay duplicados, toma el último
+        key = (o.granja, o.galpon, o.nucleo, o.sexo, o.fecha_ingreso)
+        martes_index.setdefault(key, []).append(o)
 
+    # Conjunto de claves que ya fueron totalmente consumidas.
     matched_keys: set[tuple] = set()
     resumen = AjusteMartesResumen()
 
@@ -921,11 +946,14 @@ def aplicar_ajuste_martes(
         nuevos_lotes: List[LoteProyectado] = []
 
         for lote in dia.lotes:
-            key = (lote.granja, lote.galpon, lote.nucleo)
+            key = (lote.granja, lote.galpon, lote.nucleo, lote.sexo,
+                   lote.fecha_ingreso_original)
 
-            if key in martes_index:
-                oferta_martes = martes_index[key]
-                matched_keys.add(key)
+            if key in martes_index and martes_index[key]:
+                oferta_martes = martes_index[key].pop(0)  # FIFO
+                # Marcar como consumida si la lista quedó vacía
+                if not martes_index[key]:
+                    matched_keys.add(key)
 
                 # Guardar valores previos para el diff
                 peso_antes = lote.peso_vivo_retiro
@@ -1005,10 +1033,10 @@ def aplicar_ajuste_martes(
 
         dia.lotes = nuevos_lotes
 
-    # 3. Lotes nuevos del martes: intentar asignar automáticamente
+    # 3. Lotes nuevos del martes: los que quedaron sin consumir en el index
     lotes_nuevos_oferta: List[LoteOferta] = []
-    for key, oferta in martes_index.items():
-        if key not in matched_keys:
+    for key, ofertas_restantes in martes_index.items():
+        for oferta in ofertas_restantes:
             resumen.lotes_nuevos += 1
             resumen.detalle_nuevos.append({
                 "granja": oferta.granja,
@@ -1034,18 +1062,35 @@ def aplicar_ajuste_martes(
     resumen.lotes_nuevos_fuera_rango = len(lotes_fuera_rango_nuevos)
 
     # 4. Combinar lotes no asignados previos + nuevos
+    # Construir conjunto de claves de lotes nuevos que SÍ fueron asignados a un
+    # día en el paso 3, para no duplicarlos en la lista de no-asignados.
+    claves_asignados_nuevos: set[tuple] = set()
+    for d in detalle_asignados_nuevos:
+        for o in lotes_nuevos_oferta:
+            if (o.granja == d["granja"] and o.galpon == d["galpon"]
+                    and o.nucleo == d["nucleo"]):
+                claves_asignados_nuevos.add(
+                    (o.granja, o.galpon, o.nucleo, o.sexo, o.fecha_ingreso)
+                )
+
     # Actualizar también los lotes_no_asignados previos si hay match en martes
+    martes_lookup: dict[tuple, list[LoteOferta]] = {}
+    for o in ofertas_martes:
+        k = (o.granja, o.galpon, o.nucleo, o.sexo, o.fecha_ingreso)
+        martes_lookup.setdefault(k, []).append(o)
+
     lotes_no_asignados_previos: List[LoteNoAsignado] = []
     for lna in semana.lotes_no_asignados:
-        key = (lna.granja, lna.galpon, lna.nucleo)
-        if key in martes_index:
-            oferta_martes = martes_index[key]
-            if key not in matched_keys:
-                matched_keys.add(key)
-                # Actualizar datos del lote no asignado
-                lna.cantidad = oferta_martes.cantidad
-                lna.sexo = oferta_martes.sexo
-                lna.motivo = f"{lna.motivo} (datos actualizados con oferta martes)"
+        key = (lna.granja, lna.galpon, lna.nucleo, lna.sexo, lna.fecha_ingreso)
+        # Si este lote fue asignado como "nuevo" en el paso 3, no duplicar
+        if key in claves_asignados_nuevos:
+            continue
+        if key in martes_lookup and martes_lookup[key]:
+            oferta_martes = martes_lookup[key][0]  # usa el primero disponible
+            # Actualizar datos del lote no asignado
+            lna.cantidad = oferta_martes.cantidad
+            lna.sexo = oferta_martes.sexo
+            lna.motivo = f"{lna.motivo} (datos actualizados con oferta martes)"
             lotes_no_asignados_previos.append(lna)
         else:
             lotes_no_asignados_previos.append(lna)

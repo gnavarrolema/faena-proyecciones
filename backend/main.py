@@ -238,8 +238,8 @@ async def upload_ajuste_martes(
 ):
     """
     Subir oferta del martes para ajustar la proyección existente.
-    Matchea lotes por (granja, galpon, nucleo), actualiza datos y recalcula
-    preservando las asignaciones de día.
+    Matchea lotes por (granja, galpon, nucleo, sexo, fecha_ingreso),
+    actualiza datos y recalcula preservando las asignaciones de día.
     """
     if not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(400, "El archivo debe ser .xlsx o .xls")

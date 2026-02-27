@@ -349,6 +349,70 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                         </div>
                       </div>
                     )}
+
+                    {/* Lotes nuevos asignados automáticamente */}
+                    {ajusteResumen.detalle_nuevos_asignados?.length > 0 && (
+                      <div style={{ marginBottom: '0.5rem' }}>
+                        <p style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--success)', marginBottom: 4 }}>Lotes nuevos asignados:</p>
+                        <div className="table-container" style={{ maxHeight: 180, overflowY: 'auto' }}>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Granja</th>
+                                <th>Galpón</th>
+                                <th>Núcleo</th>
+                                <th className="text-right">Cantidad</th>
+                                <th>Día asignado</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ajusteResumen.detalle_nuevos_asignados.map((d, i) => (
+                                <tr key={i}>
+                                  <td><strong>{d.granja}</strong></td>
+                                  <td className="text-center">{d.galpon}</td>
+                                  <td className="text-center">{d.nucleo}</td>
+                                  <td className="text-right">{formatNumber(d.cantidad)}</td>
+                                  <td>{d.dia}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Lotes faltantes (en proyección pero no en martes) */}
+                    {ajusteResumen.detalle_faltantes?.length > 0 && (
+                      <div style={{ marginBottom: '0.5rem' }}>
+                        <p style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--warning)', marginBottom: 4 }}>⚠ Lotes no encontrados en oferta del martes (se mantienen sin cambios):</p>
+                        <div className="table-container" style={{ maxHeight: 180, overflowY: 'auto' }}>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Granja</th>
+                                <th>Galpón</th>
+                                <th>Núcleo</th>
+                                <th className="text-right">Cantidad</th>
+                                <th>Sexo</th>
+                                <th>Día</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ajusteResumen.detalle_faltantes.map((d, i) => (
+                                <tr key={i}>
+                                  <td><strong>{d.granja}</strong></td>
+                                  <td className="text-center">{d.galpon}</td>
+                                  <td className="text-center">{d.nucleo}</td>
+                                  <td className="text-right">{formatNumber(d.cantidad)}</td>
+                                  <td className="text-center">{d.sexo}</td>
+                                  <td>{d.dia}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </div>
