@@ -46,3 +46,4 @@ docker-compose.override.yml
 *.xlsx
 *.xls
 !Anexos/
+Anexos/Notas.txt

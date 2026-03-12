@@ -3,7 +3,12 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { UploadCloud, CheckCircle2, FileSpreadsheet, AlertCircle, Trash2, FolderUp, TriangleAlert } from 'lucide-react'
 import { uploadOferta } from '../services/api'
 
-export default function UploadOferta({ onUpload, hayDatosExistentes }) {
+function formatNumber(n) {
+  if (n == null) return '-'
+  return n.toLocaleString('es-AR')
+}
+
+export default function UploadOferta({ onUpload, hayDatosExistentes, deficitGuardado, onClearDeficit }) {
   const [file, setFile] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -42,6 +47,37 @@ export default function UploadOferta({ onUpload, hayDatosExistentes }) {
       transition={{ duration: 0.3 }}
       style={{ maxWidth: 700, margin: '0 auto' }}
     >
+      {/* Banner de déficit de semana anterior */}
+      {deficitGuardado?.existe && (
+        <div style={{
+          padding: '0.75rem 1rem',
+          background: 'rgba(251,146,60,0.1)',
+          border: '1px solid rgba(251,146,60,0.35)',
+          borderRadius: 8,
+          marginBottom: '1rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          flexWrap: 'wrap',
+        }}>
+          <span style={{ fontSize: '0.85rem', color: '#ea580c' }}>
+            ⚠ Hay <strong>{formatNumber(deficitGuardado.total_pollos)}</strong> pollos del déficit
+            de la semana {deficitGuardado.semana_origen} pendientes de planificar
+            ({deficitGuardado.total_lotes} lote{deficitGuardado.total_lotes !== 1 ? 's' : ''}).
+          </span>
+          {onClearDeficit && (
+            <button
+              className="btn btn-sm btn-outline"
+              onClick={onClearDeficit}
+              style={{ borderColor: '#ea580c', color: '#ea580c', whiteSpace: 'nowrap' }}
+            >
+              Descartar
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="card">
         <div className="card-header">
           <h2><FolderUp size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Cargar Oferta de Granjas (Jueves)</h2>

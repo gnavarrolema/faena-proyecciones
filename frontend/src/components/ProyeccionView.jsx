@@ -1,11 +1,18 @@
 import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban } from 'lucide-react'
+import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { eliminarLote, moverLote, uploadAjusteMartes } from '../services/api'
+import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia } from '../services/api'
 import { exportProyeccionPDF } from '../utils/pdfExport'
 
-const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+
+function getDiaNombre(fechaStr) {
+  if (!fechaStr) return '-'
+  const dt = new Date(fechaStr + 'T12:00:00')
+  const idx = dt.getDay() === 0 ? 6 : dt.getDay() - 1
+  return DIAS_SEMANA[idx]
+}
 
 function formatNumber(n) {
   if (n == null) return '-'
@@ -33,6 +40,20 @@ function getEdadColor(dif) {
   return 'red'
 }
 
+function getNivelCargaStyle(nivel) {
+  if (nivel === 'horas_extras') return { background: 'rgba(239,68,68,0.12)', borderColor: '#ef4444' }
+  if (nivel === 'alto') return { background: 'rgba(251,146,60,0.1)', borderColor: '#f97316' }
+  return {}
+}
+
+function getNivelCargaLabel(dia) {
+  if (dia.nivel_carga === 'horas_extras')
+    return { text: 'HORAS EXTRAS', color: '#ef4444', icon: <AlertOctagon size={12} /> }
+  if (dia.nivel_carga === 'alto')
+    return { text: 'CARGA ALTA', color: '#f97316', icon: <AlertTriangle size={12} /> }
+  return null
+}
+
 const containerVariants = {
   hidden: { opacity: 0 },
   show: {
@@ -55,7 +76,43 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
   const [ajusteResumen, setAjusteResumen] = useState(null)
   const [ajusteOpen, setAjusteOpen] = useState(false)
   const [expandedFR, setExpandedFR] = useState(new Set())
+  const [gallinasInput, setGallinasInput] = useState({}) // {diaIdx: cantidad}
+  const [redistribuyendo, setRedistribuyendo] = useState(null) // índice del día en redistribución
   const ajusteInputRef = React.useRef(null)
+
+  const handleRegenerarConSabado = async () => {
+    try {
+      const gallinasMap = {}
+      proyeccion.eventos_gallinas?.forEach(e => { gallinasMap[e.fecha] = e.cantidad })
+      const data = await generarProyeccion({
+        fecha_inicio_semana: proyeccion.fecha_inicio,
+        dias_faena: 6,
+        pollos_por_dia: proyeccion.dias.length > 0
+          ? Math.round(proyeccion.total_pollos_semana / proyeccion.dias.length)
+          : 35000,
+        habilitar_sabado: true,
+        gallinas: Object.keys(gallinasMap).length > 0 ? gallinasMap : null,
+      })
+      setProyeccion(data)
+      toast.success('Proyección regenerada con sábado habilitado')
+    } catch (err) {
+      toast.error('Error: ' + (err.response?.data?.detail || err.message))
+    }
+  }
+
+  const handleRedistribuir = async (diaIdx) => {
+    if (!window.confirm('¿Redistribuir todos los lotes de este día a los días restantes?')) return
+    setRedistribuyendo(diaIdx)
+    try {
+      const data = await redistribuirDia(diaIdx)
+      setProyeccion(data)
+      toast.success('Lotes redistribuidos correctamente')
+    } catch (err) {
+      toast.error('Error al redistribuir: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setRedistribuyendo(null)
+    }
+  }
 
   if (!proyeccion || !proyeccion.dias) {
     return (
@@ -165,6 +222,65 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
           <div className="stat-value">{formatNumber(proyeccion.sofia)}</div>
         </div>
       </motion.div>
+
+      {/* Feriados aplicados */}
+      {proyeccion.feriados_aplicados && proyeccion.feriados_aplicados.length > 0 && (
+        <motion.div variants={itemVariants} style={{
+          padding: '0.7rem 1rem',
+          background: 'rgba(251, 146, 60, 0.1)',
+          border: '1px solid rgba(251, 146, 60, 0.3)',
+          borderRadius: 8,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          flexWrap: 'wrap',
+          fontSize: '0.85rem',
+          color: '#ea580c',
+        }}>
+          <Calendar size={16} />
+          <strong>Feriados saltados:</strong>
+          {proyeccion.feriados_aplicados.map(f => (
+            <span key={f.fecha} style={{
+              padding: '0.2rem 0.6rem',
+              background: 'rgba(251, 146, 60, 0.15)',
+              border: '1px solid rgba(251, 146, 60, 0.25)',
+              borderRadius: 16,
+              fontSize: '0.8rem',
+            }}>
+              {getDiaNombre(f.fecha)} — {f.nombre}
+            </span>
+          ))}
+        </motion.div>
+      )}
+
+      {/* Eventos de gallinas */}
+      {proyeccion.eventos_gallinas && proyeccion.eventos_gallinas.length > 0 && (
+        <motion.div variants={itemVariants} style={{
+          padding: '0.7rem 1rem',
+          background: 'rgba(139, 92, 246, 0.08)',
+          border: '1px solid rgba(139, 92, 246, 0.25)',
+          borderRadius: 8,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          flexWrap: 'wrap',
+          fontSize: '0.85rem',
+          color: '#7c3aed',
+        }}>
+          <strong>Gallinas livianas:</strong>
+          {proyeccion.eventos_gallinas.map(e => (
+            <span key={e.fecha} style={{
+              padding: '0.2rem 0.6rem',
+              background: 'rgba(139, 92, 246, 0.12)',
+              border: '1px solid rgba(139, 92, 246, 0.25)',
+              borderRadius: 16,
+              fontSize: '0.8rem',
+            }}>
+              {getDiaNombre(e.fecha)} — {formatNumber(e.cantidad)} gallinas
+            </span>
+          ))}
+        </motion.div>
+      )}
 
       {/* Ajuste con Oferta del Martes */}
       <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid var(--info)' }}>
@@ -578,7 +694,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
               </div>
               <div className="modal-body">
                 <p style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
-                  Mover <strong>{movingLote.lote.granja} G{movingLote.lote.galpon}</strong> ({formatNumber(movingLote.lote.cantidad)} pollos) desde {DIAS_SEMANA[movingLote.diaIdx]}:
+                  Mover <strong>{movingLote.lote.granja} G{movingLote.lote.galpon}</strong> ({formatNumber(movingLote.lote.cantidad)} pollos) desde {getDiaNombre(dias[movingLote.diaIdx]?.fecha)}:
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                   {dias.map((d, idx) => (
@@ -590,7 +706,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                         disabled={loading}
                         style={{ justifyContent: 'flex-start' }}
                       >
-                        <Calendar size={16} style={{ marginRight: 6 }} /> {DIAS_SEMANA[idx]} ({formatDate(d.fecha)}) — {formatNumber(d.total_pollos)} pollos
+                        <Calendar size={16} style={{ marginRight: 6 }} /> {getDiaNombre(d.fecha)} ({formatDate(d.fecha)}) — {formatNumber(d.total_pollos)} pollos
                       </button>
                     )
                   ))}
@@ -601,6 +717,33 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
         )}
       </AnimatePresence>
 
+      {/* Alerta: horas extras → sugerir sábado */}
+      {proyeccion.dias.some(d => d.alerta_horas_extras) && !proyeccion.dias.some(d => d.es_sabado) && (
+        <motion.div variants={itemVariants} style={{
+          padding: '0.75rem 1rem',
+          background: 'rgba(234,179,8,0.12)',
+          border: '1px solid rgba(234,179,8,0.4)',
+          borderRadius: 8,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+        }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.9rem', color: '#854d0e' }}>
+            <AlertTriangle size={16} />
+            Hay días con horas extra. Se recomienda habilitar el sábado para redistribuir la carga.
+          </span>
+          <button
+            className="btn btn-sm"
+            style={{ background: '#854d0e', color: 'white', whiteSpace: 'nowrap' }}
+            onClick={handleRegenerarConSabado}
+          >
+            Regenerar con sábado
+          </button>
+        </motion.div>
+      )}
+
       {/* Vista Cards */}
       {viewMode === 'cards' && (
         <motion.div
@@ -608,11 +751,39 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
           animate={{ opacity: 1, y: 0 }}
           className="proyeccion-grid"
         >
-          {dias.map((dia, diaIdx) => (
-            <div className="day-column" key={diaIdx}>
-              <div className="day-header">
-                <span>{DIAS_SEMANA[diaIdx]}</span>
-                <span className="day-total">{formatNumber(dia.total_pollos)}</span>
+          {dias.map((dia, diaIdx) => {
+            const nivelLabel = getNivelCargaLabel(dia)
+            const nivelStyle = getNivelCargaStyle(dia.nivel_carga)
+            return (
+            <div className="day-column" key={diaIdx} style={nivelStyle}>
+              <div className="day-header" style={dia.nivel_carga === 'horas_extras' ? { background: '#fef2f2', borderBottom: '2px solid #ef4444' } : dia.nivel_carga === 'alto' ? { borderBottom: '2px solid #f97316' } : {}}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span>{getDiaNombre(dia.fecha)}{dia.es_sabado ? ' (Sáb)' : ''}</span>
+                  {nivelLabel && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.65rem', fontWeight: 700, color: nivelLabel.color }}>
+                      {nivelLabel.icon} {nivelLabel.text}
+                    </span>
+                  )}
+                  {dia.gallinas_habilitado && (
+                    <span style={{ fontSize: '0.65rem', color: '#7c3aed', fontWeight: 600 }}>
+                      + {formatNumber(dia.gallinas_cantidad)} gallinas
+                    </span>
+                  )}
+                  {(dia.gallinas_habilitado || dia.nivel_carga === 'horas_extras') && dia.lotes.length > 0 && (
+                    <button
+                      className="btn btn-sm btn-outline"
+                      style={{ fontSize: '0.6rem', padding: '0.1rem 0.35rem', color: '#7c3aed', borderColor: '#7c3aed', marginTop: 2 }}
+                      onClick={() => handleRedistribuir(diaIdx)}
+                      disabled={redistribuyendo !== null}
+                      title="Redistribuir lotes de este día a los días restantes"
+                    >
+                      {redistribuyendo === diaIdx
+                        ? <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} />
+                        : 'Redistribuir'}
+                    </button>
+                  )}
+                </div>
+                <span className="day-total" style={dia.nivel_carga === 'horas_extras' ? { color: '#ef4444' } : {}}>{formatNumber(dia.total_pollos)}</span>
               </div>
               <div className="day-body">
                 {dia.lotes.length === 0 ? (
@@ -630,9 +801,16 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                     >
                       <div className="lote-header">
                         <span>{lote.granja} G{lote.galpon}</span>
-                        <span className={`badge badge-${lote.sexo === 'M' ? 'info' : lote.sexo === 'H' ? 'warning' : 'success'}`}>
-                          {lote.sexo || '-'}
-                        </span>
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          {lote.es_compra_terceros && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '0.1rem 0.4rem', background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: 12, fontSize: '0.65rem', color: '#7c3aed', fontWeight: 600 }}>
+                              <ShoppingCart size={10} /> Terceros
+                            </span>
+                          )}
+                          <span className={`badge badge-${lote.sexo === 'M' ? 'info' : lote.sexo === 'H' ? 'warning' : 'success'}`}>
+                            {lote.sexo || '-'}
+                          </span>
+                        </div>
                       </div>
                       <div className="lote-detail">
                         <span>Pollos: {formatNumber(lote.cantidad)}</span>
@@ -677,7 +855,8 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                 <span className="value">{formatNumber(dia.cajas_totales)}</span>
               </div>
             </div>
-          ))}
+            )
+          })}
         </motion.div>
       )}
 
@@ -716,7 +895,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                         <tr key={`${diaIdx}-${loteIdx}`}>
                           {loteIdx === 0 && (
                             <td rowSpan={dia.lotes.length + 1} style={{ verticalAlign: 'top', fontWeight: 600 }}>
-                              {DIAS_SEMANA[diaIdx]}
+                              {getDiaNombre(dia.fecha)}
                             </td>
                           )}
                           <td>{formatDate(dia.fecha)}</td>
@@ -743,7 +922,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                         </tr>
                       ))}
                       <tr className="row-subtotal" key={`sub-${diaIdx}`}>
-                        <td colSpan={4}><strong>Subtotal {DIAS_SEMANA[diaIdx]}</strong></td>
+                        <td colSpan={4}><strong>Subtotal {getDiaNombre(dia.fecha)}</strong></td>
                         <td className="text-right"><strong>{formatNumber(dia.total_pollos)}</strong></td>
                         <td></td>
                         <td></td>

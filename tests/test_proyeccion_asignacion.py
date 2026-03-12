@@ -38,6 +38,7 @@ def test_respeta_tope_diario_maximo_y_reporta_no_asignados():
     params = Parametros(
         pollos_diarios_objetivo_min=25000,
         pollos_diarios_objetivo_max=35000,
+        capacidad_maxima_planta=35000,
         edad_min_faena=38,
         edad_max_faena=43,
         peso_min_faena=2.8,
@@ -52,7 +53,7 @@ def test_respeta_tope_diario_maximo_y_reporta_no_asignados():
         params=params,
     )
 
-    assert all(d.total_pollos <= params.pollos_diarios_objetivo_max for d in semana.dias)
+    assert all(d.total_pollos <= params.capacidad_maxima_planta for d in semana.dias)
     assert len(semana.lotes_no_asignados) == 1
     assert semana.lotes_no_asignados[0].cantidad == 36000
     assert "tope diario máximo" in semana.lotes_no_asignados[0].motivo

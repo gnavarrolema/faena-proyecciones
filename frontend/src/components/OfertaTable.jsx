@@ -1,10 +1,11 @@
-import { useState } from 'react'
-import { motion } from 'framer-motion'
-import { BarChart2, Activity, Home, List, AlertCircle, Download } from 'lucide-react'
-import { generarProyeccion } from '../services/api'
+import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { BarChart2, Activity, Home, List, AlertCircle, Download, CalendarOff, Plus, X } from 'lucide-react'
+import toast from 'react-hot-toast'
+import { generarProyeccion, getFeriados, addFeriadoCustom, deleteFeriadoCustom } from '../services/api'
 import { exportOfertaPDF } from '../utils/pdfExport'
 
-const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
 function formatNumber(n) {
   if (n == null) return '-'
@@ -30,12 +31,63 @@ const itemVariants = {
   show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } }
 }
 
+function getDiaNombre(fechaStr) {
+  const dt = new Date(fechaStr + 'T12:00:00')
+  const idx = dt.getDay() === 0 ? 6 : dt.getDay() - 1
+  return DIAS_SEMANA[idx]
+}
+
 export default function OfertaTable({ oferta, onGenerarProyeccion }) {
   const [fechaInicio, setFechaInicio] = useState('')
-  const [pollosPorDia, setPollosPorDia] = useState(30000)
-  const [diasFaena, setDiasFaena] = useState(6)
+  const [pollosPorDia, setPollosPorDia] = useState(35000)
+  const [diasFaena, setDiasFaena] = useState(5)
+  const [habilitarSabado, setHabilitarSabado] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [feriadosSemana, setFeriadosSemana] = useState([])
+  const [feriadosLoading, setFeriadosLoading] = useState(false)
+  const [customFeriadoFecha, setCustomFeriadoFecha] = useState('')
+  const [customFeriadoDesc, setCustomFeriadoDesc] = useState('')
+  const [addingCustom, setAddingCustom] = useState(false)
+  // Gallinas livianas
+  const [gallinasDia, setGallinasDia] = useState({}) // {fecha_iso: cantidad}
+  const [gallinasInputFecha, setGallinasInputFecha] = useState('')
+  const [gallinasInputCant, setGallinasInputCant] = useState(25000)
+
+  // Cargar feriados cuando se selecciona fecha de inicio
+  useEffect(() => {
+    if (!fechaInicio) {
+      setFeriadosSemana([])
+      return
+    }
+
+    const cargarFeriados = async () => {
+      setFeriadosLoading(true)
+      try {
+        const dt = new Date(fechaInicio + 'T12:00:00')
+        const anio = dt.getFullYear()
+        const todos = await getFeriados(anio)
+
+        // Filtrar feriados que caen en la semana seleccionada (lunes a sábado)
+        const inicio = new Date(fechaInicio + 'T00:00:00')
+        const fin = new Date(inicio)
+        fin.setDate(fin.getDate() + (diasFaena >= 6 ? 5 : 4))
+
+        const diasReales = habilitarSabado ? 5 : (diasFaena >= 6 ? 5 : 4)
+        const enSemana = todos.filter(f => {
+          const fd = new Date(f.fecha + 'T12:00:00')
+          return fd >= inicio && fd <= fin && fd.getDay() !== 0 // excluir domingos
+        })
+        setFeriadosSemana(enSemana)
+      } catch (err) {
+        console.warn('Error cargando feriados:', err)
+        setFeriadosSemana([])
+      } finally {
+        setFeriadosLoading(false)
+      }
+    }
+    cargarFeriados()
+  }, [fechaInicio, diasFaena, habilitarSabado])
 
   if (!oferta || !oferta.ofertas || oferta.ofertas.length === 0) {
     return (
@@ -53,6 +105,44 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
     )
   }
 
+  const handleAddCustomFeriado = async () => {
+    if (!customFeriadoFecha) return
+    setAddingCustom(true)
+    try {
+      await addFeriadoCustom(customFeriadoFecha, customFeriadoDesc || 'Feriado personalizado')
+      toast.success('Feriado agregado')
+      setCustomFeriadoFecha('')
+      setCustomFeriadoDesc('')
+      // Re-cargar feriados
+      if (fechaInicio) {
+        const dt = new Date(fechaInicio + 'T12:00:00')
+        const todos = await getFeriados(dt.getFullYear())
+        const inicio = new Date(fechaInicio + 'T00:00:00')
+        const fin = new Date(inicio)
+        fin.setDate(fin.getDate() + (diasFaena >= 6 ? 5 : 4))
+        const enSemana = todos.filter(f => {
+          const fd = new Date(f.fecha + 'T12:00:00')
+          return fd >= inicio && fd <= fin && fd.getDay() !== 0
+        })
+        setFeriadosSemana(enSemana)
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error al agregar feriado')
+    } finally {
+      setAddingCustom(false)
+    }
+  }
+
+  const handleDeleteCustomFeriado = async (fecha) => {
+    try {
+      await deleteFeriadoCustom(fecha)
+      toast.success('Feriado eliminado')
+      setFeriadosSemana(prev => prev.filter(f => f.fecha !== fecha))
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error al eliminar feriado')
+    }
+  }
+
   const handleGenerar = async () => {
     if (!fechaInicio) {
       setError('Seleccione la fecha de inicio de la semana (lunes)')
@@ -65,6 +155,8 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
         fecha_inicio_semana: fechaInicio,
         dias_faena: diasFaena,
         pollos_por_dia: pollosPorDia,
+        habilitar_sabado: habilitarSabado,
+        gallinas: Object.keys(gallinasDia).length > 0 ? gallinasDia : null,
       })
       onGenerarProyeccion(data)
     } catch (err) {
@@ -76,6 +168,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
 
   // Resumen por granja
   const granjas = oferta.granjas || {}
+  const diasHabiles = diasFaena - feriadosSemana.length
 
   return (
     <motion.div
@@ -125,16 +218,218 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
               />
             </div>
             <div className="form-group">
-              <label>Días de Faena</label>
+              <label>Días de Faena (L-V)</label>
               <select
                 className="form-control"
                 value={diasFaena}
                 onChange={(e) => setDiasFaena(parseInt(e.target.value))}
               >
-                {[5, 6].map(d => <option key={d} value={d}>{d} días ({DIAS_SEMANA.slice(0, d).join(', ')})</option>)}
+                <option value={5}>5 días (Lun-Vie)</option>
               </select>
             </div>
           </div>
+
+          {/* Sábado + Gallinas */}
+          <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <label style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              fontSize: '0.9rem', cursor: 'pointer',
+              padding: '0.5rem 0.75rem',
+              background: habilitarSabado ? 'rgba(251, 146, 60, 0.1)' : '#f8fafc',
+              border: `1px solid ${habilitarSabado ? 'rgba(251, 146, 60, 0.3)' : 'var(--border)'}`,
+              borderRadius: 8,
+            }}>
+              <input
+                type="checkbox"
+                checked={habilitarSabado}
+                onChange={(e) => setHabilitarSabado(e.target.checked)}
+              />
+              <span style={{ fontWeight: 600, color: habilitarSabado ? '#ea580c' : 'var(--text-light)' }}>
+                Habilitar Sábado (máx. 20.000 aves)
+              </span>
+              {habilitarSabado && (
+                <span style={{ fontSize: '0.75rem', color: '#ea580c', fontStyle: 'italic' }}>
+                  Solo para feriados o gallinas
+                </span>
+              )}
+            </label>
+          </div>
+
+          {/* Gallinas livianas */}
+          {fechaInicio && (
+            <div style={{
+              padding: '0.75rem 1rem',
+              background: Object.keys(gallinasDia).length > 0 ? 'rgba(139, 92, 246, 0.08)' : '#f8fafc',
+              border: `1px solid ${Object.keys(gallinasDia).length > 0 ? 'rgba(139, 92, 246, 0.25)' : 'var(--border)'}`,
+              borderRadius: 8,
+              marginBottom: '1rem',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#7c3aed' }}>
+                  Faena de Gallinas Livianas
+                </span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>
+                  (reduce la capacidad de pollos ese día)
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-light)', display: 'block', marginBottom: 2 }}>Fecha</label>
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={gallinasInputFecha}
+                    onChange={e => setGallinasInputFecha(e.target.value)}
+                    style={{ fontSize: '0.85rem', padding: '0.35rem 0.5rem' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-light)', display: 'block', marginBottom: 2 }}>Cantidad gallinas</label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    value={gallinasInputCant}
+                    onChange={e => setGallinasInputCant(parseInt(e.target.value) || 0)}
+                    style={{ fontSize: '0.85rem', padding: '0.35rem 0.5rem', width: 120 }}
+                  />
+                </div>
+                <button
+                  className="btn btn-sm btn-outline"
+                  disabled={!gallinasInputFecha || gallinasInputCant <= 0}
+                  onClick={() => {
+                    setGallinasDia(prev => ({ ...prev, [gallinasInputFecha]: gallinasInputCant }))
+                    setGallinasInputFecha('')
+                  }}
+                  style={{ padding: '0.35rem 0.7rem' }}
+                >
+                  <Plus size={14} /> Agregar
+                </button>
+              </div>
+              {Object.keys(gallinasDia).length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.5rem' }}>
+                  {Object.entries(gallinasDia).map(([fecha, cant]) => (
+                    <span key={fecha} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      padding: '0.3rem 0.7rem',
+                      background: 'rgba(139, 92, 246, 0.12)',
+                      border: '1px solid rgba(139, 92, 246, 0.3)',
+                      borderRadius: 20, fontSize: '0.8rem', color: '#7c3aed',
+                    }}>
+                      <strong>{getDiaNombre(fecha)}</strong> — {cant.toLocaleString('es-AR')} gallinas
+                      <button
+                        onClick={() => setGallinasDia(prev => {
+                          const next = { ...prev }
+                          delete next[fecha]
+                          return next
+                        })}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#7c3aed', display: 'flex' }}
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Feriados detectados en la semana */}
+          <AnimatePresence>
+            {fechaInicio && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                style={{ marginBottom: '1rem', overflow: 'hidden' }}
+              >
+                <div style={{
+                  padding: '0.85rem 1rem',
+                  background: feriadosSemana.length > 0 ? 'rgba(251, 146, 60, 0.1)' : 'rgba(34, 197, 94, 0.08)',
+                  border: `1px solid ${feriadosSemana.length > 0 ? 'rgba(251, 146, 60, 0.35)' : 'rgba(34, 197, 94, 0.25)'}`,
+                  borderRadius: 8,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: feriadosSemana.length > 0 ? '0.6rem' : 0 }}>
+                    <CalendarOff size={16} color={feriadosSemana.length > 0 ? '#ea580c' : '#16a34a'} />
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: feriadosSemana.length > 0 ? '#ea580c' : '#16a34a' }}>
+                      {feriadosLoading ? 'Verificando feriados...' :
+                        feriadosSemana.length > 0
+                          ? `${feriadosSemana.length} feriado${feriadosSemana.length > 1 ? 's' : ''} en esta semana — se saltarán al generar (${diasHabiles} días hábiles)`
+                          : 'Sin feriados en esta semana'
+                      }
+                    </span>
+                  </div>
+
+                  {feriadosSemana.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.6rem' }}>
+                      {feriadosSemana.map(f => (
+                        <span key={f.fecha} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          padding: '0.3rem 0.7rem',
+                          background: f.tipo === 'custom' ? 'rgba(139, 92, 246, 0.12)' : 'rgba(251, 146, 60, 0.15)',
+                          border: `1px solid ${f.tipo === 'custom' ? 'rgba(139, 92, 246, 0.3)' : 'rgba(251, 146, 60, 0.3)'}`,
+                          borderRadius: 20, fontSize: '0.8rem',
+                          color: f.tipo === 'custom' ? '#7c3aed' : '#ea580c',
+                        }}>
+                          <CalendarOff size={12} />
+                          <strong>{getDiaNombre(f.fecha)}</strong> — {f.nombre}
+                          {f.tipo === 'custom' && (
+                            <button
+                              onClick={() => handleDeleteCustomFeriado(f.fecha)}
+                              style={{
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                padding: 0, marginLeft: 2, color: '#7c3aed',
+                                display: 'flex', alignItems: 'center',
+                              }}
+                              title="Eliminar feriado"
+                            >
+                              <X size={12} />
+                            </button>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Agregar feriado custom */}
+                  <div style={{
+                    display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap',
+                    paddingTop: feriadosSemana.length > 0 ? '0.4rem' : '0.6rem',
+                    borderTop: feriadosSemana.length > 0 ? '1px solid rgba(0,0,0,0.06)' : 'none',
+                  }}>
+                    <div style={{ flex: '0 0 auto' }}>
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-light)', display: 'block', marginBottom: 2 }}>Fecha</label>
+                      <input
+                        type="date"
+                        className="form-control"
+                        value={customFeriadoFecha}
+                        onChange={e => setCustomFeriadoFecha(e.target.value)}
+                        style={{ fontSize: '0.85rem', padding: '0.35rem 0.5rem' }}
+                      />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-light)', display: 'block', marginBottom: 2 }}>Descripción (opcional)</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="Ej: Feriado puente, Compensación..."
+                        value={customFeriadoDesc}
+                        onChange={e => setCustomFeriadoDesc(e.target.value)}
+                        style={{ fontSize: '0.85rem', padding: '0.35rem 0.5rem' }}
+                      />
+                    </div>
+                    <button
+                      className="btn btn-sm btn-outline"
+                      disabled={!customFeriadoFecha || addingCustom}
+                      onClick={handleAddCustomFeriado}
+                      style={{ whiteSpace: 'nowrap', padding: '0.35rem 0.7rem' }}
+                    >
+                      <Plus size={14} /> Agregar feriado
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {error && (
             <div style={{
@@ -156,7 +451,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
             {loading ? (
               <><span className="spinner" style={{ width: 16, height: 16, marginRight: 6 }}></span> Generando...</>
             ) : (
-              <><BarChart2 size={16} /> Generar Proyección Automática</>
+              <><BarChart2 size={16} /> Generar Proyección Automática{feriadosSemana.length > 0 ? ` (${diasHabiles} días hábiles)` : ''}{habilitarSabado ? ' + Sábado' : ''}</>
             )}
           </button>
         </div>

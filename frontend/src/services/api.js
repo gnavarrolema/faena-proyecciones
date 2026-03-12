@@ -89,4 +89,74 @@ export const agregarLote = (data) =>
 export const eliminarLote = (diaIndex, loteIndex) =>
   api.delete(`/proyeccion/lote/${diaIndex}/${loteIndex}`).then(r => r.data);
 
+// ─── Feriados ──────────────────────────────────────────────────────────────────
+
+export const getFeriados = (anio) => api.get(`/feriados?anio=${anio}`).then(r => r.data);
+export const getFeriadosCustom = () => api.get('/feriados/custom').then(r => r.data);
+export const addFeriadoCustom = (fecha, descripcion) =>
+  api.post('/feriados/custom', { fecha, descripcion }).then(r => r.data);
+export const deleteFeriadoCustom = (fecha) =>
+  api.delete(`/feriados/custom/${fecha}`).then(r => r.data);
+
+// ─── Producción Semanal ────────────────────────────────────────────────────────
+
+export const uploadProduccion = (file, sheetName) => {
+  const form = new FormData();
+  form.append('file', file);
+  if (sheetName) form.append('sheet_name', sheetName);
+  return api.post('/produccion/upload', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then(r => r.data);
+};
+
+export const getProduccion = () => api.get('/produccion').then(r => r.data);
+export const getSimulacionMortalidad = () => api.get('/produccion/simulacion').then(r => r.data);
+export const deleteProduccion = () => api.delete('/produccion').then(r => r.data);
+
+// ─── Desvío de Peso ────────────────────────────────────────────────────────────
+
+export const cargarPesosReales = (pesos) =>
+  api.post('/desvio/pesos-reales', { pesos }).then(r => r.data);
+export const getDesvio = () => api.get('/desvio').then(r => r.data);
+export const deletePesosReales = () => api.delete('/desvio').then(r => r.data);
+
+// ─── Gallinas Livianas ────────────────────────────────────────────────────────
+
+export const configurarGallinas = (diaIndex, cantidad, descripcion) =>
+  api.post('/proyeccion/gallinas', { dia_index: diaIndex, cantidad, descripcion }).then(r => r.data);
+export const quitarGallinas = (diaIndex) =>
+  api.delete(`/proyeccion/gallinas/${diaIndex}`).then(r => r.data);
+
+// ─── Escenarios ────────────────────────────────────────────────────────────────
+
+export const guardarEscenario = (nombre, descripcion) =>
+  api.post('/escenarios/guardar', { nombre, descripcion }).then(r => r.data);
+export const listarEscenarios = () => api.get('/escenarios').then(r => r.data);
+export const getEscenario = (id) => api.get(`/escenarios/${id}`).then(r => r.data);
+export const deleteEscenario = (id) => api.delete(`/escenarios/${id}`).then(r => r.data);
+export const compararEscenarios = (ids) =>
+  api.post('/escenarios/comparar', { ids }).then(r => r.data);
+export const cargarEscenario = (id) =>
+  api.post(`/escenarios/${id}/cargar`).then(r => r.data);
+
+// ─── Producción: referencia cruzada ────────────────────────────────────────────
+
+export const getReferenciaProduccion = (fechaFaena) =>
+  api.get(`/produccion/referencia?fecha_faena=${fechaFaena}`).then(r => r.data);
+
+// ─── Redistribuir día ──────────────────────────────────────────────────────────
+
+export const redistribuirDia = (diaIndex) =>
+  api.post('/proyeccion/redistribuir-dia', { dia_index: diaIndex }).then(r => r.data);
+
+// ─── Déficit entre semanas ─────────────────────────────────────────────────────
+
+export const cargarDeficit = () =>
+  api.post('/proyeccion/cargar-deficit').then(r => r.data);
+export const getDeficitGuardado = () =>
+  api.get('/proyeccion/deficit-guardado').then(r => r.data);
+export const clearDeficitGuardado = () =>
+  api.delete('/proyeccion/deficit-guardado').then(r => r.data);
+
 export default api;
+

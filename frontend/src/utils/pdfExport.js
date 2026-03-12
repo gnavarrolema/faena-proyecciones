@@ -1,7 +1,14 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
-const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+
+function getDiaNombre(fechaStr) {
+  if (!fechaStr) return '-'
+  const dt = new Date(fechaStr + 'T12:00:00')
+  const idx = dt.getDay() === 0 ? 6 : dt.getDay() - 1
+  return DIAS_SEMANA[idx]
+}
 
 const PRIMARY = [26, 86, 50]       // #1a5632
 const PRIMARY_DARK = [15, 61, 34]  // #0f3d22
@@ -217,7 +224,7 @@ export function exportProyeccionPDF(proyeccion) {
     dia.lotes.forEach((lote) => {
       bodyRows.push({
         content: [
-          DIAS_SEMANA[diaIdx],
+          getDiaNombre(dia.fecha),
           dia.fecha || '-',
           lote.granja,
           lote.galpon,
@@ -237,7 +244,7 @@ export function exportProyeccionPDF(proyeccion) {
     // Subtotal row
     bodyRows.push({
       content: [
-        `Subtotal ${DIAS_SEMANA[diaIdx]}`,
+        `Subtotal ${getDiaNombre(dia.fecha)}`,
         '',
         '',
         '',
@@ -310,7 +317,7 @@ export function exportProyeccionPDF(proyeccion) {
       l.dias_elegibles ? l.dias_elegibles.map(d => {
         const fecha = new Date(d + 'T12:00:00')
         const idx = (fecha.getDay() + 6) % 7
-        return DIAS_SEMANA[idx] || d
+        return getDiaNombre(d)
       }).join(', ') : '-',
       l.motivo || '-',
     ])
@@ -438,7 +445,7 @@ export function exportResumenPDF(proyeccion) {
   y += 4
 
   const dailyRows = dias.map((dia, idx) => [
-    DIAS_SEMANA[idx],
+    getDiaNombre(dia.fecha),
     dia.fecha || '-',
     formatNumber(dia.total_pollos),
     dia.lotes.filter(l => l.cantidad > 0).length,
@@ -504,7 +511,7 @@ export function exportResumenPDF(proyeccion) {
     })
   })
 
-  const farmHeaders = ['Granja', ...dias.map((_, idx) => DIAS_SEMANA[idx]), 'Total', 'Cajas']
+  const farmHeaders = ['Granja', ...dias.map((dia) => getDiaNombre(dia.fecha)), 'Total', 'Cajas']
   const farmBody = Object.entries(porGranja)
     .sort((a, b) => b[1].total - a[1].total)
     .map(([granja, info]) => [

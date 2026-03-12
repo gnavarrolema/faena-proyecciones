@@ -296,6 +296,23 @@ def delete_ofertas_martes() -> None:
     get_storage().delete(OFERTAS_MARTES_KEY)
 
 
+# ─── Feriados Custom (personalizados por el usuario) ─────────────────────────
+
+FERIADOS_CUSTOM_KEY = "feriados_custom"
+
+
+def save_feriados_custom(feriados_data: list[dict]) -> None:
+    get_storage().save(FERIADOS_CUSTOM_KEY, feriados_data)
+
+
+def load_feriados_custom() -> Optional[list[dict]]:
+    return get_storage().load(FERIADOS_CUSTOM_KEY)
+
+
+def delete_feriados_custom() -> None:
+    get_storage().delete(FERIADOS_CUSTOM_KEY)
+
+
 def save_upload(filename: str, content: bytes) -> str:
     """Guarda un archivo Excel subido. Retorna la key usada."""
     from datetime import datetime
@@ -306,3 +323,77 @@ def save_upload(filename: str, content: bytes) -> str:
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
     return key
+
+
+# ─── Datos de Producción (semanas + mortalidad) ─────────────────────────────────
+
+PRODUCCION_KEY = "produccion"
+
+
+def save_produccion(data: list[dict]) -> None:
+    get_storage().save(PRODUCCION_KEY, data)
+
+
+def load_produccion() -> Optional[list[dict]]:
+    return get_storage().load(PRODUCCION_KEY)
+
+
+def delete_produccion() -> None:
+    get_storage().delete(PRODUCCION_KEY)
+
+
+# ─── Pesos Reales (desvío proyectado vs real) ───────────────────────────────────
+
+PESOS_REALES_KEY = "pesos_reales"
+
+
+def save_pesos_reales(data: list[dict]) -> None:
+    get_storage().save(PESOS_REALES_KEY, data)
+
+
+def load_pesos_reales() -> Optional[list[dict]]:
+    return get_storage().load(PESOS_REALES_KEY)
+
+
+def delete_pesos_reales() -> None:
+    get_storage().delete(PESOS_REALES_KEY)
+
+
+# ─── Escenarios ─────────────────────────────────────────────────────────────────
+
+ESCENARIOS_PREFIX = "escenarios/"
+
+
+def save_escenario(escenario_id: str, data: dict) -> None:
+    get_storage().save(f"{ESCENARIOS_PREFIX}{escenario_id}", data)
+
+
+def load_escenario(escenario_id: str) -> Optional[dict]:
+    return get_storage().load(f"{ESCENARIOS_PREFIX}{escenario_id}")
+
+
+def delete_escenario(escenario_id: str) -> None:
+    get_storage().delete(f"{ESCENARIOS_PREFIX}{escenario_id}")
+
+
+def list_escenarios() -> list[str]:
+    """Lista IDs de escenarios guardados."""
+    keys = get_storage().list_keys(ESCENARIOS_PREFIX)
+    return [k.replace(ESCENARIOS_PREFIX, "") for k in keys]
+
+
+# ─── Déficit entre semanas ───────────────────────────────────────────────────────
+
+DEFICIT_KEY = "deficit_semana_anterior"
+
+
+def save_deficit(data: dict) -> None:
+    get_storage().save(DEFICIT_KEY, data)
+
+
+def load_deficit() -> Optional[dict]:
+    return get_storage().load(DEFICIT_KEY)
+
+
+def delete_deficit() -> None:
+    get_storage().delete(DEFICIT_KEY)

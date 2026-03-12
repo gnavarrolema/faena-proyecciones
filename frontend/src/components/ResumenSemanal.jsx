@@ -1,13 +1,23 @@
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { TrendingUp, Calendar, Home, Download, PieChart } from 'lucide-react'
+import { TrendingUp, Calendar, Home, Download, PieChart, Factory } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { exportResumenPDF } from '../utils/pdfExport'
+import { getReferenciaProduccion, cargarDeficit } from '../services/api'
 
 function formatNumber(n) {
   if (n == null) return '-'
   return n.toLocaleString('es-AR')
 }
 
-const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+
+function getDiaNombre(fechaStr) {
+  if (!fechaStr) return '-'
+  const dt = new Date(fechaStr + 'T12:00:00')
+  const idx = dt.getDay() === 0 ? 6 : dt.getDay() - 1
+  return DIAS_SEMANA[idx]
+}
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -23,6 +33,28 @@ const itemVariants = {
 }
 
 export default function ResumenSemanal({ proyeccion }) {
+  const [refProduccion, setRefProduccion] = useState(null)
+  const [deficitLoading, setDeficitLoading] = useState(false)
+
+  useEffect(() => {
+    if (!proyeccion?.fecha_inicio) { setRefProduccion(null); return }
+    getReferenciaProduccion(proyeccion.fecha_inicio)
+      .then(data => setRefProduccion(data))
+      .catch(() => setRefProduccion(null))
+  }, [proyeccion?.fecha_inicio])
+
+  const handleCargarDeficit = async () => {
+    setDeficitLoading(true)
+    try {
+      const result = await cargarDeficit()
+      toast.success(result.mensaje)
+    } catch (err) {
+      toast.error('Error: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setDeficitLoading(false)
+    }
+  }
+
   if (!proyeccion || !proyeccion.dias) {
     return (
       <motion.div
@@ -109,10 +141,20 @@ export default function ResumenSemanal({ proyeccion }) {
               </thead>
               <tbody>
                 {dias.map((dia, idx) => (
-                  <tr key={idx} style={{ transition: 'background-color 0.2s' }}>
-                    <td><strong>{DIAS_SEMANA[idx]}</strong></td>
+                  <tr key={idx} style={{
+                    transition: 'background-color 0.2s',
+                    background: dia.nivel_carga === 'horas_extras' ? 'rgba(239,68,68,0.06)' : dia.nivel_carga === 'alto' ? 'rgba(251,146,60,0.06)' : undefined,
+                  }}>
+                    <td>
+                      <strong>{getDiaNombre(dia.fecha)}</strong>
+                      {dia.es_sabado && <span style={{ fontSize: '0.7rem', color: '#ea580c', marginLeft: 4 }}>(Sáb)</span>}
+                    </td>
                     <td>{dia.fecha}</td>
-                    <td className="text-right">{formatNumber(dia.total_pollos)}</td>
+                    <td className="text-right" style={dia.nivel_carga === 'horas_extras' ? { color: '#ef4444', fontWeight: 700 } : {}}>
+                      {formatNumber(dia.total_pollos)}
+                      {dia.alerta_horas_extras && <span style={{ fontSize: '0.7rem', color: '#ef4444', marginLeft: 4 }}>HE</span>}
+                      {dia.gallinas_habilitado && <span style={{ fontSize: '0.7rem', color: '#7c3aed', marginLeft: 4 }}>+{formatNumber(dia.gallinas_cantidad)}g</span>}
+                    </td>
                     <td className="text-right">{dia.lotes.filter(l => l.cantidad > 0).length}</td>
                     <td className="text-right">{dia.peso_promedio_ponderado?.toFixed(2)} kg</td>
                     <td className="text-right">{dia.diferencia_edad_promedio?.toFixed(1)}</td>
@@ -148,7 +190,7 @@ export default function ResumenSemanal({ proyeccion }) {
                 <tr>
                   <th>Granja</th>
                   {dias.map((_, idx) => (
-                    <th key={idx} className="text-right">{DIAS_SEMANA[idx]}</th>
+                    <th key={idx} className="text-right">{getDiaNombre(dias[idx]?.fecha)}</th>
                   ))}
                   <th className="text-right">Total</th>
                   <th className="text-right">Cajas</th>
@@ -258,10 +300,73 @@ export default function ResumenSemanal({ proyeccion }) {
                   </tbody>
                 </table>
               </div>
+              {pollosNoAsignados > 0 && (
+                <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    className="btn btn-sm btn-outline"
+                    onClick={handleCargarDeficit}
+                    disabled={deficitLoading}
+                    style={{ borderColor: '#f97316', color: '#f97316' }}
+                  >
+                    {deficitLoading
+                      ? 'Guardando...'
+                      : `Trasladar ${lotesNA.length} lote${lotesNA.length !== 1 ? 's' : ''} a semana siguiente`}
+                  </button>
+                </div>
+              )}
             </div>
           </motion.div>
         )
       })()}
+
+      {/* Referencia de Producción */}
+      {refProduccion?.encontrada && (
+        <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid #6366f1' }}>
+          <div className="card-header">
+            <h2><Factory size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Referencia de Producción</h2>
+          </div>
+          <div className="card-body">
+            <p style={{ marginBottom: '1rem', fontSize: '0.8rem', color: 'var(--text-light)' }}>
+              Dato macro de carga en granja (semana {refProduccion.semana_produccion.fecha_desde} — {refProduccion.semana_produccion.fecha_hasta}).
+              La oferta es el dato preciso; este es contexto para validar que no falten lotes.
+            </p>
+            <div className="stats-grid">
+              <div className="stat-card">
+                <div className="stat-label">Cargados en granja</div>
+                <div className="stat-value">{formatNumber(refProduccion.semana_produccion.pollitos_cargados)}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Disponible est. (6.5% mort.)</div>
+                <div className="stat-value blue">
+                  {formatNumber(
+                    refProduccion.semana_produccion.simulaciones.find(
+                      s => Math.abs(s.tasa_mortalidad - 0.065) < 0.001
+                    )?.pollitos_disponibles
+                  )}
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Oferta actual proyectada</div>
+                <div className="stat-value green">{formatNumber(refProduccion.total_oferta_actual)}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Cobertura oferta/disponible</div>
+                <div className="stat-value" style={{
+                  color: refProduccion.cobertura_pct == null
+                    ? 'var(--text-light)'
+                    : refProduccion.cobertura_pct > 105
+                    ? '#ef4444'
+                    : refProduccion.cobertura_pct >= 80
+                    ? '#22c55e'
+                    : '#f97316'
+                }}>
+                  {refProduccion.cobertura_pct != null ? `${refProduccion.cobertura_pct}%` : '-'}
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
     </motion.div>
   )
 }

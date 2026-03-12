@@ -1,20 +1,26 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FolderUp, List, KanbanSquare, TrendingUp, Settings2, Bird, LogOut, Loader2 } from 'lucide-react'
+import { FolderUp, List, KanbanSquare, TrendingUp, Settings2, Bird, LogOut, Loader2, Factory, Scale, Layers } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { getOferta, getProyeccion } from '../services/api'
+import { getOferta, getProyeccion, getDeficitGuardado, clearDeficitGuardado } from '../services/api'
 import UploadOferta from './UploadOferta'
 import OfertaTable from './OfertaTable'
 import ProyeccionView from './ProyeccionView'
 import ParametrosPanel from './ParametrosPanel'
 import ResumenSemanal from './ResumenSemanal'
+import ProduccionView from './ProduccionView'
+import DesvioView from './DesvioView'
+import EscenariosView from './EscenariosView'
 
 const TABS = [
     { id: 'upload', label: 'Cargar Oferta', icon: <FolderUp size={16} /> },
     { id: 'oferta', label: 'Oferta', icon: <List size={16} /> },
     { id: 'proyeccion', label: 'Proyección', icon: <KanbanSquare size={16} /> },
     { id: 'resumen', label: 'Resumen', icon: <TrendingUp size={16} /> },
+    { id: 'produccion', label: 'Producción', icon: <Factory size={16} /> },
+    { id: 'desvios', label: 'Desvíos', icon: <Scale size={16} /> },
+    { id: 'escenarios', label: 'Escenarios', icon: <Layers size={16} /> },
     { id: 'parametros', label: 'Parámetros', icon: <Settings2 size={16} /> },
 ]
 
@@ -29,6 +35,7 @@ const MainApp = () => {
     const [oferta, setOferta] = useState(null)
     const [proyeccion, setProyeccion] = useState(null)
     const [initialLoading, setInitialLoading] = useState(true)
+    const [deficitGuardado, setDeficitGuardado] = useState(null)
     const { logout } = useAuth();
     const navigate = useNavigate();
 
@@ -62,6 +69,13 @@ const MainApp = () => {
             }
         };
         cargarDatos();
+    }, []);
+
+    // Cargar déficit de semana anterior al iniciar
+    useEffect(() => {
+        getDeficitGuardado()
+            .then(d => { if (d.existe) setDeficitGuardado(d) })
+            .catch(() => {})
     }, []);
 
     const handleLogout = () => {
@@ -113,6 +127,12 @@ const MainApp = () => {
                                         setActiveTab('oferta')
                                     }}
                                     hayDatosExistentes={!!(oferta || proyeccion)}
+                                    deficitGuardado={deficitGuardado}
+                                    onClearDeficit={() => {
+                                        clearDeficitGuardado()
+                                            .then(() => setDeficitGuardado(null))
+                                            .catch(() => {})
+                                    }}
                                 />
                             )}
 
@@ -137,6 +157,21 @@ const MainApp = () => {
                                 <ResumenSemanal proyeccion={proyeccion} />
                             )}
 
+                            {activeTab === 'produccion' && (
+                                <ProduccionView />
+                            )}
+
+                            {activeTab === 'desvios' && (
+                                <DesvioView proyeccion={proyeccion} />
+                            )}
+
+                            {activeTab === 'escenarios' && (
+                                <EscenariosView
+                                    proyeccion={proyeccion}
+                                    setProyeccion={setProyeccion}
+                                />
+                            )}
+
                             {activeTab === 'parametros' && (
                                 <ParametrosPanel />
                             )}
@@ -149,3 +184,4 @@ const MainApp = () => {
 }
 
 export default MainApp
+

@@ -3,6 +3,7 @@ Motor de cálculo para la proyección de faena avícola.
 Replica la lógica de la hoja PROYEC1 del Excel.
 """
 from datetime import date, timedelta
+
 from typing import List, Optional
 from pydantic import BaseModel
 import math
@@ -25,8 +26,10 @@ class Parametros(BaseModel):
     peso_min_faena: float = 2.80   # kg mínimo peso vivo aceptable
     peso_max_faena: float = 3.20   # kg máximo peso vivo aceptable
     descuento_sin_sexar: float = 0.04  # 4%
-    pollos_diarios_objetivo_min: int = 25000
-    pollos_diarios_objetivo_max: int = 35000
+    pollos_diarios_objetivo_min: int = 33000   # rango práctico inferior
+    pollos_diarios_objetivo_max: int = 38000   # rango práctico superior (objetivo)
+    capacidad_maxima_planta: int = 42000       # capacidad planta (horas extras a partir de aquí)
+    limite_sabado: int = 20000                 # máximo estricto para sábados
     descuento_sofia: int = 10000
 
 
@@ -72,6 +75,9 @@ class LoteProyectado(BaseModel):
     fecha_peso_original: Optional[date] = None
     ganancia_diaria_original: Optional[float] = None
     fecha_ingreso_original: Optional[date] = None
+    # Compra a terceros
+    es_compra_terceros: bool = False
+    motivo_compra: Optional[str] = None
 
 
 class DiaFaena(BaseModel):
@@ -83,6 +89,13 @@ class DiaFaena(BaseModel):
     diferencia_edad_promedio: float = 0.0
     calibre_promedio_ponderado: float = 0.0
     cajas_totales: float = 0.0
+    # Alertas de carga / horas extras
+    nivel_carga: str = "normal"       # "normal" | "alto" | "horas_extras"
+    alerta_horas_extras: bool = False
+    es_sabado: bool = False
+    # Gallinas livianas
+    gallinas_cantidad: int = 0
+    gallinas_habilitado: bool = False
 
 
 class LoteNoAsignado(BaseModel):
@@ -109,6 +122,19 @@ class LoteFueraRango(BaseModel):
     detalle_por_dia: List[dict] = []
 
 
+class FeriadoAplicado(BaseModel):
+    """Feriado que fue saltado al generar la proyección."""
+    fecha: date
+    nombre: str
+
+
+class EventoGallinas(BaseModel):
+    """Evento de faena de gallinas livianas en un día."""
+    fecha: date
+    cantidad: int
+    descripcion: str = "Faena de gallinas livianas"
+
+
 class SemanaFaena(BaseModel):
     """Agrupación de días para una semana de faena."""
     fecha_inicio: date  # lunes
@@ -122,6 +148,8 @@ class SemanaFaena(BaseModel):
     total_pollos_no_asignados: int = 0
     lotes_fuera_rango: List[LoteFueraRango] = []
     total_pollos_fuera_rango: int = 0
+    feriados_aplicados: List[FeriadoAplicado] = []
+    eventos_gallinas: List[EventoGallinas] = []
 
 
 class AjusteMartesResumen(BaseModel):
@@ -365,15 +393,45 @@ def calcular_lote_proyectado(
     )
 
 
-def calcular_dia_faena(fecha: date, lotes: List[LoteProyectado]) -> DiaFaena:
-    """Calcula los agregados de un día de faena."""
+def calcular_dia_faena(
+    fecha: date,
+    lotes: List[LoteProyectado],
+    params: Optional["Parametros"] = None,
+    gallinas_cantidad: int = 0,
+) -> DiaFaena:
+    """Calcula los agregados de un día de faena, incluyendo alertas de carga."""
     lotes_reales = [l for l in lotes if l.cantidad > 0]
     total = sum(l.cantidad for l in lotes_reales)
+
+    es_sabado = fecha.weekday() == 5  # 5 = sábado
+
+    # Determinar nivel de carga
+    nivel_carga = "normal"
+    alerta_horas_extras = False
+    if params:
+        capacidad = params.limite_sabado if es_sabado else params.capacidad_maxima_planta
+        total_con_gallinas = total + gallinas_cantidad
+        if total_con_gallinas > capacidad:
+            nivel_carga = "horas_extras"
+            alerta_horas_extras = True
+        elif total_con_gallinas > params.pollos_diarios_objetivo_max:
+            nivel_carga = "alto"
+    else:
+        if total > 42000:
+            nivel_carga = "horas_extras"
+            alerta_horas_extras = True
+        elif total > 38000:
+            nivel_carga = "alto"
 
     dia = DiaFaena(
         fecha=fecha,
         lotes=lotes,
         total_pollos=total,
+        nivel_carga=nivel_carga,
+        alerta_horas_extras=alerta_horas_extras,
+        es_sabado=es_sabado,
+        gallinas_cantidad=gallinas_cantidad,
+        gallinas_habilitado=gallinas_cantidad > 0,
     )
 
     if lotes_reales:
@@ -523,7 +581,7 @@ def _construir_motivo_fuera_rango(
     return "; ".join(razones) if razones else "Fuera de rango edad/peso en todos los días"
 
 
-def _evaluar_elegibilidad_lote(
+def evaluar_elegibilidad_lote(
     oferta: LoteOferta,
     fecha_dia: date,
     params: Parametros,
@@ -551,9 +609,11 @@ def _evaluar_elegibilidad_lote(
 def generar_proyeccion(
     ofertas: List[LoteOferta],
     fecha_inicio_semana: date,
-    dias_faena: int = 6,
-    pollos_por_dia: int = 30000,
+    dias_faena: int = 5,
+    pollos_por_dia: int = 35000,
     params: Optional[Parametros] = None,
+    feriados: Optional[dict] = None,
+    gallinas: Optional[dict] = None,
 ) -> SemanaFaena:
     """
     Genera la proyección completa de faena para una semana.
@@ -577,19 +637,55 @@ def generar_proyeccion(
     Fase 4 – Excedentes:
         Lotes que no pudieron asignarse se distribuyen al día elegible
         menos cargado si está dentro del máximo tolerable.
+
+    Args:
+        feriados: dict[date, str] con fechas de feriados a saltar.
+                  Si es None, se generan días consecutivos como antes.
+        gallinas: dict[date_str, int] con cantidades de gallinas por día.
+                  Reduce la capacidad disponible para pollos en ese día.
     """
     if params is None:
         params = Parametros()
+
+    if gallinas is None:
+        gallinas = {}
 
     objetivo_preferido = max(
         params.pollos_diarios_objetivo_min,
         min(pollos_por_dia, params.pollos_diarios_objetivo_max),
     )
-    objetivo_max = params.pollos_diarios_objetivo_max
 
-    fechas_dias = [
-        fecha_inicio_semana + timedelta(days=i) for i in range(dias_faena)
-    ]
+    # Generar días hábiles saltando feriados y domingos
+    if feriados:
+        from .feriados import generar_dias_habiles
+        incluir_sabado = dias_faena >= 6
+        fechas_dias = generar_dias_habiles(
+            fecha_inicio_semana, dias_faena, feriados,
+            incluir_sabado=incluir_sabado,
+        )
+    else:
+        fechas_dias = [
+            fecha_inicio_semana + timedelta(days=i) for i in range(dias_faena)
+        ]
+
+    # Capacidad máxima por día: sábados = limite_sabado, L-V = capacidad_maxima_planta
+    # Se descuenta la capacidad ocupada por gallinas livianas
+    def _capacidad_dia(d_idx: int) -> int:
+        fecha = fechas_dias[d_idx]
+        es_sabado = fecha.weekday() == 5
+        cap_base = params.limite_sabado if es_sabado else params.capacidad_maxima_planta
+        gall = gallinas.get(fecha.isoformat(), 0)
+        return max(0, cap_base - gall)
+
+    # Objetivo preferido por día (no puede superar la capacidad del día)
+    def _objetivo_dia(d_idx: int) -> int:
+        fecha = fechas_dias[d_idx]
+        es_sabado = fecha.weekday() == 5
+        if es_sabado:
+            # Sábado: objetivo = limite_sabado (estricto 20k)
+            return max(0, params.limite_sabado - gallinas.get(fecha.isoformat(), 0))
+        gall = gallinas.get(fecha.isoformat(), 0)
+        return max(0, objetivo_preferido - gall)
 
     # ── Fase 1: Matriz de elegibilidad ──────────────────────────────────────
     elegibilidad: dict[int, list[tuple[int, float, int]]] = {}
@@ -599,7 +695,7 @@ def generar_proyeccion(
         dias_elegibles = []
         detalle_rechazo = []
         for d_idx, fecha_dia in enumerate(fechas_dias):
-            resultado = _evaluar_elegibilidad_lote(oferta, fecha_dia, params)
+            resultado = evaluar_elegibilidad_lote(oferta, fecha_dia, params)
             if resultado:
                 peso_proy, edad_fin = resultado
                 dias_elegibles.append((d_idx, peso_proy, edad_fin))
@@ -625,8 +721,8 @@ def generar_proyeccion(
         asignados.add(lote_idx)
 
     def _puede_asignarse(lote_idx: int, dia_idx: int) -> bool:
-        """Checks hard daily maximum capacity."""
-        return pollos_dia[dia_idx] + ofertas[lote_idx].cantidad <= objetivo_max
+        """Checks hard daily maximum capacity (respeta límite sábado y gallinas)."""
+        return pollos_dia[dia_idx] + ofertas[lote_idx].cantidad <= _capacidad_dia(dia_idx)
 
     # ── Fase 2: Propagación de restricciones ────────────────────────────────
     cambio = True
@@ -644,9 +740,10 @@ def generar_proyeccion(
                     _asignar(i, dia_unico)
                     cambio = True
                 else:
+                    cap = _capacidad_dia(dia_unico)
                     no_asignados[i] = (
                         f"Lote con único día elegible ({fechas_dias[dia_unico].isoformat()}) "
-                        f"excede tope diario máximo de {objetivo_max}"
+                        f"excede tope diario máximo de {cap}"
                     )
                     cambio = True
 
@@ -663,9 +760,10 @@ def generar_proyeccion(
                 if _puede_asignarse(lote_idx, d_idx):
                     _asignar(lote_idx, d_idx)
                 else:
+                    cap = _capacidad_dia(d_idx)
                     no_asignados[lote_idx] = (
                         f"Único candidato para {fechas_dias[d_idx].isoformat()} "
-                        f"excede tope diario máximo de {objetivo_max}"
+                        f"excede tope diario máximo de {cap}"
                     )
                 cambio = True
 
@@ -694,7 +792,8 @@ def generar_proyeccion(
         for d_idx, peso_proy, edad_fin in dias_eleg:
             if not _puede_asignarse(i, d_idx):
                 continue
-            deficit = objetivo_preferido - pollos_dia[d_idx]
+            obj = _objetivo_dia(d_idx)
+            deficit = obj - pollos_dia[d_idx]
             if deficit > 0 and (deficit > mayor_deficit or
                                 (deficit == mayor_deficit and
                                  (mejor_dia is None or d_idx < mejor_dia))):
@@ -723,7 +822,7 @@ def generar_proyeccion(
             _asignar(i, mejor_dia)
         else:
             no_asignados[i] = (
-                f"Excede tope diario máximo de {objetivo_max} en todos los días elegibles"
+                "Excede tope diario máximo en todos los días elegibles"
             )
 
     # ── Construir DiaFaena con lotes proyectados ────────────────────────────
@@ -748,7 +847,10 @@ def generar_proyeccion(
             lote = calcular_lote_proyectado(ofertas[i], fecha_dia, params)
             lotes_dia.append(lote)
 
-        dia_faena_obj = calcular_dia_faena(fecha_dia, lotes_dia)
+        gall_dia = gallinas.get(fecha_dia.isoformat(), 0)
+        dia_faena_obj = calcular_dia_faena(
+            fecha_dia, lotes_dia, params=params, gallinas_cantidad=gall_dia,
+        )
         dias_resultado.append(dia_faena_obj)
 
     lotes_no_asignados_resultado: List[LoteNoAsignado] = []
@@ -786,6 +888,16 @@ def generar_proyeccion(
             )
         )
 
+    # Construir lista de feriados aplicados (saltados)
+    feriados_aplicados_lista: List[FeriadoAplicado] = []
+    if feriados:
+        fecha_fin_rango = fecha_inicio_semana + timedelta(days=13)
+        for f_fecha, f_nombre in sorted(feriados.items()):
+            if fecha_inicio_semana <= f_fecha <= fecha_fin_rango and f_fecha not in fechas_dias:
+                feriados_aplicados_lista.append(
+                    FeriadoAplicado(fecha=f_fecha, nombre=f_nombre)
+                )
+
     semana = calcular_semana_faena(
         fecha_inicio_semana,
         dias_resultado,
@@ -793,6 +905,17 @@ def generar_proyeccion(
         lotes_no_asignados=lotes_no_asignados_resultado,
         lotes_fuera_rango=lotes_fuera_rango_resultado,
     )
+    semana.feriados_aplicados = feriados_aplicados_lista
+
+    # Registrar eventos de gallinas
+    for fecha_str, cant in gallinas.items():
+        if cant > 0:
+            from datetime import date as date_type
+            fecha_gall = date_type.fromisoformat(fecha_str)
+            semana.eventos_gallinas.append(
+                EventoGallinas(fecha=fecha_gall, cantidad=cant)
+            )
+
     return semana
 
 
@@ -807,22 +930,24 @@ def _intentar_asignar_lotes_nuevos(
     Retorna:
         (dias_actualizados, no_asignados, fuera_rango, detalle_asignados)
     """
-    objetivo_max = params.pollos_diarios_objetivo_max
-    objetivo_pref = params.pollos_diarios_objetivo_min
-
     no_asignados_resultado: List[LoteNoAsignado] = []
     fuera_rango_resultado: List[LoteFueraRango] = []
     detalle_asignados: List[dict] = []
 
     DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
 
+    def _cap_dia(d_idx: int) -> int:
+        fecha = dias[d_idx].fecha
+        es_sab = fecha.weekday() == 5
+        cap = params.limite_sabado if es_sab else params.capacidad_maxima_planta
+        return max(0, cap - dias[d_idx].gallinas_cantidad)
+
     for oferta in nuevos:
-        # Evaluar elegibilidad para cada día
         dias_elegibles = []
         detalle_rechazo = []
 
         for d_idx, dia in enumerate(dias):
-            resultado = _evaluar_elegibilidad_lote(oferta, dia.fecha, params)
+            resultado = evaluar_elegibilidad_lote(oferta, dia.fecha, params)
             if resultado:
                 peso_proy, edad_fin = resultado
                 dias_elegibles.append((d_idx, peso_proy, edad_fin))
@@ -832,7 +957,6 @@ def _intentar_asignar_lotes_nuevos(
                 )
 
         if not dias_elegibles:
-            # Fuera de rango: no elegible para ningún día
             fechas = [d.fecha for d in dias]
             motivo = _construir_motivo_fuera_rango(oferta, fechas, params)
             fuera_rango_resultado.append(
@@ -849,33 +973,38 @@ def _intentar_asignar_lotes_nuevos(
             )
             continue
 
-        # Buscar día elegible con mayor déficit
         mejor_dia = None
         mayor_deficit = -1
 
         for d_idx, peso_proy, edad_fin in dias_elegibles:
             pollos_actuales = dias[d_idx].total_pollos
-            if pollos_actuales + oferta.cantidad > objetivo_max:
+            cap = _cap_dia(d_idx)
+            if pollos_actuales + oferta.cantidad > cap:
                 continue
-            deficit = objetivo_pref - pollos_actuales
+            fecha = dias[d_idx].fecha
+            es_sab = fecha.weekday() == 5
+            obj_pref = params.limite_sabado if es_sab else params.pollos_diarios_objetivo_min
+            deficit = obj_pref - pollos_actuales
             if deficit > mayor_deficit:
                 mayor_deficit = deficit
                 mejor_dia = d_idx
 
         if mejor_dia is None:
-            # Intentar día menos cargado (fase 4 simplificada)
             mejor_pollos = float("inf")
             for d_idx, peso_proy, edad_fin in dias_elegibles:
                 pollos_actuales = dias[d_idx].total_pollos
-                if pollos_actuales + oferta.cantidad <= objetivo_max and pollos_actuales < mejor_pollos:
+                cap = _cap_dia(d_idx)
+                if pollos_actuales + oferta.cantidad <= cap and pollos_actuales < mejor_pollos:
                     mejor_pollos = pollos_actuales
                     mejor_dia = d_idx
 
         if mejor_dia is not None:
-            # Asignar
             lote = calcular_lote_proyectado(oferta, dias[mejor_dia].fecha, params)
             dias[mejor_dia].lotes.append(lote)
-            dias[mejor_dia] = calcular_dia_faena(dias[mejor_dia].fecha, dias[mejor_dia].lotes)
+            dias[mejor_dia] = calcular_dia_faena(
+                dias[mejor_dia].fecha, dias[mejor_dia].lotes, params=params,
+                gallinas_cantidad=dias[mejor_dia].gallinas_cantidad,
+            )
             dia_nombre = DIAS_SEMANA[mejor_dia] if mejor_dia < len(DIAS_SEMANA) else str(mejor_dia)
             detalle_asignados.append({
                 "granja": oferta.granja,
@@ -885,7 +1014,6 @@ def _intentar_asignar_lotes_nuevos(
                 "dia": dia_nombre,
             })
         else:
-            # Elegible pero sin capacidad
             dias_eleg_fechas = [dias[d].fecha for d, _, _ in dias_elegibles]
             no_asignados_resultado.append(
                 LoteNoAsignado(
@@ -896,7 +1024,7 @@ def _intentar_asignar_lotes_nuevos(
                     sexo=oferta.sexo,
                     fecha_ingreso=oferta.fecha_ingreso,
                     dias_elegibles=dias_eleg_fechas,
-                    motivo=f"Lote nuevo del martes: excede tope diario máximo de {objetivo_max}",
+                    motivo="Lote nuevo del martes: excede tope diario máximo",
                 )
             )
 
@@ -1104,7 +1232,10 @@ def aplicar_ajuste_martes(
     # 5. Recalcular agregados de cada día y de la semana
     dias_recalculados: List[DiaFaena] = []
     for dia in semana.dias:
-        dia_recalc = calcular_dia_faena(dia.fecha, dia.lotes)
+        dia_recalc = calcular_dia_faena(
+            dia.fecha, dia.lotes, params=params,
+            gallinas_cantidad=dia.gallinas_cantidad,
+        )
         dias_recalculados.append(dia_recalc)
 
     resultado = calcular_semana_faena(
