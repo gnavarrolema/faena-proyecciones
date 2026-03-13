@@ -160,7 +160,8 @@ class GallinasRequest(BaseModel):
     """Para marcar un día con faena de gallinas."""
     dia_index: int         # índice del día en la proyección
     cantidad: int          # cantidad de gallinas
-    descripcion: str = "Faena de gallinas livianas"
+    tipo: str = "liviana"  # "liviana" | "pesada"
+    descripcion: str = "Faena de gallinas"
 
 
 class PesoRealRequest(BaseModel):
@@ -465,10 +466,14 @@ def mover_lote(asignacion: AsignacionManual, current_user: TokenData = Depends(g
     semana.dias[asignacion.dia_origen] = calcular_dia_faena(
         dia_origen.fecha, dia_origen.lotes, params=params,
         gallinas_cantidad=dia_origen.gallinas_cantidad,
+        gallinas_livianas=dia_origen.gallinas_livianas_cantidad,
+        gallinas_pesadas=dia_origen.gallinas_pesadas_cantidad,
     )
     semana.dias[asignacion.dia_destino] = calcular_dia_faena(
         dia_destino.fecha, dia_destino.lotes, params=params,
         gallinas_cantidad=dia_destino.gallinas_cantidad,
+        gallinas_livianas=dia_destino.gallinas_livianas_cantidad,
+        gallinas_pesadas=dia_destino.gallinas_pesadas_cantidad,
     )
 
     # Recalcular semana (preservar lotes no asignados y fuera de rango)
@@ -513,6 +518,8 @@ def redistribuir_dia(
     semana.dias[req.dia_index] = calcular_dia_faena(
         dia_origen.fecha, [], params=params,
         gallinas_cantidad=dia_origen.gallinas_cantidad,
+        gallinas_livianas=dia_origen.gallinas_livianas_cantidad,
+        gallinas_pesadas=dia_origen.gallinas_pesadas_cantidad,
     )
 
     # Rastrear pollos actuales por día (excluyendo el día origen)
@@ -588,6 +595,8 @@ def redistribuir_dia(
         semana.dias[mejor_idx] = calcular_dia_faena(
             dia_dest.fecha, dia_dest.lotes, params=params,
             gallinas_cantidad=dia_dest.gallinas_cantidad,
+            gallinas_livianas=dia_dest.gallinas_livianas_cantidad,
+            gallinas_pesadas=dia_dest.gallinas_pesadas_cantidad,
         )
         pollos_dia[mejor_idx] = semana.dias[mejor_idx].total_pollos
 
@@ -648,6 +657,8 @@ def agregar_lote(lote_req: LoteManualRequest, current_user: TokenData = Depends(
     semana.dias[lote_req.dia_faena] = calcular_dia_faena(
         dia.fecha, dia.lotes, params=params,
         gallinas_cantidad=dia.gallinas_cantidad,
+        gallinas_livianas=dia.gallinas_livianas_cantidad,
+        gallinas_pesadas=dia.gallinas_pesadas_cantidad,
     )
 
     # Recalcular semana (preservar lotes no asignados y fuera de rango)
@@ -681,6 +692,8 @@ def eliminar_lote(dia_index: int, lote_index: int, current_user: TokenData = Dep
     semana.dias[dia_index] = calcular_dia_faena(
         dia.fecha, dia.lotes, params=params,
         gallinas_cantidad=dia.gallinas_cantidad,
+        gallinas_livianas=dia.gallinas_livianas_cantidad,
+        gallinas_pesadas=dia.gallinas_pesadas_cantidad,
     )
     params = _get_parametros()
     resultado = calcular_semana_faena(
@@ -727,7 +740,7 @@ def calcular_lote_individual(
     return lote.model_dump()
 
 
-# ─── Gallinas Livianas ─────────────────────────────────────────────────────────
+# ─── Gallinas ───────────────────────────────────────────────────────────────────────────
 
 @app.post("/proyeccion/gallinas")
 def configurar_gallinas(
@@ -735,8 +748,9 @@ def configurar_gallinas(
     current_user: TokenData = Depends(get_current_user),
 ):
     """
-    Marca un día de la proyección para faena de gallinas livianas.
+    Marca un día de la proyección para faena de gallinas.
     Reduce la capacidad disponible para pollos en ese día.
+    Soporta tipo "liviana" o "pesada" (se acumulan si se agregan ambos tipos).
     """
     semana = _get_proyeccion()
     if semana is None:
@@ -748,22 +762,35 @@ def configurar_gallinas(
     dia = semana.dias[req.dia_index]
     params = _get_parametros()
 
+    # Calcular desglose: preservar la cantidad del otro tipo que ya esté en el día
+    if req.tipo == "pesada":
+        gallinas_pesadas = req.cantidad
+        gallinas_livianas = dia.gallinas_livianas_cantidad
+    else:
+        gallinas_livianas = req.cantidad
+        gallinas_pesadas = dia.gallinas_pesadas_cantidad
+
+    total_gallinas = gallinas_livianas + gallinas_pesadas
+
     # Actualizar gallinas en el día
     semana.dias[req.dia_index] = calcular_dia_faena(
         dia.fecha, dia.lotes, params=params,
-        gallinas_cantidad=req.cantidad,
+        gallinas_cantidad=total_gallinas,
+        gallinas_livianas=gallinas_livianas,
+        gallinas_pesadas=gallinas_pesadas,
     )
 
-    # Registrar evento de gallinas en la semana
+    # Registrar evento de gallinas: reemplazar solo el del mismo tipo en esa fecha
     semana.eventos_gallinas = [
         e for e in semana.eventos_gallinas
-        if e.fecha != dia.fecha
+        if not (e.fecha == dia.fecha and e.tipo == req.tipo)
     ]
     if req.cantidad > 0:
         semana.eventos_gallinas.append(
             EventoGallinas(
                 fecha=dia.fecha,
                 cantidad=req.cantidad,
+                tipo=req.tipo,
                 descripcion=req.descripcion,
             )
         )
@@ -783,9 +810,14 @@ def configurar_gallinas(
 @app.delete("/proyeccion/gallinas/{dia_index}")
 def quitar_gallinas(
     dia_index: int,
+    tipo: Optional[str] = None,
     current_user: TokenData = Depends(get_current_user),
 ):
-    """Quita las gallinas de un día de faena."""
+    """
+    Quita las gallinas de un día de faena.
+    Si tipo es "liviana" o "pesada", solo quita ese tipo.
+    Si tipo es None, quita todas las gallinas del día.
+    """
     semana = _get_proyeccion()
     if semana is None:
         raise HTTPException(404, "No hay proyección generada aún.")
@@ -796,14 +828,35 @@ def quitar_gallinas(
     dia = semana.dias[dia_index]
     params = _get_parametros()
 
+    if tipo == "pesada":
+        gallinas_livianas = dia.gallinas_livianas_cantidad
+        gallinas_pesadas = 0
+    elif tipo == "liviana":
+        gallinas_livianas = 0
+        gallinas_pesadas = dia.gallinas_pesadas_cantidad
+    else:
+        gallinas_livianas = 0
+        gallinas_pesadas = 0
+
+    total_gallinas = gallinas_livianas + gallinas_pesadas
+
     semana.dias[dia_index] = calcular_dia_faena(
-        dia.fecha, dia.lotes, params=params, gallinas_cantidad=0,
+        dia.fecha, dia.lotes, params=params,
+        gallinas_cantidad=total_gallinas,
+        gallinas_livianas=gallinas_livianas,
+        gallinas_pesadas=gallinas_pesadas,
     )
 
-    semana.eventos_gallinas = [
-        e for e in semana.eventos_gallinas
-        if e.fecha != dia.fecha
-    ]
+    if tipo:
+        semana.eventos_gallinas = [
+            e for e in semana.eventos_gallinas
+            if not (e.fecha == dia.fecha and e.tipo == tipo)
+        ]
+    else:
+        semana.eventos_gallinas = [
+            e for e in semana.eventos_gallinas
+            if e.fecha != dia.fecha
+        ]
 
     resultado = calcular_semana_faena(
         semana.fecha_inicio, semana.dias, params,

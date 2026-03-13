@@ -102,7 +102,7 @@ export default function ProduccionView() {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4rem', gap: 8 }}>
         <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
-        <span style={{ color: 'var(--text-light)' }}>Cargando datos de producción...</span>
+        <span style={{ color: 'var(--text-light)' }}>Cargando datos de cargas...</span>
       </div>
     )
   }
@@ -112,7 +112,7 @@ export default function ProduccionView() {
       {/* Upload */}
       <motion.div variants={itemVariants} className="card">
         <div className="card-header">
-          <h2><Factory size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Datos de Producción Semanal</h2>
+          <h2><Factory size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Cargas de Pollitos BB en Granjas</h2>
           {produccion && (
             <button className="btn btn-sm btn-danger" onClick={handleDelete}>
               <Trash2 size={14} /> Limpiar
@@ -149,7 +149,7 @@ export default function ProduccionView() {
               {uploading ? (
                 <><span className="spinner" style={{ width: 14, height: 14, marginRight: 6 }}></span> Cargando...</>
               ) : (
-                <><UploadCloud size={14} /> Cargar Producción</>
+                <><UploadCloud size={14} /> Cargar Datos</>
               )}
             </button>
             {file && (
@@ -263,7 +263,7 @@ export default function ProduccionView() {
         <motion.div variants={itemVariants} className="card">
           <div className="card-body" style={{ textAlign: 'center', padding: '3rem' }}>
             <p style={{ fontSize: '1.1rem', color: 'var(--text-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <Factory size={20} /> No hay datos de producción cargados. Suba el archivo Excel para comenzar.
+              <Factory size={20} /> No hay datos de cargas registrados. Suba el archivo Excel para comenzar.
             </p>
           </div>
         </motion.div>

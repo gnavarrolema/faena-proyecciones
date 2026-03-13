@@ -93,9 +93,11 @@ class DiaFaena(BaseModel):
     nivel_carga: str = "normal"       # "normal" | "alto" | "horas_extras"
     alerta_horas_extras: bool = False
     es_sabado: bool = False
-    # Gallinas livianas
+    # Gallinas (total y desglose por tipo)
     gallinas_cantidad: int = 0
     gallinas_habilitado: bool = False
+    gallinas_livianas_cantidad: int = 0
+    gallinas_pesadas_cantidad: int = 0
 
 
 class LoteNoAsignado(BaseModel):
@@ -129,10 +131,11 @@ class FeriadoAplicado(BaseModel):
 
 
 class EventoGallinas(BaseModel):
-    """Evento de faena de gallinas livianas en un día."""
+    """Evento de faena de gallinas en un día."""
     fecha: date
     cantidad: int
-    descripcion: str = "Faena de gallinas livianas"
+    tipo: str = "liviana"  # "liviana" | "pesada"
+    descripcion: str = "Faena de gallinas"
 
 
 class SemanaFaena(BaseModel):
@@ -398,6 +401,8 @@ def calcular_dia_faena(
     lotes: List[LoteProyectado],
     params: Optional["Parametros"] = None,
     gallinas_cantidad: int = 0,
+    gallinas_livianas: int = 0,
+    gallinas_pesadas: int = 0,
 ) -> DiaFaena:
     """Calcula los agregados de un día de faena, incluyendo alertas de carga."""
     lotes_reales = [l for l in lotes if l.cantidad > 0]
@@ -432,6 +437,8 @@ def calcular_dia_faena(
         es_sabado=es_sabado,
         gallinas_cantidad=gallinas_cantidad,
         gallinas_habilitado=gallinas_cantidad > 0,
+        gallinas_livianas_cantidad=gallinas_livianas,
+        gallinas_pesadas_cantidad=gallinas_pesadas,
     )
 
     if lotes_reales:
@@ -668,23 +675,36 @@ def generar_proyeccion(
             fecha_inicio_semana + timedelta(days=i) for i in range(dias_faena)
         ]
 
+    # Normalizar gallinas: acepta {fecha: int} o {fecha: {livianas: int, pesadas: int}}
+    def _gallinas_total(fecha_iso: str) -> int:
+        val = gallinas.get(fecha_iso, 0)
+        if isinstance(val, dict):
+            return val.get("livianas", 0) + val.get("pesadas", 0)
+        return val
+
+    def _gallinas_desglose(fecha_iso: str) -> tuple:
+        val = gallinas.get(fecha_iso, 0)
+        if isinstance(val, dict):
+            return val.get("livianas", 0), val.get("pesadas", 0)
+        return val, 0  # backward-compat: todo como livianas
+
     # Capacidad máxima por día: sábados = limite_sabado, L-V = capacidad_maxima_planta
-    # Se descuenta la capacidad ocupada por gallinas livianas
+    # Se descuenta la capacidad ocupada por gallinas
     def _capacidad_dia(d_idx: int) -> int:
         fecha = fechas_dias[d_idx]
         es_sabado = fecha.weekday() == 5
         cap_base = params.limite_sabado if es_sabado else params.capacidad_maxima_planta
-        gall = gallinas.get(fecha.isoformat(), 0)
+        gall = _gallinas_total(fecha.isoformat())
         return max(0, cap_base - gall)
 
     # Objetivo preferido por día (no puede superar la capacidad del día)
     def _objetivo_dia(d_idx: int) -> int:
         fecha = fechas_dias[d_idx]
         es_sabado = fecha.weekday() == 5
+        gall = _gallinas_total(fecha.isoformat())
         if es_sabado:
             # Sábado: objetivo = limite_sabado (estricto 20k)
-            return max(0, params.limite_sabado - gallinas.get(fecha.isoformat(), 0))
-        gall = gallinas.get(fecha.isoformat(), 0)
+            return max(0, params.limite_sabado - gall)
         return max(0, objetivo_preferido - gall)
 
     # ── Fase 1: Matriz de elegibilidad ──────────────────────────────────────
@@ -847,9 +867,11 @@ def generar_proyeccion(
             lote = calcular_lote_proyectado(ofertas[i], fecha_dia, params)
             lotes_dia.append(lote)
 
-        gall_dia = gallinas.get(fecha_dia.isoformat(), 0)
+        gall_total = _gallinas_total(fecha_dia.isoformat())
+        gall_liv, gall_pes = _gallinas_desglose(fecha_dia.isoformat())
         dia_faena_obj = calcular_dia_faena(
-            fecha_dia, lotes_dia, params=params, gallinas_cantidad=gall_dia,
+            fecha_dia, lotes_dia, params=params, gallinas_cantidad=gall_total,
+            gallinas_livianas=gall_liv, gallinas_pesadas=gall_pes,
         )
         dias_resultado.append(dia_faena_obj)
 
@@ -908,12 +930,17 @@ def generar_proyeccion(
     semana.feriados_aplicados = feriados_aplicados_lista
 
     # Registrar eventos de gallinas
-    for fecha_str, cant in gallinas.items():
-        if cant > 0:
-            from datetime import date as date_type
-            fecha_gall = date_type.fromisoformat(fecha_str)
+    for fecha_str in gallinas:
+        from datetime import date as date_type
+        fecha_gall = date_type.fromisoformat(fecha_str)
+        gall_liv, gall_pes = _gallinas_desglose(fecha_str)
+        if gall_liv > 0:
             semana.eventos_gallinas.append(
-                EventoGallinas(fecha=fecha_gall, cantidad=cant)
+                EventoGallinas(fecha=fecha_gall, cantidad=gall_liv, tipo="liviana")
+            )
+        if gall_pes > 0:
+            semana.eventos_gallinas.append(
+                EventoGallinas(fecha=fecha_gall, cantidad=gall_pes, tipo="pesada")
             )
 
     return semana
@@ -1004,6 +1031,8 @@ def _intentar_asignar_lotes_nuevos(
             dias[mejor_dia] = calcular_dia_faena(
                 dias[mejor_dia].fecha, dias[mejor_dia].lotes, params=params,
                 gallinas_cantidad=dias[mejor_dia].gallinas_cantidad,
+                gallinas_livianas=dias[mejor_dia].gallinas_livianas_cantidad,
+                gallinas_pesadas=dias[mejor_dia].gallinas_pesadas_cantidad,
             )
             dia_nombre = DIAS_SEMANA[mejor_dia] if mejor_dia < len(DIAS_SEMANA) else str(mejor_dia)
             detalle_asignados.append({
@@ -1235,6 +1264,8 @@ def aplicar_ajuste_martes(
         dia_recalc = calcular_dia_faena(
             dia.fecha, dia.lotes, params=params,
             gallinas_cantidad=dia.gallinas_cantidad,
+            gallinas_livianas=dia.gallinas_livianas_cantidad,
+            gallinas_pesadas=dia.gallinas_pesadas_cantidad,
         )
         dias_recalculados.append(dia_recalc)
 

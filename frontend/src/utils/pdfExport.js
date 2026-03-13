@@ -652,7 +652,7 @@ export function exportParametrosPDF(params) {
       ],
     },
     {
-      title: 'Producción',
+      title: 'Faena Diaria',
       items: [
         ['Pollos diarios mín.', formatNumber(params.pollos_diarios_objetivo_min)],
         ['Pollos diarios máx.', formatNumber(params.pollos_diarios_objetivo_max)],

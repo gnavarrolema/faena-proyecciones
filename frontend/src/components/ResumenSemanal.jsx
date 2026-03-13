@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { TrendingUp, Calendar, Home, Download, PieChart, Factory } from 'lucide-react'
+import { TrendingUp, Calendar, Home, Download, PieChart, Factory, ShoppingCart } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { exportResumenPDF } from '../utils/pdfExport'
 import { getReferenciaProduccion, cargarDeficit } from '../services/api'
@@ -153,7 +153,16 @@ export default function ResumenSemanal({ proyeccion }) {
                     <td className="text-right" style={dia.nivel_carga === 'horas_extras' ? { color: '#ef4444', fontWeight: 700 } : {}}>
                       {formatNumber(dia.total_pollos)}
                       {dia.alerta_horas_extras && <span style={{ fontSize: '0.7rem', color: '#ef4444', marginLeft: 4 }}>HE</span>}
-                      {dia.gallinas_habilitado && <span style={{ fontSize: '0.7rem', color: '#7c3aed', marginLeft: 4 }}>+{formatNumber(dia.gallinas_cantidad)}g</span>}
+                      {dia.gallinas_habilitado && (
+                        dia.gallinas_livianas_cantidad > 0 && dia.gallinas_pesadas_cantidad > 0
+                          ? <>
+                              <span style={{ fontSize: '0.7rem', color: '#7c3aed', marginLeft: 4 }}>+{formatNumber(dia.gallinas_livianas_cantidad)}liv</span>
+                              <span style={{ fontSize: '0.7rem', color: '#be185d', marginLeft: 2 }}>+{formatNumber(dia.gallinas_pesadas_cantidad)}pes</span>
+                            </>
+                          : dia.gallinas_pesadas_cantidad > 0
+                            ? <span style={{ fontSize: '0.7rem', color: '#be185d', marginLeft: 4 }}>+{formatNumber(dia.gallinas_pesadas_cantidad)}pes</span>
+                            : <span style={{ fontSize: '0.7rem', color: '#7c3aed', marginLeft: 4 }}>+{formatNumber(dia.gallinas_cantidad)}g</span>
+                      )}
                     </td>
                     <td className="text-right">{dia.lotes.filter(l => l.cantidad > 0).length}</td>
                     <td className="text-right">{dia.peso_promedio_ponderado?.toFixed(2)} kg</td>
@@ -319,11 +328,89 @@ export default function ResumenSemanal({ proyeccion }) {
         )
       })()}
 
-      {/* Referencia de Producción */}
+      {/* Compra a Terceros */}
+      {(() => {
+        const lotesTerceros = []
+        dias.forEach((dia) => {
+          dia.lotes.forEach(lote => {
+            if (lote.es_compra_terceros) {
+              lotesTerceros.push({ ...lote, fecha: dia.fecha })
+            }
+          })
+        })
+        if (lotesTerceros.length === 0) return null
+
+        const totalPollosTerceros = lotesTerceros.reduce((sum, l) => sum + l.cantidad, 0)
+        const pctTerceros = proyeccion.total_pollos_semana > 0
+          ? ((totalPollosTerceros / proyeccion.total_pollos_semana) * 100).toFixed(1)
+          : '0.0'
+
+        return (
+          <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid #7c3aed' }}>
+            <div className="card-header">
+              <h2><ShoppingCart size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Compra a Terceros</h2>
+            </div>
+            <div className="card-body">
+              <div className="stats-grid" style={{ marginBottom: '1rem' }}>
+                <div className="stat-card">
+                  <div className="stat-label">Total Pollos Terceros</div>
+                  <div className="stat-value" style={{ color: '#7c3aed' }}>{formatNumber(totalPollosTerceros)}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">% del Total Semanal</div>
+                  <div className="stat-value" style={{ color: '#7c3aed' }}>{pctTerceros}%</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Lotes de Terceros</div>
+                  <div className="stat-value" style={{ color: '#7c3aed' }}>{lotesTerceros.length}</div>
+                </div>
+              </div>
+
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Día</th>
+                      <th>Proveedor</th>
+                      <th className="text-right">Cantidad</th>
+                      <th className="text-right">Peso Vivo</th>
+                      <th className="text-right">Edad</th>
+                      <th className="text-right">Cajas</th>
+                      <th>Motivo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lotesTerceros.map((lote, idx) => (
+                      <tr key={idx} style={{ background: 'rgba(168,85,247,0.03)' }}>
+                        <td><strong>{getDiaNombre(lote.fecha)}</strong></td>
+                        <td>{lote.granja}</td>
+                        <td className="text-right">{formatNumber(lote.cantidad)}</td>
+                        <td className="text-right">{lote.peso_vivo_retiro?.toFixed(2)} kg</td>
+                        <td className="text-right">{lote.edad_fin_retiro}</td>
+                        <td className="text-right">{formatNumber(lote.cajas)}</td>
+                        <td style={{ color: '#7c3aed', fontSize: '0.85rem', fontStyle: 'italic' }}>{lote.motivo_compra || '-'}</td>
+                      </tr>
+                    ))}
+                    <tr className="row-subtotal">
+                      <td colSpan={2}><strong>TOTAL TERCEROS</strong></td>
+                      <td className="text-right"><strong>{formatNumber(totalPollosTerceros)}</strong></td>
+                      <td colSpan={2}></td>
+                      <td className="text-right"><strong>{formatNumber(lotesTerceros.reduce((s, l) => s + l.cajas, 0))}</strong></td>
+                      <td></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </motion.div>
+        )
+      })()}
+
+      {/* Referencia de Cargas en Granja */}
       {refProduccion?.encontrada && (
         <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid #6366f1' }}>
           <div className="card-header">
-            <h2><Factory size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Referencia de Producción</h2>
+            <h2><Factory size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Referencia de Cargas en Granja</h2>
           </div>
           <div className="card-body">
             <p style={{ marginBottom: '1rem', fontSize: '0.8rem', color: 'var(--text-light)' }}>

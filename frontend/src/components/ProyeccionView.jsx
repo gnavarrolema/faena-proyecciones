@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia } from '../services/api'
+import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia, agregarLote } from '../services/api'
 import { exportProyeccionPDF } from '../utils/pdfExport'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
@@ -78,12 +78,29 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
   const [expandedFR, setExpandedFR] = useState(new Set())
   const [gallinasInput, setGallinasInput] = useState({}) // {diaIdx: cantidad}
   const [redistribuyendo, setRedistribuyendo] = useState(null) // índice del día en redistribución
+  const [showTercerosModal, setShowTercerosModal] = useState(false)
+  const [tercerosLoading, setTercerosLoading] = useState(false)
+  const [tercerosForm, setTercerosForm] = useState({
+    dia_faena: 0, granja: '', galpon: 1, nucleo: 1, cantidad: '',
+    sexo: 'M', edad_proyectada: '', peso_muestreo_proy: '',
+    ganancia_diaria: 0.09, fecha_peso: '', fecha_ingreso: '', motivo_compra: ''
+  })
   const ajusteInputRef = React.useRef(null)
+
+  const resetTercerosForm = () => setTercerosForm({
+    dia_faena: 0, granja: '', galpon: 1, nucleo: 1, cantidad: '',
+    sexo: 'M', edad_proyectada: '', peso_muestreo_proy: '',
+    ganancia_diaria: 0.09, fecha_peso: '', fecha_ingreso: '', motivo_compra: ''
+  })
 
   const handleRegenerarConSabado = async () => {
     try {
       const gallinasMap = {}
-      proyeccion.eventos_gallinas?.forEach(e => { gallinasMap[e.fecha] = e.cantidad })
+      proyeccion.eventos_gallinas?.forEach(e => {
+        if (!gallinasMap[e.fecha]) gallinasMap[e.fecha] = { livianas: 0, pesadas: 0 }
+        if (e.tipo === 'pesada') gallinasMap[e.fecha].pesadas += e.cantidad
+        else gallinasMap[e.fecha].livianas += e.cantidad
+      })
       const data = await generarProyeccion({
         fecha_inicio_semana: proyeccion.fecha_inicio,
         dias_faena: 6,
@@ -184,6 +201,41 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
     }
   }
 
+  const handleAgregarTerceros = async () => {
+    const { granja, cantidad, edad_proyectada, peso_muestreo_proy, fecha_peso, fecha_ingreso } = tercerosForm
+    if (!granja || !cantidad || !edad_proyectada || !peso_muestreo_proy || !fecha_peso || !fecha_ingreso) {
+      toast.error('Completar todos los campos obligatorios')
+      return
+    }
+    setTercerosLoading(true)
+    try {
+      const payload = {
+        granja: tercerosForm.granja,
+        galpon: Number(tercerosForm.galpon),
+        nucleo: Number(tercerosForm.nucleo),
+        cantidad: Number(tercerosForm.cantidad),
+        sexo: tercerosForm.sexo,
+        edad_proyectada: Number(tercerosForm.edad_proyectada),
+        peso_muestreo_proy: Number(tercerosForm.peso_muestreo_proy),
+        ganancia_diaria: Number(tercerosForm.ganancia_diaria),
+        fecha_peso: tercerosForm.fecha_peso,
+        fecha_ingreso: tercerosForm.fecha_ingreso,
+        dia_faena: Number(tercerosForm.dia_faena),
+        es_compra_terceros: true,
+        motivo_compra: tercerosForm.motivo_compra || 'Compra a terceros',
+      }
+      const data = await agregarLote(payload)
+      setProyeccion(data)
+      toast.success(`Lote de terceros agregado a ${getDiaNombre(proyeccion.dias[payload.dia_faena]?.fecha)}`)
+      setShowTercerosModal(false)
+      resetTercerosForm()
+    } catch (err) {
+      toast.error('Error: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setTercerosLoading(false)
+    }
+  }
+
   const { dias } = proyeccion
   const lotesNoAsignados = proyeccion.lotes_no_asignados || []
   const lotesFueraRango = proyeccion.lotes_fuera_rango || []
@@ -267,16 +319,17 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
           fontSize: '0.85rem',
           color: '#7c3aed',
         }}>
-          <strong>Gallinas livianas:</strong>
-          {proyeccion.eventos_gallinas.map(e => (
-            <span key={e.fecha} style={{
+          <strong>Gallinas:</strong>
+          {proyeccion.eventos_gallinas.map((e, i) => (
+            <span key={i} style={{
               padding: '0.2rem 0.6rem',
-              background: 'rgba(139, 92, 246, 0.12)',
-              border: '1px solid rgba(139, 92, 246, 0.25)',
+              background: e.tipo === 'pesada' ? 'rgba(219, 39, 119, 0.1)' : 'rgba(139, 92, 246, 0.12)',
+              border: `1px solid ${e.tipo === 'pesada' ? 'rgba(219, 39, 119, 0.3)' : 'rgba(139, 92, 246, 0.25)'}`,
               borderRadius: 16,
               fontSize: '0.8rem',
+              color: e.tipo === 'pesada' ? '#be185d' : '#7c3aed',
             }}>
-              {getDiaNombre(e.fecha)} — {formatNumber(e.cantidad)} gallinas
+              {getDiaNombre(e.fecha)} — {formatNumber(e.cantidad)} {e.tipo === 'pesada' ? 'pesadas' : 'livianas'}
             </span>
           ))}
         </motion.div>
@@ -664,9 +717,18 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
             <Table size={16} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Vista Tabla
           </button>
         </div>
-        <button className="btn btn-sm btn-outline" onClick={() => exportProyeccionPDF(proyeccion)} style={{ marginBottom: '0.5rem' }}>
-          <Download size={14} /> Descargar PDF
-        </button>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button
+            className="btn btn-sm btn-outline"
+            onClick={() => setShowTercerosModal(true)}
+            style={{ borderColor: '#7c3aed', color: '#7c3aed', marginBottom: '0.5rem' }}
+          >
+            <ShoppingCart size={14} style={{ marginRight: 4 }} /> Compra Terceros
+          </button>
+          <button className="btn btn-sm btn-outline" onClick={() => exportProyeccionPDF(proyeccion)} style={{ marginBottom: '0.5rem' }}>
+            <Download size={14} /> Descargar PDF
+          </button>
+        </div>
       </motion.div>
 
       {/* Modal de mover */}
@@ -711,6 +773,198 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                     )
                   ))}
                 </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de compra a terceros */}
+      <AnimatePresence>
+        {showTercerosModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="modal-overlay"
+            onClick={() => { setShowTercerosModal(false); resetTercerosForm() }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="modal"
+              style={{ maxWidth: 620 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="modal-header" style={{ background: 'rgba(168,85,247,0.06)' }}>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <ShoppingCart size={18} style={{ color: '#7c3aed' }} /> Agregar Lote de Terceros
+                </h3>
+                <button className="btn btn-sm btn-outline" onClick={() => { setShowTercerosModal(false); resetTercerosForm() }}>
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: 4, display: 'block' }}>Día de Faena *</label>
+                    <select
+                      className="form-control"
+                      value={tercerosForm.dia_faena}
+                      onChange={e => setTercerosForm({ ...tercerosForm, dia_faena: e.target.value })}
+                      style={{ width: '100%' }}
+                    >
+                      {dias.map((d, idx) => (
+                        <option key={idx} value={idx}>{getDiaNombre(d.fecha)} - {formatDate(d.fecha)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: 4, display: 'block' }}>Proveedor *</label>
+                    <input
+                      className="form-control"
+                      type="text"
+                      placeholder="Nombre del proveedor"
+                      value={tercerosForm.granja}
+                      onChange={e => setTercerosForm({ ...tercerosForm, granja: e.target.value })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: 4, display: 'block' }}>Cantidad de Pollos *</label>
+                    <input
+                      className="form-control"
+                      type="number"
+                      placeholder="Ej: 10000"
+                      value={tercerosForm.cantidad}
+                      onChange={e => setTercerosForm({ ...tercerosForm, cantidad: e.target.value })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: 4, display: 'block' }}>Sexo</label>
+                    <select
+                      className="form-control"
+                      value={tercerosForm.sexo}
+                      onChange={e => setTercerosForm({ ...tercerosForm, sexo: e.target.value })}
+                      style={{ width: '100%' }}
+                    >
+                      <option value="M">Macho</option>
+                      <option value="H">Hembra</option>
+                      <option value="MIX">Mixto</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: 4, display: 'block' }}>Edad Proyectada *</label>
+                    <input
+                      className="form-control"
+                      type="number"
+                      placeholder="Ej: 38"
+                      value={tercerosForm.edad_proyectada}
+                      onChange={e => setTercerosForm({ ...tercerosForm, edad_proyectada: e.target.value })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: 4, display: 'block' }}>Peso Muestreo (kg) *</label>
+                    <input
+                      className="form-control"
+                      type="number"
+                      step="0.01"
+                      placeholder="Ej: 2.90"
+                      value={tercerosForm.peso_muestreo_proy}
+                      onChange={e => setTercerosForm({ ...tercerosForm, peso_muestreo_proy: e.target.value })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: 4, display: 'block' }}>Ganancia Diaria</label>
+                    <input
+                      className="form-control"
+                      type="number"
+                      step="0.001"
+                      value={tercerosForm.ganancia_diaria}
+                      onChange={e => setTercerosForm({ ...tercerosForm, ganancia_diaria: e.target.value })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: 4, display: 'block' }}>Fecha Peso *</label>
+                    <input
+                      className="form-control"
+                      type="date"
+                      value={tercerosForm.fecha_peso}
+                      onChange={e => setTercerosForm({ ...tercerosForm, fecha_peso: e.target.value })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: 4, display: 'block' }}>Fecha Ingreso *</label>
+                    <input
+                      className="form-control"
+                      type="date"
+                      value={tercerosForm.fecha_ingreso}
+                      onChange={e => setTercerosForm({ ...tercerosForm, fecha_ingreso: e.target.value })}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: 4, display: 'block' }}>Galpón</label>
+                      <input
+                        className="form-control"
+                        type="number"
+                        value={tercerosForm.galpon}
+                        onChange={e => setTercerosForm({ ...tercerosForm, galpon: e.target.value })}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: 4, display: 'block' }}>Núcleo</label>
+                      <input
+                        className="form-control"
+                        type="number"
+                        value={tercerosForm.nucleo}
+                        onChange={e => setTercerosForm({ ...tercerosForm, nucleo: e.target.value })}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: 4, display: 'block' }}>Motivo de Compra</label>
+                  <textarea
+                    className="form-control"
+                    placeholder="Ej: Déficit de oferta propia, demanda comercial alta..."
+                    value={tercerosForm.motivo_compra}
+                    onChange={e => setTercerosForm({ ...tercerosForm, motivo_compra: e.target.value })}
+                    rows={2}
+                    style={{ width: '100%', resize: 'vertical' }}
+                  />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-outline" onClick={() => { setShowTercerosModal(false); resetTercerosForm() }}>
+                  Cancelar
+                </button>
+                <button
+                  className="btn"
+                  style={{ background: '#7c3aed', color: 'white' }}
+                  onClick={handleAgregarTerceros}
+                  disabled={tercerosLoading}
+                >
+                  {tercerosLoading
+                    ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite', marginRight: 4 }} /> Agregando...</>
+                    : <><PlusCircle size={14} style={{ marginRight: 4 }} /> Agregar Lote</>
+                  }
+                </button>
               </div>
             </motion.div>
           </motion.div>
@@ -766,7 +1020,12 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                   )}
                   {dia.gallinas_habilitado && (
                     <span style={{ fontSize: '0.65rem', color: '#7c3aed', fontWeight: 600 }}>
-                      + {formatNumber(dia.gallinas_cantidad)} gallinas
+                      {dia.gallinas_livianas_cantidad > 0 && dia.gallinas_pesadas_cantidad > 0
+                        ? `+ ${formatNumber(dia.gallinas_livianas_cantidad)} liv. + ${formatNumber(dia.gallinas_pesadas_cantidad)} pes.`
+                        : dia.gallinas_pesadas_cantidad > 0
+                          ? <span style={{ color: '#be185d' }}>+ {formatNumber(dia.gallinas_pesadas_cantidad)} pesadas</span>
+                          : `+ ${formatNumber(dia.gallinas_cantidad)} gallinas`
+                      }
                     </span>
                   )}
                   {(dia.gallinas_habilitado || dia.nivel_carga === 'horas_extras') && dia.lotes.length > 0 && (
@@ -798,6 +1057,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ delay: loteIdx * 0.05 }}
                       className="lote-card"
+                      style={lote.es_compra_terceros ? { borderLeft: '3px solid #7c3aed', background: 'rgba(168,85,247,0.03)' } : undefined}
                     >
                       <div className="lote-header">
                         <span>{lote.granja} G{lote.galpon}</span>
@@ -826,6 +1086,11 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                         <span>Faenado: {lote.peso_faenado?.toFixed(2)}</span>
                         <span>Cajas: {formatNumber(lote.cajas)}</span>
                       </div>
+                      {lote.es_compra_terceros && lote.motivo_compra && (
+                        <div className="lote-detail" style={{ color: '#7c3aed', fontSize: '0.75rem', fontStyle: 'italic' }}>
+                          <span>{lote.motivo_compra}</span>
+                        </div>
+                      )}
                       <div className="lote-actions">
                         <button
                           className="btn btn-sm btn-outline"
@@ -892,14 +1157,21 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                   {dias.map((dia, diaIdx) => (
                     <React.Fragment key={`day-${diaIdx}`}>
                       {dia.lotes.map((lote, loteIdx) => (
-                        <tr key={`${diaIdx}-${loteIdx}`}>
+                        <tr key={`${diaIdx}-${loteIdx}`} style={lote.es_compra_terceros ? { background: 'rgba(168,85,247,0.04)' } : undefined}>
                           {loteIdx === 0 && (
                             <td rowSpan={dia.lotes.length + 1} style={{ verticalAlign: 'top', fontWeight: 600 }}>
                               {getDiaNombre(dia.fecha)}
                             </td>
                           )}
                           <td>{formatDate(dia.fecha)}</td>
-                          <td><strong>{lote.granja}</strong></td>
+                          <td>
+                            <strong>{lote.granja}</strong>
+                            {lote.es_compra_terceros && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 6, padding: '0.1rem 0.4rem', background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: 12, fontSize: '0.6rem', color: '#7c3aed', fontWeight: 600 }}>
+                                <ShoppingCart size={9} /> Terceros
+                              </span>
+                            )}
+                          </td>
                           <td className="text-center">{lote.galpon}</td>
                           <td className="text-center">{lote.nucleo}</td>
                           <td className="text-right">{formatNumber(lote.cantidad)}</td>

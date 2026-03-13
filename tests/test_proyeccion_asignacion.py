@@ -455,3 +455,140 @@ def test_cajas_semanales_es_suma_de_cajas_diarias():
         f"Cajas semanales ({semana.produccion_cajas_semanales}) "
         f"deberia ser la suma de cajas diarias ({suma_cajas_diarias})"
     )
+
+
+# ─── Tests: Gallinas tipo (pesada/liviana) ────────────────────────────────────
+
+def test_gallinas_backward_compat_formato_int():
+    """El formato antiguo {fecha: int} sigue funcionando como gallinas livianas."""
+    ofertas = [_lote(30000, 1)]
+    params = Parametros(
+        pollos_diarios_objetivo_min=25000,
+        pollos_diarios_objetivo_max=42000,
+        capacidad_maxima_planta=42000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.8,
+        peso_max_faena=3.2,
+    )
+    # Formato antiguo: {fecha_iso: int}
+    gallinas = {"2026-02-27": 25000}  # viernes
+
+    semana = generar_proyeccion(
+        ofertas=ofertas,
+        fecha_inicio_semana=date(2026, 2, 23),
+        dias_faena=5,
+        pollos_por_dia=30000,
+        params=params,
+        gallinas=gallinas,
+    )
+
+    # Verificar que el viernes tiene gallinas marcadas
+    viernes = [d for d in semana.dias if d.fecha == date(2026, 2, 27)]
+    assert len(viernes) == 1
+    assert viernes[0].gallinas_habilitado is True
+    assert viernes[0].gallinas_cantidad == 25000
+    assert viernes[0].gallinas_livianas_cantidad == 25000
+    assert viernes[0].gallinas_pesadas_cantidad == 0
+
+    # Verificar eventos
+    assert len(semana.eventos_gallinas) == 1
+    assert semana.eventos_gallinas[0].tipo == "liviana"
+
+
+def test_gallinas_nuevo_formato_dict():
+    """El formato nuevo {fecha: {livianas, pesadas}} funciona correctamente."""
+    ofertas = [_lote(30000, 1)]
+    params = Parametros(
+        pollos_diarios_objetivo_min=25000,
+        pollos_diarios_objetivo_max=42000,
+        capacidad_maxima_planta=42000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.8,
+        peso_max_faena=3.2,
+    )
+    gallinas = {"2026-02-27": {"livianas": 20000, "pesadas": 5000}}
+
+    semana = generar_proyeccion(
+        ofertas=ofertas,
+        fecha_inicio_semana=date(2026, 2, 23),
+        dias_faena=5,
+        pollos_por_dia=30000,
+        params=params,
+        gallinas=gallinas,
+    )
+
+    viernes = [d for d in semana.dias if d.fecha == date(2026, 2, 27)]
+    assert len(viernes) == 1
+    assert viernes[0].gallinas_habilitado is True
+    assert viernes[0].gallinas_cantidad == 25000  # total
+    assert viernes[0].gallinas_livianas_cantidad == 20000
+    assert viernes[0].gallinas_pesadas_cantidad == 5000
+
+
+def test_gallinas_ambos_tipos_reducen_capacidad():
+    """Pesadas + livianas suman en la reducción de capacidad total."""
+    ofertas = [_lote(20000, 1), _lote(20000, 2)]
+    params = Parametros(
+        pollos_diarios_objetivo_min=25000,
+        pollos_diarios_objetivo_max=42000,
+        capacidad_maxima_planta=42000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.8,
+        peso_max_faena=3.2,
+    )
+    # 25k gallinas en viernes → solo quedan 17k de capacidad para pollos
+    gallinas = {"2026-02-27": {"livianas": 15000, "pesadas": 10000}}
+
+    semana = generar_proyeccion(
+        ofertas=ofertas,
+        fecha_inicio_semana=date(2026, 2, 23),
+        dias_faena=5,
+        pollos_por_dia=30000,
+        params=params,
+        gallinas=gallinas,
+    )
+
+    viernes = [d for d in semana.dias if d.fecha == date(2026, 2, 27)]
+    assert len(viernes) == 1
+    # Capacidad de pollos reducida: 42000 - 25000 = 17000
+    assert viernes[0].total_pollos <= 17000
+
+
+def test_gallinas_eventos_separados_por_tipo():
+    """Con ambos tipos, se generan eventos separados por tipo."""
+    ofertas = [_lote(15000, 1)]
+    params = Parametros(
+        pollos_diarios_objetivo_min=25000,
+        pollos_diarios_objetivo_max=42000,
+        capacidad_maxima_planta=42000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.8,
+        peso_max_faena=3.2,
+    )
+    gallinas = {"2026-02-27": {"livianas": 15000, "pesadas": 8000}}
+
+    semana = generar_proyeccion(
+        ofertas=ofertas,
+        fecha_inicio_semana=date(2026, 2, 23),
+        dias_faena=5,
+        pollos_por_dia=30000,
+        params=params,
+        gallinas=gallinas,
+    )
+
+    # Deben haber 2 eventos de gallinas para el viernes (uno de cada tipo)
+    eventos_viernes = [e for e in semana.eventos_gallinas if e.fecha == date(2026, 2, 27)]
+    assert len(eventos_viernes) == 2
+
+    tipos = {e.tipo for e in eventos_viernes}
+    assert tipos == {"liviana", "pesada"}
+
+    evento_liv = [e for e in eventos_viernes if e.tipo == "liviana"][0]
+    evento_pes = [e for e in eventos_viernes if e.tipo == "pesada"][0]
+    assert evento_liv.cantidad == 15000
+    assert evento_pes.cantidad == 8000
+

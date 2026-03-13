@@ -120,12 +120,12 @@ export const cargarPesosReales = (pesos) =>
 export const getDesvio = () => api.get('/desvio').then(r => r.data);
 export const deletePesosReales = () => api.delete('/desvio').then(r => r.data);
 
-// ─── Gallinas Livianas ────────────────────────────────────────────────────────
+// ─── Gallinas ─────────────────────────────────────────────────────────────────
 
-export const configurarGallinas = (diaIndex, cantidad, descripcion) =>
-  api.post('/proyeccion/gallinas', { dia_index: diaIndex, cantidad, descripcion }).then(r => r.data);
-export const quitarGallinas = (diaIndex) =>
-  api.delete(`/proyeccion/gallinas/${diaIndex}`).then(r => r.data);
+export const configurarGallinas = (diaIndex, cantidad, tipo = 'liviana', descripcion) =>
+  api.post('/proyeccion/gallinas', { dia_index: diaIndex, cantidad, tipo, descripcion }).then(r => r.data);
+export const quitarGallinas = (diaIndex, tipo = null) =>
+  api.delete(`/proyeccion/gallinas/${diaIndex}${tipo ? `?tipo=${tipo}` : ''}`).then(r => r.data);
 
 // ─── Escenarios ────────────────────────────────────────────────────────────────
 

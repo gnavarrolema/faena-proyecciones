@@ -49,10 +49,11 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
   const [customFeriadoFecha, setCustomFeriadoFecha] = useState('')
   const [customFeriadoDesc, setCustomFeriadoDesc] = useState('')
   const [addingCustom, setAddingCustom] = useState(false)
-  // Gallinas livianas
-  const [gallinasDia, setGallinasDia] = useState({}) // {fecha_iso: cantidad}
+  // Gallinas
+  const [gallinasDia, setGallinasDia] = useState({}) // {fecha_iso: {livianas: int, pesadas: int}}
   const [gallinasInputFecha, setGallinasInputFecha] = useState('')
   const [gallinasInputCant, setGallinasInputCant] = useState(25000)
+  const [gallinasInputTipo, setGallinasInputTipo] = useState('liviana')
 
   // Cargar feriados cuando se selecciona fecha de inicio
   useEffect(() => {
@@ -255,7 +256,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
             </label>
           </div>
 
-          {/* Gallinas livianas */}
+          {/* Gallinas */}
           {fechaInicio && (
             <div style={{
               padding: '0.75rem 1rem',
@@ -266,7 +267,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.5rem' }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#7c3aed' }}>
-                  Faena de Gallinas Livianas
+                  Faena de Gallinas
                 </span>
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>
                   (reduce la capacidad de pollos ese día)
@@ -284,7 +285,19 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.75rem', color: 'var(--text-light)', display: 'block', marginBottom: 2 }}>Cantidad gallinas</label>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-light)', display: 'block', marginBottom: 2 }}>Tipo</label>
+                  <select
+                    className="form-control"
+                    value={gallinasInputTipo}
+                    onChange={e => setGallinasInputTipo(e.target.value)}
+                    style={{ fontSize: '0.85rem', padding: '0.35rem 0.5rem', minWidth: 110 }}
+                  >
+                    <option value="liviana">Liviana</option>
+                    <option value="pesada">Pesada</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: 'var(--text-light)', display: 'block', marginBottom: 2 }}>Cantidad</label>
                   <input
                     type="number"
                     className="form-control"
@@ -297,7 +310,16 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
                   className="btn btn-sm btn-outline"
                   disabled={!gallinasInputFecha || gallinasInputCant <= 0}
                   onClick={() => {
-                    setGallinasDia(prev => ({ ...prev, [gallinasInputFecha]: gallinasInputCant }))
+                    setGallinasDia(prev => {
+                      const entry = prev[gallinasInputFecha] || { livianas: 0, pesadas: 0 }
+                      return {
+                        ...prev,
+                        [gallinasInputFecha]: {
+                          ...entry,
+                          [gallinasInputTipo === 'pesada' ? 'pesadas' : 'livianas']: gallinasInputCant,
+                        },
+                      }
+                    })
                     setGallinasInputFecha('')
                   }}
                   style={{ padding: '0.35rem 0.7rem' }}
@@ -307,27 +329,62 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
               </div>
               {Object.keys(gallinasDia).length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.5rem' }}>
-                  {Object.entries(gallinasDia).map(([fecha, cant]) => (
-                    <span key={fecha} style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 6,
-                      padding: '0.3rem 0.7rem',
-                      background: 'rgba(139, 92, 246, 0.12)',
-                      border: '1px solid rgba(139, 92, 246, 0.3)',
-                      borderRadius: 20, fontSize: '0.8rem', color: '#7c3aed',
-                    }}>
-                      <strong>{getDiaNombre(fecha)}</strong> — {cant.toLocaleString('es-AR')} gallinas
-                      <button
-                        onClick={() => setGallinasDia(prev => {
-                          const next = { ...prev }
-                          delete next[fecha]
-                          return next
-                        })}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#7c3aed', display: 'flex' }}
-                      >
-                        <X size={12} />
-                      </button>
-                    </span>
-                  ))}
+                  {Object.entries(gallinasDia).map(([fecha, val]) => {
+                    const chips = []
+                    if (val.livianas > 0) {
+                      chips.push(
+                        <span key={`${fecha}-liv`} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          padding: '0.3rem 0.7rem',
+                          background: 'rgba(139, 92, 246, 0.12)',
+                          border: '1px solid rgba(139, 92, 246, 0.3)',
+                          borderRadius: 20, fontSize: '0.8rem', color: '#7c3aed',
+                        }}>
+                          <strong>{getDiaNombre(fecha)}</strong> — {val.livianas.toLocaleString('es-AR')} livianas
+                          <button
+                            onClick={() => setGallinasDia(prev => {
+                              const next = { ...prev }
+                              if (next[fecha]) {
+                                next[fecha] = { ...next[fecha], livianas: 0 }
+                                if (next[fecha].pesadas <= 0) delete next[fecha]
+                              }
+                              return next
+                            })}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#7c3aed', display: 'flex' }}
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
+                      )
+                    }
+                    if (val.pesadas > 0) {
+                      chips.push(
+                        <span key={`${fecha}-pes`} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          padding: '0.3rem 0.7rem',
+                          background: 'rgba(219, 39, 119, 0.1)',
+                          border: '1px solid rgba(219, 39, 119, 0.3)',
+                          borderRadius: 20, fontSize: '0.8rem', color: '#be185d',
+                        }}>
+                          <strong>{getDiaNombre(fecha)}</strong> — {val.pesadas.toLocaleString('es-AR')} pesadas
+                          <button
+                            onClick={() => setGallinasDia(prev => {
+                              const next = { ...prev }
+                              if (next[fecha]) {
+                                next[fecha] = { ...next[fecha], pesadas: 0 }
+                                if (next[fecha].livianas <= 0) delete next[fecha]
+                              }
+                              return next
+                            })}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#be185d', display: 'flex' }}
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
+                      )
+                    }
+                    return chips
+                  })}
                 </div>
               )}
             </div>
