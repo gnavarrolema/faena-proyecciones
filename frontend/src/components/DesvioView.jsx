@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Scale, AlertTriangle, CheckCircle2, ArrowUpDown, Save, Trash2, Loader2, MessageCircleWarning } from 'lucide-react'
+import { Scale, AlertTriangle, CheckCircle2, ArrowUpDown, Save, Trash2, Loader2, MessageCircleWarning, Target, ShoppingCart, TrendingDown, Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { cargarPesosReales, getDesvio, deletePesosReales } from '../services/api'
+import { cargarPesosReales, getDesvio, deletePesosReales, getRecomendacionPeso } from '../services/api'
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -59,10 +59,20 @@ export default function DesvioView({ proyeccion }) {
   const [pesosInput, setPesosInput] = useState({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [recomendacion, setRecomendacion] = useState(null)
 
   useEffect(() => {
     cargarDesvio()
   }, [])
+
+  const cargarRecomendacion = async () => {
+    try {
+      const data = await getRecomendacionPeso()
+      setRecomendacion(data)
+    } catch {
+      setRecomendacion(null)
+    }
+  }
 
   const cargarDesvio = async () => {
     setLoading(true)
@@ -88,6 +98,7 @@ export default function DesvioView({ proyeccion }) {
       }
     } finally {
       setLoading(false)
+      cargarRecomendacion()
     }
   }
 
@@ -109,6 +120,7 @@ export default function DesvioView({ proyeccion }) {
       await cargarPesosReales(pesos)
       toast.success(`${pesos.length} pesos reales guardados`)
       await cargarDesvio()
+      await cargarRecomendacion()
     } catch (err) {
       toast.error('Error: ' + (err.response?.data?.detail || err.message))
     } finally {
@@ -292,6 +304,149 @@ export default function DesvioView({ proyeccion }) {
           </div>
         </div>
       </motion.div>
+
+      {/* Recomendación Óptima basada en Peso Objetivo */}
+      {recomendacion && (
+        <motion.div variants={itemVariants} className="card" style={{
+          borderLeft: `4px solid ${recomendacion.peso_por_debajo ? '#ef4444' : 'var(--success)'}`,
+        }}>
+          <div className="card-header">
+            <h2><Target size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Recomendación Óptima — Peso Objetivo: {recomendacion.peso_objetivo?.toFixed(2)} kg</h2>
+          </div>
+          <div className="card-body">
+            {/* Mensaje principal */}
+            <div style={{
+              padding: '0.8rem 1rem',
+              background: recomendacion.peso_por_debajo ? 'rgba(239, 68, 68, 0.06)' : 'rgba(34, 197, 94, 0.06)',
+              border: `1px solid ${recomendacion.peso_por_debajo ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)'}`,
+              borderRadius: 8,
+              fontSize: '0.9rem',
+              marginBottom: recomendacion.peso_por_debajo ? '1rem' : 0,
+              color: recomendacion.peso_por_debajo ? '#dc2626' : '#16a34a',
+            }}>
+              {recomendacion.recomendacion}
+            </div>
+
+            {/* Detalle por día si hay déficit */}
+            {recomendacion.peso_por_debajo && recomendacion.dias_afectados.length > 0 && (
+              <>
+                {/* Stats rápidos */}
+                <div className="stats-grid" style={{ marginBottom: '1rem' }}>
+                  <div className="stat-card">
+                    <div className="stat-label">Kg Déficit Total</div>
+                    <div className="stat-value" style={{ color: '#ef4444' }}>{formatNumber(Math.round(recomendacion.total_kg_deficit))}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Pollos Compensación</div>
+                    <div className="stat-value" style={{ color: '#f97316' }}>{formatNumber(recomendacion.total_pollos_compensacion)}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Absorción</div>
+                    <div className="stat-value" style={{
+                      color: recomendacion.puede_absorber_sin_extras ? '#16a34a'
+                        : recomendacion.puede_absorber_con_extras ? '#f97316' : '#ef4444',
+                      fontSize: '0.85rem',
+                    }}>
+                      {recomendacion.puede_absorber_sin_extras ? (
+                        <><CheckCircle2 size={16} style={{ marginRight: 4 }} />Sin H. Extras</>
+                      ) : recomendacion.puede_absorber_con_extras ? (
+                        <><Zap size={16} style={{ marginRight: 4 }} />Con H. Extras</>
+                      ) : (
+                        <><ShoppingCart size={16} style={{ marginRight: 4 }} />Requiere Terceros</>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tabla detalle */}
+                <div className="table-container">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Día</th>
+                        <th className="text-right">Peso Ref.</th>
+                        <th className="text-right">Objetivo</th>
+                        <th className="text-right">Diferencia</th>
+                        <th className="text-right">Kg Déficit</th>
+                        <th className="text-right">Pollos Comp.</th>
+                        <th className="text-center">Margen Normal</th>
+                        <th className="text-center">Margen c/ Extras</th>
+                        <th className="text-center">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recomendacion.dias_afectados.map((d, idx) => (
+                        <tr key={idx} style={{
+                          background: d.requiere_terceros ? 'rgba(239, 68, 68, 0.04)'
+                            : d.puede_sin_extras ? 'rgba(34, 197, 94, 0.04)'
+                            : 'rgba(251, 146, 60, 0.04)',
+                        }}>
+                          <td>
+                            <strong>{d.dia_nombre}</strong>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-light)', marginLeft: 4 }}>
+                              ({d.fuente_peso === 'real' ? 'peso real' : 'proyectado'})
+                            </span>
+                          </td>
+                          <td className="text-right">{d.peso_referencia?.toFixed(3)} kg</td>
+                          <td className="text-right">{d.peso_objetivo?.toFixed(2)} kg</td>
+                          <td className="text-right" style={{ color: '#ef4444', fontWeight: 600 }}>
+                            -{d.diferencia_peso?.toFixed(3)} kg
+                          </td>
+                          <td className="text-right" style={{ fontWeight: 600 }}>
+                            {formatNumber(Math.round(d.kg_deficit))}
+                          </td>
+                          <td className="text-right" style={{ fontWeight: 600 }}>
+                            {formatNumber(d.pollos_compensacion)}
+                          </td>
+                          <td className="text-center">{formatNumber(d.margen_sin_extras)}</td>
+                          <td className="text-center">{formatNumber(d.margen_con_extras)}</td>
+                          <td className="text-center">
+                            {d.puede_sin_extras ? (
+                              <span style={{ color: '#16a34a', fontWeight: 600, fontSize: '0.8rem' }}>
+                                <CheckCircle2 size={14} /> OK
+                              </span>
+                            ) : d.puede_con_extras ? (
+                              <span style={{ color: '#f97316', fontWeight: 600, fontSize: '0.8rem' }}>
+                                <Zap size={14} /> H. Extras
+                              </span>
+                            ) : (
+                              <span style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.8rem' }}>
+                                <ShoppingCart size={14} /> Terceros
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Alerta para comercial */}
+                {recomendacion.alerta_comercial && (
+                  <div style={{
+                    marginTop: '1rem',
+                    padding: '0.7rem 1rem',
+                    background: 'rgba(251, 146, 60, 0.08)',
+                    border: '1px solid rgba(251, 146, 60, 0.25)',
+                    borderRadius: 8,
+                    fontSize: '0.85rem',
+                    color: '#ea580c',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}>
+                    <TrendingDown size={16} style={{ flexShrink: 0 }} />
+                    <div>
+                      <strong>Alerta para Comercial: </strong>
+                      {recomendacion.alerta_comercial}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </motion.div>
+      )}
     </motion.div>
   )
 }

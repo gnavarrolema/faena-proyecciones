@@ -119,6 +119,7 @@ export const cargarPesosReales = (pesos) =>
   api.post('/desvio/pesos-reales', { pesos }).then(r => r.data);
 export const getDesvio = () => api.get('/desvio').then(r => r.data);
 export const deletePesosReales = () => api.delete('/desvio').then(r => r.data);
+export const getRecomendacionPeso = () => api.get('/desvio/recomendacion').then(r => r.data);
 
 // ─── Gallinas ─────────────────────────────────────────────────────────────────
 
@@ -148,6 +149,9 @@ export const getReferenciaProduccion = (fechaFaena) =>
 
 export const redistribuirDia = (diaIndex) =>
   api.post('/proyeccion/redistribuir-dia', { dia_index: diaIndex }).then(r => r.data);
+
+export const getAnalisisTerceros = () =>
+  api.get('/proyeccion/analisis-terceros').then(r => r.data);
 
 // ─── Déficit entre semanas ─────────────────────────────────────────────────────
 

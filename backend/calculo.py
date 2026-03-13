@@ -31,6 +31,8 @@ class Parametros(BaseModel):
     capacidad_maxima_planta: int = 42000       # capacidad planta (horas extras a partir de aquí)
     limite_sabado: int = 20000                 # máximo estricto para sábados
     descuento_sofia: int = 10000
+    peso_objetivo_recepcion: float = 2.85   # kg peso vivo objetivo en recepción
+    capacidad_con_horas_extras: int = 45000  # capacidad máxima real con horas extras
 
 
 class LoteOferta(BaseModel):

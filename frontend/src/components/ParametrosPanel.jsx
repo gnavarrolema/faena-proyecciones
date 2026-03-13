@@ -84,9 +84,15 @@ export default function ParametrosPanel() {
       section: 'Producción y Capacidad', items: [
         { key: 'pollos_diarios_objetivo_min', label: 'Objetivo diario mín. (rango práctico)', step: 1000, type: 'int' },
         { key: 'pollos_diarios_objetivo_max', label: 'Objetivo diario máx. (rango práctico)', step: 1000, type: 'int' },
-        { key: 'capacidad_maxima_planta', label: 'Capacidad máx. planta (horas extras)', step: 1000, type: 'int' },
+        { key: 'capacidad_maxima_planta', label: 'Capacidad máx. planta (sin horas extras)', step: 1000, type: 'int' },
+        { key: 'capacidad_con_horas_extras', label: 'Capacidad máx. con horas extras', step: 1000, type: 'int' },
         { key: 'limite_sabado', label: 'Límite sábado (estricto)', step: 1000, type: 'int' },
         { key: 'descuento_sofia', label: 'Descuento Sofía', step: 1000, type: 'int' },
+      ]
+    },
+    {
+      section: 'Objetivos de Recepción', items: [
+        { key: 'peso_objetivo_recepcion', label: 'Peso objetivo recepción (kg)', step: 0.01 },
       ]
     },
   ]

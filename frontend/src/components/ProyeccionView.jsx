@@ -1,8 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia, agregarLote } from '../services/api'
+import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia, agregarLote, getAnalisisTerceros } from '../services/api'
 import { exportProyeccionPDF } from '../utils/pdfExport'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
@@ -85,7 +85,21 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
     sexo: 'M', edad_proyectada: '', peso_muestreo_proy: '',
     ganancia_diaria: 0.09, fecha_peso: '', fecha_ingreso: '', motivo_compra: ''
   })
+  const [analisisTerceros, setAnalisisTerceros] = useState(null)
   const ajusteInputRef = React.useRef(null)
+
+  // Cargar análisis de déficit al montar o cuando cambia la proyección
+  useEffect(() => {
+    const cargarAnalisis = async () => {
+      try {
+        const data = await getAnalisisTerceros()
+        setAnalisisTerceros(data)
+      } catch {
+        setAnalisisTerceros(null)
+      }
+    }
+    if (proyeccion?.dias?.length) cargarAnalisis()
+  }, [proyeccion?.total_pollos_semana])
 
   const resetTercerosForm = () => setTercerosForm({
     dia_faena: 0, granja: '', galpon: 1, nucleo: 1, cantidad: '',
@@ -332,6 +346,58 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
               {getDiaNombre(e.fecha)} — {formatNumber(e.cantidad)} {e.tipo === 'pesada' ? 'pesadas' : 'livianas'}
             </span>
           ))}
+        </motion.div>
+      )}
+
+      {/* Banner de déficit — sugerencia de compra a terceros */}
+      {analisisTerceros?.requiere_compra && (
+        <motion.div variants={itemVariants} style={{
+          padding: '0.8rem 1rem',
+          background: 'rgba(168, 85, 247, 0.08)',
+          border: '1px solid rgba(168, 85, 247, 0.3)',
+          borderRadius: 8,
+          fontSize: '0.85rem',
+          color: '#7c3aed',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <ShoppingCart size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>Déficit detectado — Considerar compra a terceros</div>
+              <div style={{ fontWeight: 400, marginBottom: 6 }}>{analisisTerceros.recomendacion}</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {analisisTerceros.dias_con_deficit.map(d => (
+                  <span key={d.fecha} style={{
+                    padding: '0.15rem 0.5rem',
+                    background: 'rgba(168, 85, 247, 0.12)',
+                    border: '1px solid rgba(168, 85, 247, 0.25)',
+                    borderRadius: 12,
+                    fontSize: '0.78rem',
+                  }}>
+                    {d.dia_nombre}: faltan {formatNumber(d.faltante)}
+                  </span>
+                ))}
+              </div>
+              <button
+                className="btn btn-sm"
+                onClick={() => {
+                  const primerDia = analisisTerceros.dias_con_deficit[0]
+                  if (primerDia) {
+                    setTercerosForm(prev => ({ ...prev, dia_faena: primerDia.dia_index }))
+                  }
+                  setShowTercerosModal(true)
+                }}
+                style={{
+                  marginTop: 8,
+                  background: '#7c3aed',
+                  color: '#fff',
+                  border: 'none',
+                  fontSize: '0.8rem',
+                }}
+              >
+                <PlusCircle size={13} style={{ marginRight: 4 }} /> Agregar Compra a Terceros
+              </button>
+            </div>
+          </div>
         </motion.div>
       )}
 

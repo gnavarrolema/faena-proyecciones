@@ -1183,6 +1183,207 @@ def clear_pesos_reales(current_user: TokenData = Depends(get_current_user)):
     return {"message": "Pesos reales eliminados."}
 
 
+@app.get("/desvio/recomendacion")
+def get_recomendacion_peso(current_user: TokenData = Depends(get_current_user)):
+    """
+    Analiza desvío de peso vs. objetivo de recepción y genera recomendación
+    óptima para compensar kg perdidos, indicando si se necesitan más pollos
+    o compra a terceros.
+    """
+    proyeccion = _get_proyeccion()
+    if proyeccion is None:
+        raise HTTPException(404, "No hay proyección generada.")
+
+    params = _get_parametros()
+    peso_objetivo = params.peso_objetivo_recepcion
+
+    pesos_data = storage.load_pesos_reales()
+
+    # Indexar pesos reales por fecha
+    pesos_por_fecha = {}
+    if pesos_data:
+        for p in pesos_data:
+            fecha_str = p["fecha"] if isinstance(p["fecha"], str) else p["fecha"].isoformat()
+            pesos_por_fecha[fecha_str] = p["peso_promedio_real"]
+
+    dias_afectados = []
+    total_kg_deficit = 0.0
+    total_pollos_compensacion = 0
+
+    for dia in proyeccion.dias:
+        fecha_str = dia.fecha.isoformat()
+        peso_real = pesos_por_fecha.get(fecha_str)
+
+        # Usar peso real si existe, si no usar proyectado
+        peso_referencia = peso_real if peso_real is not None else dia.peso_promedio_ponderado
+
+        if peso_referencia <= 0 or dia.total_pollos <= 0:
+            continue
+
+        if peso_referencia < peso_objetivo:
+            diff_peso = round(peso_objetivo - peso_referencia, 3)
+            kg_perdidos = round(diff_peso * dia.total_pollos * params.rendimiento_canal, 1)
+            # Pollos adicionales necesarios para compensar kg perdidos
+            peso_faenado_ref = peso_referencia * params.rendimiento_canal
+            pollos_comp = int(kg_perdidos / peso_faenado_ref) if peso_faenado_ref > 0 else 0
+
+            # Capacidad disponible
+            es_sabado = dia.fecha.weekday() == 5
+            cap_normal = params.limite_sabado if es_sabado else params.capacidad_maxima_planta
+            cap_extras = params.limite_sabado if es_sabado else params.capacidad_con_horas_extras
+            margen_normal = max(0, cap_normal - dia.total_pollos - dia.gallinas_cantidad)
+            margen_extras = max(0, cap_extras - dia.total_pollos - dia.gallinas_cantidad)
+
+            puede_sin_extras = pollos_comp <= margen_normal
+            puede_con_extras = pollos_comp <= margen_extras
+
+            dia_nombre = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"][dia.fecha.weekday()]
+
+            dias_afectados.append({
+                "fecha": fecha_str,
+                "dia_nombre": dia_nombre,
+                "peso_referencia": round(peso_referencia, 3),
+                "peso_objetivo": peso_objetivo,
+                "diferencia_peso": diff_peso,
+                "kg_deficit": kg_perdidos,
+                "pollos_compensacion": pollos_comp,
+                "pollos_actuales": dia.total_pollos,
+                "margen_sin_extras": margen_normal,
+                "margen_con_extras": margen_extras,
+                "puede_sin_extras": puede_sin_extras,
+                "puede_con_extras": puede_con_extras,
+                "requiere_terceros": not puede_con_extras,
+                "fuente_peso": "real" if peso_real is not None else "proyectado",
+            })
+
+            total_kg_deficit += kg_perdidos
+            total_pollos_compensacion += pollos_comp
+
+    # Determinar estado general
+    peso_por_debajo = len(dias_afectados) > 0
+    todos_absorben_sin_extras = all(d["puede_sin_extras"] for d in dias_afectados) if dias_afectados else True
+    todos_absorben_con_extras = all(d["puede_con_extras"] for d in dias_afectados) if dias_afectados else True
+    alguno_requiere_terceros = any(d["requiere_terceros"] for d in dias_afectados)
+
+    # Generar recomendación textual
+    recomendacion = ""
+    alerta_comercial = ""
+    if not peso_por_debajo:
+        recomendacion = "✅ Los pesos están dentro o por encima del objetivo de recepción. No se requiere acción."
+    else:
+        if todos_absorben_sin_extras:
+            recomendacion = (
+                f"⚠ Peso por debajo del objetivo ({peso_objetivo:.2f} kg) en {len(dias_afectados)} día(s). "
+                f"Se necesitan ~{total_pollos_compensacion:,} pollos adicionales para compensar "
+                f"~{total_kg_deficit:,.0f} kg de déficit. "
+                f"La planta puede absorber estos pollos SIN horas extras."
+            )
+        elif todos_absorben_con_extras:
+            recomendacion = (
+                f"⚠ Peso por debajo del objetivo ({peso_objetivo:.2f} kg) en {len(dias_afectados)} día(s). "
+                f"Se necesitan ~{total_pollos_compensacion:,} pollos adicionales para compensar "
+                f"~{total_kg_deficit:,.0f} kg de déficit. "
+                f"Se requieren HORAS EXTRAS para absorber la carga adicional."
+            )
+        else:
+            dias_terceros = [d for d in dias_afectados if d["requiere_terceros"]]
+            recomendacion = (
+                f"🔴 Peso por debajo del objetivo ({peso_objetivo:.2f} kg) en {len(dias_afectados)} día(s). "
+                f"Se necesitan ~{total_pollos_compensacion:,} pollos adicionales. "
+                f"En {len(dias_terceros)} día(s) la capacidad (incluso con horas extras) no alcanza. "
+                f"Considerar COMPRA A TERCEROS."
+            )
+
+        alerta_comercial = (
+            f"Alerta: peso promedio recibido por debajo del objetivo de {peso_objetivo:.2f} kg. "
+            f"Déficit estimado de ~{total_kg_deficit:,.0f} kg faenados en la semana. "
+            f"Calibres más chicos de lo esperado."
+        )
+
+    return {
+        "peso_objetivo": peso_objetivo,
+        "peso_por_debajo": peso_por_debajo,
+        "dias_afectados": dias_afectados,
+        "total_kg_deficit": round(total_kg_deficit, 1),
+        "total_pollos_compensacion": total_pollos_compensacion,
+        "puede_absorber_sin_extras": todos_absorben_sin_extras if peso_por_debajo else True,
+        "puede_absorber_con_extras": todos_absorben_con_extras if peso_por_debajo else True,
+        "requiere_terceros": alguno_requiere_terceros,
+        "recomendacion": recomendacion,
+        "alerta_comercial": alerta_comercial,
+        "tiene_pesos_reales": len(pesos_por_fecha) > 0,
+    }
+
+
+@app.get("/proyeccion/analisis-terceros")
+def analisis_necesidad_terceros(current_user: TokenData = Depends(get_current_user)):
+    """
+    Analiza la proyección actual y determina si hay déficit de pollos
+    respecto al objetivo diario, sugiriendo compra a terceros.
+    """
+    proyeccion = _get_proyeccion()
+    if proyeccion is None:
+        raise HTTPException(404, "No hay proyección generada.")
+
+    params = _get_parametros()
+    objetivo_min = params.pollos_diarios_objetivo_min
+
+    dias_con_deficit = []
+    deficit_total = 0
+
+    for dia in proyeccion.dias:
+        es_sabado = dia.fecha.weekday() == 5
+        if es_sabado:
+            continue  # Sábados tienen su propio límite, no aplica déficit
+
+        total_efectivo = dia.total_pollos + dia.gallinas_cantidad
+        if total_efectivo < objetivo_min:
+            faltante = objetivo_min - total_efectivo
+            dia_nombre = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"][dia.fecha.weekday()]
+
+            # Margen disponible
+            cap_normal = params.capacidad_maxima_planta
+            cap_extras = params.capacidad_con_horas_extras
+            margen = max(0, cap_normal - total_efectivo)
+
+            dias_con_deficit.append({
+                "fecha": dia.fecha.isoformat(),
+                "dia_nombre": dia_nombre,
+                "pollos_actuales": dia.total_pollos,
+                "gallinas": dia.gallinas_cantidad,
+                "objetivo_min": objetivo_min,
+                "faltante": faltante,
+                "margen_capacidad": margen,
+                "dia_index": proyeccion.dias.index(dia),
+            })
+            deficit_total += faltante
+
+    requiere_compra = deficit_total > 0
+
+    # Generar recomendación
+    recomendacion = ""
+    if not requiere_compra:
+        recomendacion = "✅ Todos los días cumplen con el objetivo mínimo diario."
+    else:
+        detalle = ", ".join(
+            f"{d['dia_nombre']} ({d['faltante']:,})"
+            for d in dias_con_deficit
+        )
+        recomendacion = (
+            f"⚠ Faltan ~{deficit_total:,} pollos para cubrir el objetivo mínimo semanal. "
+            f"Días con déficit: {detalle}. "
+            f"Considerar compra a terceros para completar la carga."
+        )
+
+    return {
+        "deficit_total": deficit_total,
+        "dias_con_deficit": dias_con_deficit,
+        "requiere_compra": requiere_compra,
+        "recomendacion": recomendacion,
+        "objetivo_min_diario": objetivo_min,
+    }
+
+
 # ─── Escenarios ─────────────────────────────────────────────────────────────────
 
 @app.post("/escenarios/guardar")

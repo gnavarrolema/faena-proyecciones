@@ -341,6 +341,10 @@ export default function ResumenSemanal({ proyeccion }) {
         if (lotesTerceros.length === 0) return null
 
         const totalPollosTerceros = lotesTerceros.reduce((sum, l) => sum + l.cantidad, 0)
+        const totalCajasTerceros = lotesTerceros.reduce((s, l) => s + l.cajas, 0)
+        const pesoPromTerceros = totalPollosTerceros > 0
+          ? (lotesTerceros.reduce((s, l) => s + l.peso_vivo_retiro * l.cantidad, 0) / totalPollosTerceros)
+          : 0
         const pctTerceros = proyeccion.total_pollos_semana > 0
           ? ((totalPollosTerceros / proyeccion.total_pollos_semana) * 100).toFixed(1)
           : '0.0'
@@ -361,8 +365,12 @@ export default function ResumenSemanal({ proyeccion }) {
                   <div className="stat-value" style={{ color: '#7c3aed' }}>{pctTerceros}%</div>
                 </div>
                 <div className="stat-card">
-                  <div className="stat-label">Lotes de Terceros</div>
-                  <div className="stat-value" style={{ color: '#7c3aed' }}>{lotesTerceros.length}</div>
+                  <div className="stat-label">Peso Prom. Ponderado</div>
+                  <div className="stat-value" style={{ color: '#7c3aed' }}>{pesoPromTerceros.toFixed(2)} kg</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Cajas Terceros</div>
+                  <div className="stat-value" style={{ color: '#7c3aed' }}>{formatNumber(totalCajasTerceros)}</div>
                 </div>
               </div>
 
@@ -394,8 +402,9 @@ export default function ResumenSemanal({ proyeccion }) {
                     <tr className="row-subtotal">
                       <td colSpan={2}><strong>TOTAL TERCEROS</strong></td>
                       <td className="text-right"><strong>{formatNumber(totalPollosTerceros)}</strong></td>
-                      <td colSpan={2}></td>
-                      <td className="text-right"><strong>{formatNumber(lotesTerceros.reduce((s, l) => s + l.cajas, 0))}</strong></td>
+                      <td className="text-right"><strong>{pesoPromTerceros.toFixed(2)} kg</strong></td>
+                      <td></td>
+                      <td className="text-right"><strong>{formatNumber(totalCajasTerceros)}</strong></td>
                       <td></td>
                     </tr>
                   </tbody>
