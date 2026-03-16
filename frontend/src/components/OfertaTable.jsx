@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { BarChart2, Activity, Home, List, AlertCircle, Download, CalendarOff, Plus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { generarProyeccion, getFeriados, addFeriadoCustom, deleteFeriadoCustom } from '../services/api'
+import { generarProyeccion, generarEscenarios, getFeriados, addFeriadoCustom, deleteFeriadoCustom } from '../services/api'
 import { exportOfertaPDF } from '../utils/pdfExport'
+import VariantesPicker from './VariantesPicker'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
@@ -37,7 +38,7 @@ function getDiaNombre(fechaStr) {
   return DIAS_SEMANA[idx]
 }
 
-export default function OfertaTable({ oferta, onGenerarProyeccion }) {
+export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuardado, onDeficitUsado }) {
   const [fechaInicio, setFechaInicio] = useState('')
   const [pollosPorDia, setPollosPorDia] = useState(35000)
   const [diasFaena, setDiasFaena] = useState(5)
@@ -49,6 +50,9 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
   const [customFeriadoFecha, setCustomFeriadoFecha] = useState('')
   const [customFeriadoDesc, setCustomFeriadoDesc] = useState('')
   const [addingCustom, setAddingCustom] = useState(false)
+  const [incluirDeficit, setIncluirDeficit] = useState(false)
+  const [variantesData, setVariantesData] = useState(null)
+  const [variantesLoading, setVariantesLoading] = useState(false)
   // Gallinas
   const [gallinasDia, setGallinasDia] = useState({}) // {fecha_iso: {livianas: int, pesadas: int}}
   const [gallinasInputFecha, setGallinasInputFecha] = useState('')
@@ -158,7 +162,9 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
         pollos_por_dia: pollosPorDia,
         habilitar_sabado: habilitarSabado,
         gallinas: Object.keys(gallinasDia).length > 0 ? gallinasDia : null,
+        incluir_deficit: incluirDeficit,
       })
+      if (incluirDeficit && onDeficitUsado) onDeficitUsado()
       onGenerarProyeccion(data)
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al generar proyección')
@@ -504,13 +510,101 @@ export default function OfertaTable({ oferta, onGenerarProyeccion }) {
             </div>
           )}
 
-          <button className="btn btn-primary" onClick={handleGenerar} disabled={loading}>
-            {loading ? (
-              <><span className="spinner" style={{ width: 16, height: 16, marginRight: 6 }}></span> Generando...</>
-            ) : (
-              <><BarChart2 size={16} /> Generar Proyección Automática{feriadosSemana.length > 0 ? ` (${diasHabiles} días hábiles)` : ''}{habilitarSabado ? ' + Sábado' : ''}</>
+          {/* Déficit semana anterior */}
+          {deficitGuardado?.existe && (
+            <div style={{
+              padding: '0.75rem 1rem',
+              background: incluirDeficit ? 'rgba(59, 130, 246, 0.1)' : '#f8fafc',
+              border: `1px solid ${incluirDeficit ? 'rgba(59, 130, 246, 0.3)' : 'var(--border)'}`,
+              borderRadius: 8,
+              marginBottom: '1rem',
+            }}>
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                fontSize: '0.9rem', cursor: 'pointer',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={incluirDeficit}
+                  onChange={(e) => setIncluirDeficit(e.target.checked)}
+                />
+                <span style={{ fontWeight: 600, color: incluirDeficit ? '#2563eb' : 'var(--text-light)' }}>
+                  Incluir déficit de semana anterior
+                </span>
+                <span style={{
+                  padding: '0.15rem 0.5rem',
+                  background: 'rgba(59, 130, 246, 0.12)',
+                  borderRadius: 12,
+                  fontSize: '0.78rem',
+                  color: '#2563eb',
+                  fontWeight: 600,
+                }}>
+                  {deficitGuardado.total_lotes} lote{deficitGuardado.total_lotes !== 1 ? 's' : ''} — {formatNumber(deficitGuardado.total_pollos)} pollos
+                </span>
+              </label>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-light)', marginLeft: 26 }}>
+                Semana origen: {deficitGuardado.semana_origen}
+              </span>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" onClick={handleGenerar} disabled={loading || variantesLoading}>
+              {loading ? (
+                <><span className="spinner" style={{ width: 16, height: 16, marginRight: 6 }}></span> Generando...</>
+              ) : (
+                <><BarChart2 size={16} /> Generar Proyección{feriadosSemana.length > 0 ? ` (${diasHabiles} días hábiles)` : ''}{habilitarSabado ? ' + Sábado' : ''}</>
+              )}
+            </button>
+            <button
+              className="btn btn-outline"
+              disabled={loading || variantesLoading || !fechaInicio}
+              onClick={async () => {
+                if (!fechaInicio) {
+                  setError('Seleccione la fecha de inicio de la semana (lunes)')
+                  return
+                }
+                setVariantesLoading(true)
+                setError(null)
+                try {
+                  const data = await generarEscenarios({
+                    fecha_inicio_semana: fechaInicio,
+                    dias_faena: diasFaena,
+                    pollos_por_dia: pollosPorDia,
+                    habilitar_sabado: habilitarSabado,
+                    gallinas: Object.keys(gallinasDia).length > 0 ? gallinasDia : null,
+                    incluir_deficit: incluirDeficit,
+                  })
+                  setVariantesData(data)
+                } catch (err) {
+                  setError(err.response?.data?.detail || 'Error al generar variantes')
+                } finally {
+                  setVariantesLoading(false)
+                }
+              }}
+            >
+              {variantesLoading ? (
+                <><span className="spinner" style={{ width: 16, height: 16, marginRight: 6 }}></span> Comparando...</>
+              ) : (
+                <><Activity size={16} /> Comparar Estrategias</>
+              )}
+            </button>
+          </div>
+
+          {/* Modal de variantes */}
+          <AnimatePresence>
+            {variantesData && (
+              <VariantesPicker
+                data={variantesData}
+                onSelect={(proyeccion) => {
+                  setVariantesData(null)
+                  if (incluirDeficit && onDeficitUsado) onDeficitUsado()
+                  onGenerarProyeccion(proyeccion)
+                }}
+                onClose={() => setVariantesData(null)}
+              />
             )}
-          </button>
+          </AnimatePresence>
         </div>
       </motion.div>
 

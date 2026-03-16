@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia, agregarLote, getAnalisisTerceros } from '../services/api'
+import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia, agregarLote, getAnalisisTerceros, cargarDeficit } from '../services/api'
 import { exportProyeccionPDF } from '../utils/pdfExport'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
@@ -289,33 +289,99 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
         </div>
       </motion.div>
 
-      {/* Feriados aplicados */}
+      {/* Panel interactivo de feriados */}
       {proyeccion.feriados_aplicados && proyeccion.feriados_aplicados.length > 0 && (
         <motion.div variants={itemVariants} style={{
-          padding: '0.7rem 1rem',
-          background: 'rgba(251, 146, 60, 0.1)',
+          padding: '1rem',
+          background: 'rgba(251, 146, 60, 0.08)',
           border: '1px solid rgba(251, 146, 60, 0.3)',
           borderRadius: 8,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          flexWrap: 'wrap',
-          fontSize: '0.85rem',
-          color: '#ea580c',
         }}>
-          <Calendar size={16} />
-          <strong>Feriados saltados:</strong>
-          {proyeccion.feriados_aplicados.map(f => (
-            <span key={f.fecha} style={{
-              padding: '0.2rem 0.6rem',
-              background: 'rgba(251, 146, 60, 0.15)',
-              border: '1px solid rgba(251, 146, 60, 0.25)',
-              borderRadius: 16,
-              fontSize: '0.8rem',
-            }}>
-              {getDiaNombre(f.fecha)} — {f.nombre}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.75rem' }}>
+            <Calendar size={16} color="#ea580c" />
+            <strong style={{ color: '#ea580c', fontSize: '0.9rem' }}>
+              {proyeccion.feriados_aplicados.length} feriado{proyeccion.feriados_aplicados.length > 1 ? 's' : ''} en esta semana
+            </strong>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>
+              — Las aves se redistribuyeron entre los {dias.length} días hábiles restantes
             </span>
-          ))}
+          </div>
+
+          {proyeccion.feriados_aplicados.map(f => {
+            const avesDesplazadas = Math.round((proyeccion.total_pollos_semana || 0) / (dias.length || 1))
+            return (
+              <div key={f.fecha} style={{
+                display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap',
+                padding: '0.6rem 0.75rem',
+                background: 'rgba(251, 146, 60, 0.1)',
+                border: '1px solid rgba(251, 146, 60, 0.2)',
+                borderRadius: 8,
+                marginBottom: '0.5rem',
+              }}>
+                <span style={{
+                  padding: '0.2rem 0.6rem',
+                  background: 'rgba(251, 146, 60, 0.2)',
+                  borderRadius: 16,
+                  fontSize: '0.8rem',
+                  color: '#ea580c',
+                  fontWeight: 600,
+                }}>
+                  {getDiaNombre(f.fecha)} — {f.nombre}
+                </span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-light)' }}>
+                  ~{formatNumber(avesDesplazadas)} aves redistribuidas
+                </span>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }}>
+                  {!dias.some(d => d.es_sabado) && (
+                    <button
+                      className="btn btn-sm btn-outline"
+                      style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+                      onClick={async () => {
+                        try {
+                          setLoading(true)
+                          const data = await generarProyeccion({
+                            fecha_inicio_semana: proyeccion.fecha_inicio,
+                            dias_faena: 6,
+                            pollos_por_dia: Math.round(proyeccion.total_pollos_semana / dias.length),
+                            habilitar_sabado: true,
+                            gallinas: proyeccion.eventos_gallinas?.length > 0
+                              ? Object.fromEntries(proyeccion.eventos_gallinas.map(e => [e.fecha, { livianas: e.gallinas_livianas_cantidad || 0, pesadas: e.gallinas_pesadas_cantidad || 0 }]))
+                              : null,
+                          })
+                          setProyeccion(data)
+                          toast.success('Proyección regenerada con sábado habilitado')
+                        } catch (err) {
+                          toast.error(err.response?.data?.detail || 'Error al regenerar')
+                        } finally {
+                          setLoading(false)
+                        }
+                      }}
+                    >
+                      Habilitar sábado
+                    </button>
+                  )}
+                  <button
+                    className="btn btn-sm btn-outline"
+                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+                    onClick={async () => {
+                      if (lotesNoAsignados.length > 0) {
+                        try {
+                          const result = await cargarDeficit()
+                          toast.success(result.mensaje || 'Déficit trasladado a semana siguiente')
+                        } catch (err) {
+                          toast.error(err.response?.data?.detail || 'Error al trasladar déficit')
+                        }
+                      } else {
+                        toast('No hay lotes no asignados para diferir', { icon: 'ℹ️' })
+                      }
+                    }}
+                  >
+                    Diferir a semana siguiente
+                  </button>
+                </div>
+              </div>
+            )
+          })}
         </motion.div>
       )}
 
@@ -660,6 +726,21 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
         <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid var(--warning)' }}>
           <div className="card-header">
             <h2><PackageOpen size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Lotes no asignados por tope diario</h2>
+            <button
+              className="btn btn-sm btn-outline"
+              onClick={async () => {
+                try {
+                  const result = await cargarDeficit()
+                  toast.success(result.mensaje || `${result.lotes_trasladados} lotes trasladados al déficit para la semana siguiente`)
+                } catch (err) {
+                  toast.error(err.response?.data?.detail || 'Error al trasladar déficit')
+                }
+              }}
+              style={{ fontSize: '0.8rem' }}
+              title="Guardar estos lotes como déficit para incluirlos en la proyección de la semana siguiente"
+            >
+              <ArrowLeftRight size={14} /> Trasladar a semana siguiente
+            </button>
           </div>
           <div className="card-body">
             <p style={{ marginBottom: '0.8rem', fontSize: '0.9rem', color: 'var(--text-light)' }}>

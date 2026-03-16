@@ -153,6 +153,13 @@ export const redistribuirDia = (diaIndex) =>
 export const getAnalisisTerceros = () =>
   api.get('/proyeccion/analisis-terceros').then(r => r.data);
 
+// ─── Variantes / Múltiples escenarios ──────────────────────────────────────────
+
+export const generarEscenarios = (params) =>
+  api.post('/proyeccion/generar-escenarios', params).then(r => r.data);
+export const aplicarVariante = (proyeccion) =>
+  api.post('/proyeccion/aplicar-variante', proyeccion).then(r => r.data);
+
 // ─── Déficit entre semanas ─────────────────────────────────────────────────────
 
 export const cargarDeficit = () =>

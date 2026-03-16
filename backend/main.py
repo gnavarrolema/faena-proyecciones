@@ -105,6 +105,7 @@ class ProyeccionRequest(BaseModel):
     feriados_custom: Optional[List[date]] = None
     habilitar_sabado: bool = False
     gallinas: Optional[dict] = None  # {fecha_iso: cantidad}
+    incluir_deficit: bool = False  # incluir lotes del déficit de semana anterior
 
 
 class FeriadoCustomRequest(BaseModel):
@@ -364,6 +365,23 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
     ofertas = _get_ofertas()
     if not ofertas:
         raise HTTPException(400, "No hay oferta cargada. Suba un archivo primero.")
+
+    # Inyectar lotes del déficit de la semana anterior si corresponde
+    if req.incluir_deficit:
+        deficit_data = storage.load_deficit()
+        if deficit_data and deficit_data.get("ofertas_originales"):
+            ofertas_deficit = []
+            for od in deficit_data["ofertas_originales"]:
+                try:
+                    ofertas_deficit.append(LoteOferta(**od))
+                except Exception as e:
+                    logger.warning(f"Error reconstruyendo oferta de déficit: {e}")
+            if ofertas_deficit:
+                logger.info(
+                    f"Incluyendo {len(ofertas_deficit)} lotes del déficit "
+                    f"de semana {deficit_data.get('semana_origen', '?')}"
+                )
+                ofertas = ofertas + ofertas_deficit
 
     params = req.parametros or _get_parametros()
 
@@ -1384,6 +1402,158 @@ def analisis_necesidad_terceros(current_user: TokenData = Depends(get_current_us
     }
 
 
+# ─── Generación de Variantes (múltiples escenarios) ────────────────────────────
+
+@app.post("/proyeccion/generar-escenarios")
+def generar_escenarios_endpoint(
+    req: ProyeccionRequest,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """
+    Genera 1 a 3 variantes de proyección con diferentes estrategias.
+    Para semanas complejas (feriados, gallinas, alta carga), genera 3 variantes.
+    Para semanas normales, genera solo la variante Equilibrado.
+    """
+    ofertas = _get_ofertas()
+    if not ofertas:
+        raise HTTPException(400, "No hay oferta cargada. Suba un archivo primero.")
+
+    params = req.parametros or _get_parametros()
+
+    # Construir feriados
+    feriados_custom_list = []
+    saved_custom = storage.load_feriados_custom() or []
+    feriados_custom_list.extend(saved_custom)
+    if req.feriados_custom:
+        for fc in req.feriados_custom:
+            feriados_custom_list.append({"fecha": fc.isoformat(), "descripcion": "Feriado personalizado"})
+
+    fecha_fin = req.fecha_inicio_semana + timedelta(days=13)
+    feriados = obtener_feriados_rango(
+        req.fecha_inicio_semana, fecha_fin,
+        feriados_custom=feriados_custom_list if feriados_custom_list else None,
+    )
+
+    # Inyectar déficit si corresponde
+    ofertas_base = ofertas
+    if req.incluir_deficit:
+        deficit_data = storage.load_deficit()
+        if deficit_data and deficit_data.get("ofertas_originales"):
+            for od in deficit_data["ofertas_originales"]:
+                try:
+                    ofertas_base = ofertas_base + [LoteOferta(**od)]
+                except Exception:
+                    pass
+
+    # Detectar si la semana es compleja
+    tiene_feriados = bool(feriados)
+    tiene_gallinas = bool(req.gallinas and len(req.gallinas) > 0)
+    total_aves_oferta = sum(o.cantidad for o in ofertas_base)
+    dias_base = req.dias_faena
+    carga_excedida = total_aves_oferta > req.pollos_por_dia * dias_base * 1.1
+    es_compleja = tiene_feriados or tiene_gallinas or carga_excedida
+
+    def _generar_variante(etiqueta, descripcion, pollos_dia, dias, habilitar_sab):
+        dias_eff = max(dias, 6) if habilitar_sab else dias
+        semana = generar_proyeccion(
+            ofertas=ofertas_base,
+            fecha_inicio_semana=req.fecha_inicio_semana,
+            dias_faena=dias_eff,
+            pollos_por_dia=pollos_dia,
+            params=params,
+            feriados=feriados if feriados else None,
+            gallinas=req.gallinas,
+        )
+        proy_dict = semana.model_dump()
+        usa_horas_extras = any(d.get("nivel_carga") == "horas_extras" for d in proy_dict.get("dias", []))
+        usa_sabado = any(d.get("es_sabado") for d in proy_dict.get("dias", []))
+        max_carga = max((d.get("total_pollos", 0) for d in proy_dict.get("dias", [])), default=0)
+        return {
+            "etiqueta": etiqueta,
+            "descripcion": descripcion,
+            "parametros_usados": {
+                "pollos_por_dia": pollos_dia,
+                "dias_faena": dias_eff,
+                "habilitar_sabado": habilitar_sab,
+            },
+            "proyeccion": proy_dict,
+            "resumen": {
+                "total_pollos": proy_dict.get("total_pollos_semana", 0),
+                "dias_efectivos": len(proy_dict.get("dias", [])),
+                "pollos_no_asignados": proy_dict.get("total_pollos_no_asignados", 0),
+                "pollos_fuera_rango": proy_dict.get("total_pollos_fuera_rango", 0),
+                "max_carga_dia": max_carga,
+                "usa_sabado": usa_sabado,
+                "usa_horas_extras": usa_horas_extras,
+                "cajas_semanales": proy_dict.get("produccion_cajas_semanales", 0),
+            },
+        }
+
+    variantes = []
+
+    if es_compleja:
+        # Conservador: objetivo bajo, sábado habilitado
+        variantes.append(_generar_variante(
+            "Conservador",
+            "Carga diaria baja, sábado habilitado. Prioriza evitar horas extras.",
+            params.pollos_diarios_objetivo_min,
+            dias_base,
+            True,
+        ))
+
+        # Equilibrado: objetivo del usuario, sábado solo si hay feriados
+        variantes.append(_generar_variante(
+            "Equilibrado",
+            "Carga moderada. Sábado solo si hay feriados o gallinas.",
+            req.pollos_por_dia,
+            dias_base,
+            tiene_feriados or tiene_gallinas,
+        ))
+
+        # Intensivo: objetivo alto, sin sábado
+        variantes.append(_generar_variante(
+            "Intensivo",
+            "Carga máxima Lun-Vie. Sin sábado, acepta posibles horas extras.",
+            params.pollos_diarios_objetivo_max,
+            dias_base,
+            False,
+        ))
+    else:
+        # Semana normal: solo Equilibrado
+        variantes.append(_generar_variante(
+            "Equilibrado",
+            "Distribución estándar sin complejidades especiales.",
+            req.pollos_por_dia,
+            dias_base,
+            req.habilitar_sabado,
+        ))
+
+    return {
+        "es_compleja": es_compleja,
+        "motivos_complejidad": {
+            "feriados": tiene_feriados,
+            "gallinas": tiene_gallinas,
+            "carga_excedida": carga_excedida,
+        },
+        "variantes": variantes,
+    }
+
+
+@app.post("/proyeccion/aplicar-variante")
+def aplicar_variante_endpoint(
+    proyeccion_data: dict,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """
+    Persiste una variante de proyección seleccionada por el usuario.
+    Recibe la proyección completa (SemanaFaena) y la guarda como activa.
+    """
+    storage.save_proyeccion(proyeccion_data)
+    params = _get_parametros()
+    storage.save_parametros(params.model_dump())
+    return proyeccion_data
+
+
 # ─── Escenarios ─────────────────────────────────────────────────────────────────
 
 @app.post("/escenarios/guardar")
@@ -1531,7 +1701,8 @@ def get_deficit(current_user: TokenData = Depends(get_current_user)):
 def cargar_deficit_semana(current_user: TokenData = Depends(get_current_user)):
     """
     Persiste los lotes no asignados de la proyección actual como déficit
-    para la semana siguiente. Aparecerá como aviso al cargar la próxima oferta.
+    para la semana siguiente.  Guarda también los datos originales de oferta
+    para poder re-inyectarlos en la generación de la semana siguiente.
     """
     semana = _get_proyeccion()
     if semana is None:
@@ -1540,8 +1711,25 @@ def cargar_deficit_semana(current_user: TokenData = Depends(get_current_user)):
     if not semana.lotes_no_asignados:
         raise HTTPException(400, "No hay lotes no asignados en la proyección actual.")
 
+    # Buscar ofertas originales para preservar datos de cálculo
+    ofertas_originales = _get_ofertas()
+    ofertas_index: dict[tuple, dict] = {}
+    for o in ofertas_originales:
+        key = (o.granja, o.galpon, o.nucleo, o.sexo,
+               o.fecha_ingreso.isoformat() if o.fecha_ingreso else "")
+        ofertas_index[key] = o.model_dump()
+
+    ofertas_deficit = []
+    for lote_na in semana.lotes_no_asignados:
+        key = (lote_na.granja, lote_na.galpon, lote_na.nucleo, lote_na.sexo,
+               lote_na.fecha_ingreso.isoformat() if lote_na.fecha_ingreso else "")
+        oferta_orig = ofertas_index.get(key)
+        if oferta_orig:
+            ofertas_deficit.append(oferta_orig)
+
     deficit_data = {
         "lotes": [l.model_dump() for l in semana.lotes_no_asignados],
+        "ofertas_originales": ofertas_deficit,
         "total_pollos": semana.total_pollos_no_asignados,
         "total_lotes": len(semana.lotes_no_asignados),
         "semana_origen": semana.fecha_inicio.isoformat(),

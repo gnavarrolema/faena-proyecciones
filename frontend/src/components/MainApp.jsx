@@ -143,6 +143,10 @@ const MainApp = () => {
                                         setProyeccion(proy)
                                         setActiveTab('proyeccion')
                                     }}
+                                    deficitGuardado={deficitGuardado}
+                                    onDeficitUsado={() => {
+                                        setDeficitGuardado(null)
+                                    }}
                                 />
                             )}
 
