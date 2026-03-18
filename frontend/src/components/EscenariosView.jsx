@@ -412,7 +412,7 @@ export default function EscenariosView({ proyeccion, setProyeccion }) {
                     </tr>                    <tr>
                       <td><strong>Tasa Mortalidad</strong></td>
                       {comparacion.map(esc => (
-                        <td key={esc.id} className=\"text-right\" style={{ fontWeight: 500 }}>
+                        <td key={esc.id} className="text-right" style={{ fontWeight: 500 }}>
                           {esc.tasa_mortalidad != null ? `${(esc.tasa_mortalidad * 100).toFixed(1)}%` : '—'}
                         </td>
                       ))}
@@ -422,7 +422,7 @@ export default function EscenariosView({ proyeccion, setProyeccion }) {
                         <tr>
                           <td><strong>Pollitos Disponibles</strong></td>
                           {comparacion.map(esc => (
-                            <td key={esc.id} className=\"text-right\">
+                            <td key={esc.id} className="text-right">
                               {esc.produccion_analisis ? formatNumber(esc.produccion_analisis.disponibles) : '—'}
                             </td>
                           ))}
@@ -430,7 +430,7 @@ export default function EscenariosView({ proyeccion, setProyeccion }) {
                         <tr>
                           <td><strong>Déficit Prod.</strong></td>
                           {comparacion.map(esc => (
-                            <td key={esc.id} className=\"text-right\" style={{
+                            <td key={esc.id} className="text-right" style={{
                               color: esc.produccion_analisis?.deficit ? '#ef4444' : 'var(--success)',
                               fontWeight: 600,
                             }}>
