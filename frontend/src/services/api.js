@@ -112,6 +112,8 @@ export const uploadProduccion = (file, sheetName) => {
 export const getProduccion = () => api.get('/produccion').then(r => r.data);
 export const getSimulacionMortalidad = () => api.get('/produccion/simulacion').then(r => r.data);
 export const deleteProduccion = () => api.delete('/produccion').then(r => r.data);
+export const getForecastProduccion = (semanas = 4) =>
+  api.get(`/produccion/forecast?semanas=${semanas}`).then(r => r.data);
 
 // ─── Desvío de Peso ────────────────────────────────────────────────────────────
 
@@ -120,6 +122,7 @@ export const cargarPesosReales = (pesos) =>
 export const getDesvio = () => api.get('/desvio').then(r => r.data);
 export const deletePesosReales = () => api.delete('/desvio').then(r => r.data);
 export const getRecomendacionPeso = () => api.get('/desvio/recomendacion').then(r => r.data);
+export const getMortalidadObservada = () => api.get('/desvio/mortalidad-observada').then(r => r.data);
 
 // ─── Gallinas ─────────────────────────────────────────────────────────────────
 
@@ -130,8 +133,8 @@ export const quitarGallinas = (diaIndex, tipo = null) =>
 
 // ─── Escenarios ────────────────────────────────────────────────────────────────
 
-export const guardarEscenario = (nombre, descripcion) =>
-  api.post('/escenarios/guardar', { nombre, descripcion }).then(r => r.data);
+export const guardarEscenario = (nombre, descripcion, tasa_mortalidad = null) =>
+  api.post('/escenarios/guardar', { nombre, descripcion, tasa_mortalidad }).then(r => r.data);
 export const listarEscenarios = () => api.get('/escenarios').then(r => r.data);
 export const getEscenario = (id) => api.get(`/escenarios/${id}`).then(r => r.data);
 export const deleteEscenario = (id) => api.delete(`/escenarios/${id}`).then(r => r.data);
@@ -168,6 +171,11 @@ export const getDeficitGuardado = () =>
   api.get('/proyeccion/deficit-guardado').then(r => r.data);
 export const clearDeficitGuardado = () =>
   api.delete('/proyeccion/deficit-guardado').then(r => r.data);
+
+// ─── Pronóstico de Pesos ───────────────────────────────────────────────────────
+
+export const getPronosticoPesos = () =>
+  api.get('/pronostico/pesos').then(r => r.data);
 
 export default api;
 

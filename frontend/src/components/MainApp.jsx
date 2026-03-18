@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FolderUp, List, KanbanSquare, TrendingUp, Settings2, Bird, LogOut, Loader2, Factory, Scale, Layers } from 'lucide-react'
+import { FolderUp, List, KanbanSquare, TrendingUp, Settings2, Bird, LogOut, Loader2, Factory, Scale, Layers, Activity } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getOferta, getProyeccion, getDeficitGuardado, clearDeficitGuardado } from '../services/api'
@@ -12,6 +12,7 @@ import ResumenSemanal from './ResumenSemanal'
 import ProduccionView from './ProduccionView'
 import DesvioView from './DesvioView'
 import EscenariosView from './EscenariosView'
+import PronosticoPesosView from './PronosticoPesosView'
 
 const TABS = [
     { id: 'upload', label: 'Cargar Oferta', icon: <FolderUp size={16} /> },
@@ -20,6 +21,7 @@ const TABS = [
     { id: 'resumen', label: 'Resumen', icon: <TrendingUp size={16} /> },
     { id: 'produccion', label: 'Cargas Pollitos BB', icon: <Factory size={16} /> },
     { id: 'desvios', label: 'Desvíos', icon: <Scale size={16} /> },
+    { id: 'pronostico', label: 'Pronóstico Pesos', icon: <Activity size={16} /> },
     { id: 'escenarios', label: 'Escenarios', icon: <Layers size={16} /> },
     { id: 'parametros', label: 'Parámetros', icon: <Settings2 size={16} /> },
 ]
@@ -167,6 +169,10 @@ const MainApp = () => {
 
                             {activeTab === 'desvios' && (
                                 <DesvioView proyeccion={proyeccion} />
+                            )}
+
+                            {activeTab === 'pronostico' && (
+                                <PronosticoPesosView proyeccion={proyeccion} />
                             )}
 
                             {activeTab === 'escenarios' && (

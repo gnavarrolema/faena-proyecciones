@@ -180,11 +180,24 @@ class GuardarEscenarioRequest(BaseModel):
     """Para guardar la proyección actual como escenario."""
     nombre: str
     descripcion: Optional[str] = None
+    tasa_mortalidad: Optional[float] = None  # ej: 0.065 (6.5%)
 
 
 class CompararEscenariosRequest(BaseModel):
     """Para comparar escenarios por IDs."""
     ids: List[str]
+
+
+class FactibilidadProduccion(BaseModel):
+    """Resultado de cruzar oferta vs producción propia."""
+    encontrada: bool
+    pollitos_cargados: Optional[int] = None
+    disponibles_mejor: Optional[int] = None   # al 4.5% mortalidad
+    disponibles_peor: Optional[int] = None     # al 6.5% mortalidad
+    total_oferta: int = 0
+    deficit_peor: Optional[int] = None          # oferta - disponibles_peor (si >0)
+    cobertura_pct_peor: Optional[float] = None  # (oferta / disponibles_peor) * 100
+    coberturas: Optional[list] = None           # [{tasa, disponibles, cobertura_pct}, ...]
 
 
 class ReferenciaProduccionResponse(BaseModel):
@@ -193,6 +206,7 @@ class ReferenciaProduccionResponse(BaseModel):
     semana_produccion: Optional[dict] = None
     total_oferta_actual: int = 0
     cobertura_pct: Optional[float] = None
+    coberturas: Optional[list] = None  # [{tasa, disponibles, cobertura_pct}, ...]
     mensaje: str = ""
 
 
@@ -213,6 +227,86 @@ class CargarDeficitResponse(BaseModel):
     lotes_trasladados: int
     pollos_trasladados: int
     mensaje: str
+
+
+# ─── Helpers: factibilidad producción ─────────────────────────────────────────
+
+def _calcular_factibilidad(
+    fecha_inicio_semana: date,
+    total_oferta: int,
+) -> Optional[FactibilidadProduccion]:
+    """Cruza oferta con producción cargada para evaluar factibilidad."""
+    data = storage.load_produccion()
+    if not data:
+        return None
+
+    semanas = [SemanaProduccion(**s) for s in data]
+    TOLERANCIA_DIAS = 3
+
+    semana_encontrada = None
+    for sem in semanas:
+        fecha_faena_estimada = sem.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
+        if abs((fecha_faena_estimada - fecha_inicio_semana).days) <= TOLERANCIA_DIAS:
+            semana_encontrada = sem
+            break
+
+    if semana_encontrada is None:
+        return FactibilidadProduccion(encontrada=False, total_oferta=total_oferta)
+
+    simulacion = simular_mortalidad([semana_encontrada])
+    sims = simulacion[0].simulaciones
+
+    disponibles_mejor = sims[0].pollitos_disponibles   # 4.5%
+    disponibles_peor = sims[-1].pollitos_disponibles    # 6.5%
+    deficit = max(0, total_oferta - disponibles_peor)
+    cobertura = round((total_oferta / disponibles_peor * 100), 1) if disponibles_peor > 0 else None
+
+    coberturas = []
+    for sim in sims:
+        cob_pct = round((total_oferta / sim.pollitos_disponibles * 100), 1) if sim.pollitos_disponibles > 0 else None
+        coberturas.append({
+            "tasa": round(sim.tasa_mortalidad * 100, 1),
+            "disponibles": sim.pollitos_disponibles,
+            "cobertura_pct": cob_pct,
+        })
+
+    return FactibilidadProduccion(
+        encontrada=True,
+        pollitos_cargados=semana_encontrada.pollitos_cargados,
+        disponibles_mejor=disponibles_mejor,
+        disponibles_peor=disponibles_peor,
+        total_oferta=total_oferta,
+        deficit_peor=deficit if deficit > 0 else None,
+        cobertura_pct_peor=cobertura,
+        coberturas=coberturas,
+    )
+
+
+def _calcular_deficit_produccion(proyeccion: SemanaFaena) -> Optional[dict]:
+    """Calcula déficit de producción propia vs oferta para la recomendación de terceros."""
+    fact = _calcular_factibilidad(
+        fecha_inicio_semana=proyeccion.fecha_inicio,
+        total_oferta=proyeccion.total_pollos_semana,
+    )
+    if fact is None or not fact.encontrada:
+        return None
+
+    hay_deficit = fact.deficit_peor is not None and fact.deficit_peor > 0
+    return {
+        "encontrada": True,
+        "pollitos_cargados": fact.pollitos_cargados,
+        "disponibles_peor": fact.disponibles_peor,
+        "disponibles_mejor": fact.disponibles_mejor,
+        "total_oferta": fact.total_oferta,
+        "deficit_peor": fact.deficit_peor,
+        "cobertura_pct_peor": fact.cobertura_pct_peor,
+        "hay_deficit": hay_deficit,
+        "recomendacion_terceros": (
+            f"La producción propia ({fact.disponibles_peor:,} al 6.5% mort.) "
+            f"no cubre la oferta ({fact.total_oferta:,}). "
+            f"Se recomienda adquirir ~{fact.deficit_peor:,} pollos a terceros."
+        ) if hay_deficit else None,
+    }
 
 
 # ─── Endpoints ──────────────────────────────────────────────────────────────────
@@ -418,7 +512,16 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
     # Persistir proyección y parámetros usados
     storage.save_proyeccion(semana.model_dump())
     storage.save_parametros(params.model_dump())
-    return semana.model_dump()
+
+    # ── Factibilidad: cruzar oferta vs producción propia ──
+    factibilidad = _calcular_factibilidad(
+        fecha_inicio_semana=req.fecha_inicio_semana,
+        total_oferta=semana.total_pollos_semana,
+    )
+
+    result = semana.model_dump()
+    result["factibilidad_produccion"] = factibilidad.model_dump() if factibilidad else None
+    return result
 
 
 @app.get("/proyeccion")
@@ -427,7 +530,13 @@ def get_proyeccion(current_user: TokenData = Depends(get_current_user)):
     proyeccion = _get_proyeccion()
     if proyeccion is None:
         raise HTTPException(404, "No hay proyección generada aún.")
-    return proyeccion.model_dump()
+    result = proyeccion.model_dump()
+    factibilidad = _calcular_factibilidad(
+        fecha_inicio_semana=proyeccion.fecha_inicio,
+        total_oferta=proyeccion.total_pollos_semana,
+    )
+    result["factibilidad_produccion"] = factibilidad.model_dump() if factibilidad else None
+    return result
 
 
 @app.post("/proyeccion/mover-lote")
@@ -1060,11 +1169,22 @@ def get_referencia_produccion(
     disponible_65 = int(semana_encontrada.pollitos_cargados * (1 - 0.065))
     cobertura = round((total_oferta / disponible_65 * 100), 1) if disponible_65 > 0 else None
 
+    # Coberturas multi-escenario (5 tasas)
+    coberturas = []
+    for sim_fila in simulacion[0].simulaciones:
+        cob_pct = round((total_oferta / sim_fila.pollitos_disponibles * 100), 1) if sim_fila.pollitos_disponibles > 0 else None
+        coberturas.append({
+            "tasa": round(sim_fila.tasa_mortalidad * 100, 1),
+            "disponibles": sim_fila.pollitos_disponibles,
+            "cobertura_pct": cob_pct,
+        })
+
     return ReferenciaProduccionResponse(
         encontrada=True,
         semana_produccion=sim_data,
         total_oferta_actual=total_oferta,
         cobertura_pct=cobertura,
+        coberturas=coberturas,
         mensaje="Referencia encontrada.",
     )
 
@@ -1074,6 +1194,61 @@ def clear_produccion(current_user: TokenData = Depends(get_current_user)):
     """Limpiar datos de producción."""
     storage.delete_produccion()
     return {"message": "Datos de producción eliminados."}
+
+
+@app.get("/produccion/forecast")
+def forecast_produccion(
+    semanas: int = 4,
+    current_user: TokenData = Depends(get_current_user),
+):
+    """
+    Forecast de producción: para las próximas N semanas, muestra cuántos
+    pollitos estarán disponibles para faena según las cargas registradas.
+    """
+    raw = storage.load_produccion()
+    if not raw:
+        raise HTTPException(404, "No hay datos de producción cargados.")
+
+    from backend.parser_produccion import (
+        SemanaProduccion, DIAS_HASTA_FAENA, TASAS_MORTALIDAD_DEFAULT,
+    )
+
+    semanas_prod = [SemanaProduccion(**r) for r in raw]
+    hoy = date.today()
+    tolerancia = 3
+
+    result_semanas = []
+    for i in range(semanas):
+        inicio_sem = hoy + timedelta(weeks=i)
+        fin_sem = inicio_sem + timedelta(days=6)
+
+        # Buscar semanas de producción cuya faena caiga en este rango
+        matched = []
+        for sp in semanas_prod:
+            faena_est = sp.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
+            if inicio_sem - timedelta(days=tolerancia) <= faena_est <= fin_sem + timedelta(days=tolerancia):
+                matched.append(sp)
+
+        total_cargados = sum(s.pollitos_cargados for s in matched)
+        mejor_tasa = min(TASAS_MORTALIDAD_DEFAULT)
+        peor_tasa = max(TASAS_MORTALIDAD_DEFAULT)
+
+        result_semanas.append({
+            "inicio": inicio_sem.isoformat(),
+            "fin": fin_sem.isoformat(),
+            "semanas_incluidas": len(matched),
+            "pollitos_cargados": total_cargados,
+            "mejor_caso": {
+                "tasa_mortalidad": mejor_tasa,
+                "pollitos_disponibles": int(total_cargados * (1 - mejor_tasa)),
+            } if total_cargados > 0 else None,
+            "peor_caso": {
+                "tasa_mortalidad": peor_tasa,
+                "pollitos_disponibles": int(total_cargados * (1 - peor_tasa)),
+            } if total_cargados > 0 else None,
+        })
+
+    return {"semanas": result_semanas}
 
 
 # ─── Desvío de Peso (Proyectado vs. Real) ──────────────────────────────────────
@@ -1333,6 +1508,110 @@ def get_recomendacion_peso(current_user: TokenData = Depends(get_current_user)):
     }
 
 
+@app.get("/desvio/mortalidad-observada")
+def mortalidad_observada(current_user: TokenData = Depends(get_current_user)):
+    """
+    Back-calcula la mortalidad observada comparando producción (pollitos cargados)
+    con los pollos realmente recibidos en faena (de la proyección + pesos reales).
+    Muestra la tendencia: ¿la mortalidad real es mayor o menor a lo estimado?
+    """
+    prod_data = storage.load_produccion()
+    if not prod_data:
+        raise HTTPException(404, "No hay datos de producción cargados.")
+
+    proyeccion = _get_proyeccion()
+    if proyeccion is None:
+        raise HTTPException(404, "No hay proyección generada.")
+
+    semanas_prod = [SemanaProduccion(**s) for s in prod_data]
+    tolerancia = 3
+
+    puntos = []
+    for sp in semanas_prod:
+        fecha_faena_est = sp.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
+
+        # Buscar el día de faena que coincida con esta semana de producción
+        pollos_recibidos = 0
+        dias_match = 0
+        for dia in proyeccion.dias:
+            if abs((dia.fecha - fecha_faena_est).days) <= tolerancia:
+                pollos_recibidos += dia.total_pollos
+                dias_match += 1
+
+        if dias_match == 0 or sp.pollitos_cargados == 0:
+            continue
+
+        # Mortalidad observada = 1 - (pollos_recibidos / pollitos_cargados)
+        mortalidad_obs = 1 - (pollos_recibidos / sp.pollitos_cargados)
+        mortalidad_obs = max(0, min(1, mortalidad_obs))  # clamp 0-100%
+        mortalidad_pct = round(mortalidad_obs * 100, 2)
+
+        # Comparar con tasas estándar
+        mejor_tasa = min(TASAS_MORTALIDAD_DEFAULT) * 100  # 4.5
+        peor_tasa = max(TASAS_MORTALIDAD_DEFAULT) * 100   # 6.5
+
+        if mortalidad_pct <= mejor_tasa:
+            evaluacion = "excelente"
+        elif mortalidad_pct <= peor_tasa:
+            evaluacion = "dentro_rango"
+        else:
+            evaluacion = "por_encima"
+
+        puntos.append({
+            "fecha_carga": sp.fecha_desde.isoformat(),
+            "fecha_faena_estimada": fecha_faena_est.isoformat(),
+            "pollitos_cargados": sp.pollitos_cargados,
+            "pollos_recibidos": pollos_recibidos,
+            "mortalidad_observada_pct": mortalidad_pct,
+            "evaluacion": evaluacion,
+        })
+
+    if not puntos:
+        return {
+            "puntos": [],
+            "resumen": None,
+            "mensaje": "No se encontraron coincidencias entre producción y proyección para calcular mortalidad observada.",
+        }
+
+    # Resumen
+    mortalidades = [p["mortalidad_observada_pct"] for p in puntos]
+    promedio = round(sum(mortalidades) / len(mortalidades), 2)
+    mejor_tasa_pct = min(TASAS_MORTALIDAD_DEFAULT) * 100
+    peor_tasa_pct = max(TASAS_MORTALIDAD_DEFAULT) * 100
+
+    if promedio <= mejor_tasa_pct:
+        tendencia = "favorable"
+        mensaje = (
+            f"✅ Mortalidad promedio observada: {promedio}%. "
+            f"Por debajo del mejor escenario ({mejor_tasa_pct}%). Excelente desempeño."
+        )
+    elif promedio <= peor_tasa_pct:
+        tendencia = "normal"
+        mensaje = (
+            f"📊 Mortalidad promedio observada: {promedio}%. "
+            f"Dentro del rango esperado ({mejor_tasa_pct}%–{peor_tasa_pct}%)."
+        )
+    else:
+        tendencia = "desfavorable"
+        mensaje = (
+            f"⚠ Mortalidad promedio observada: {promedio}%. "
+            f"Por encima del peor escenario ({peor_tasa_pct}%). Revisar condiciones sanitarias."
+        )
+
+    return {
+        "puntos": puntos,
+        "resumen": {
+            "promedio_mortalidad_pct": promedio,
+            "min_mortalidad_pct": min(mortalidades),
+            "max_mortalidad_pct": max(mortalidades),
+            "semanas_analizadas": len(puntos),
+            "tendencia": tendencia,
+            "rango_esperado": {"min": mejor_tasa_pct, "max": peor_tasa_pct},
+        },
+        "mensaje": mensaje,
+    }
+
+
 @app.get("/proyeccion/analisis-terceros")
 def analisis_necesidad_terceros(current_user: TokenData = Depends(get_current_user)):
     """
@@ -1399,6 +1678,7 @@ def analisis_necesidad_terceros(current_user: TokenData = Depends(get_current_us
         "requiere_compra": requiere_compra,
         "recomendacion": recomendacion,
         "objetivo_min_diario": objetivo_min,
+        "deficit_produccion": _calcular_deficit_produccion(proyeccion),
     }
 
 
@@ -1571,19 +1851,42 @@ def guardar_escenario(
     params = _get_parametros()
     escenario_id = str(uuid.uuid4())[:8]
 
+    # Calcular análisis de producción con la tasa elegida (o peor caso por defecto)
+    tasa = req.tasa_mortalidad
+    produccion_analisis = None
+    if tasa is not None:
+        fact = _calcular_factibilidad(
+            fecha_inicio_semana=proyeccion.fecha_inicio,
+            total_oferta=proyeccion.total_pollos_semana,
+        )
+        if fact and fact.encontrada:
+            disponibles = int(fact.pollitos_cargados * (1 - tasa))
+            deficit = max(0, proyeccion.total_pollos_semana - disponibles)
+            cobertura = round(proyeccion.total_pollos_semana / disponibles * 100, 1) if disponibles > 0 else None
+            produccion_analisis = {
+                "tasa_mortalidad": tasa,
+                "pollitos_cargados": fact.pollitos_cargados,
+                "disponibles": disponibles,
+                "deficit": deficit if deficit > 0 else None,
+                "cobertura_pct": cobertura,
+            }
+
     escenario_data = {
         "id": escenario_id,
         "nombre": req.nombre,
         "descripcion": req.descripcion or "",
         "fecha_creacion": datetime.now().isoformat(),
+        "tasa_mortalidad": tasa,
         "parametros": params.model_dump(),
         "proyeccion": proyeccion.model_dump(),
+        "produccion_analisis": produccion_analisis,
         "resumen": {
             "total_pollos": proyeccion.total_pollos_semana,
             "dias": len(proyeccion.dias),
             "cajas": proyeccion.produccion_cajas_semanales,
             "sofia": proyeccion.sofia,
             "promedio_edad": proyeccion.promedio_edad_semana,
+            "tasa_mortalidad": tasa,
             "pollos_por_dia": [
                 {"fecha": d.fecha.isoformat(), "total": d.total_pollos}
                 for d in proyeccion.dias
@@ -1608,6 +1911,8 @@ def listar_escenarios(current_user: TokenData = Depends(get_current_user)):
                 "nombre": data.get("nombre", "Sin nombre"),
                 "descripcion": data.get("descripcion", ""),
                 "fecha_creacion": data.get("fecha_creacion"),
+                "tasa_mortalidad": data.get("tasa_mortalidad"),
+                "produccion_analisis": data.get("produccion_analisis"),
                 "resumen": data.get("resumen", {}),
             })
     # Ordenar por fecha de creación descendente
@@ -1768,3 +2073,203 @@ def clear_deficit_guardado(current_user: TokenData = Depends(get_current_user)):
     """Elimina el déficit guardado de la semana anterior."""
     storage.delete_deficit()
     return {"message": "Déficit limpiado."}
+
+
+# ─── Pronóstico de Pesos ────────────────────────────────────────────────────────
+
+@app.get("/pronostico/pesos")
+def get_pronostico_pesos(current_user: TokenData = Depends(get_current_user)):
+    """
+    Analiza cada lote de la oferta/proyección y pronostica si llegará
+    al peso ideal para faena. Genera alertas por lote, por día y por granja.
+    """
+    params = _get_parametros()
+    proyeccion = _get_proyeccion()
+    ofertas = _get_ofertas()
+
+    if proyeccion is None:
+        raise HTTPException(404, "No hay proyección generada.")
+    if not ofertas:
+        raise HTTPException(404, "No hay ofertas cargadas.")
+
+    # Indexar ofertas por (granja, galpon, nucleo) para cruzar con lotes proyectados
+    oferta_map = {}
+    for o in ofertas:
+        key = (o.granja, o.galpon, o.nucleo)
+        oferta_map[key] = o
+
+    lotes_pronostico = []
+    alertas_criticas = 0
+    alertas_moderadas = 0
+    lotes_ok = 0
+    granjas_stats = {}  # granja -> {total, ok, moderado, critico}
+
+    for dia_idx, dia in enumerate(proyeccion.dias):
+        for lote in dia.lotes:
+            if lote.es_compra_terceros:
+                continue
+
+            peso_proyectado = lote.peso_vivo_retiro
+            peso_faen = lote.peso_faenado
+
+            # Determinar ganancia diaria esperada vs la que necesitaría
+            oferta_orig = oferta_map.get((lote.granja, lote.galpon, lote.nucleo))
+            ganancia_usada = None
+            peso_muestreo = None
+            edad_muestreo = None
+            ganancia_esperada = None
+
+            if oferta_orig:
+                ganancia_usada = oferta_orig.ganancia_diaria
+                peso_muestreo = oferta_orig.peso_muestreo_proy
+                edad_muestreo = oferta_orig.edad_proyectada
+                if oferta_orig.sexo.upper() == "H":
+                    ganancia_esperada = params.ganancia_diaria_hembra
+                else:
+                    ganancia_esperada = params.ganancia_diaria_macho
+
+            # Clasificar estado del peso
+            if peso_proyectado < params.peso_min_faena:
+                deficit = params.peso_min_faena - peso_proyectado
+                if deficit > 0.15:
+                    nivel = "critico"
+                    alertas_criticas += 1
+                else:
+                    nivel = "moderado"
+                    alertas_moderadas += 1
+                mensaje = f"Bajo peso: {peso_proyectado:.3f} kg (mín {params.peso_min_faena:.2f})"
+            elif peso_proyectado > params.peso_max_faena:
+                exceso = peso_proyectado - params.peso_max_faena
+                if exceso > 0.15:
+                    nivel = "critico"
+                    alertas_criticas += 1
+                else:
+                    nivel = "moderado"
+                    alertas_moderadas += 1
+                mensaje = f"Sobrepeso: {peso_proyectado:.3f} kg (máx {params.peso_max_faena:.2f})"
+            else:
+                nivel = "normal"
+                lotes_ok += 1
+                # Sub-alertar si está en el borde (dentro de 50g del límite)
+                margen_inf = peso_proyectado - params.peso_min_faena
+                margen_sup = params.peso_max_faena - peso_proyectado
+                if margen_inf < 0.05:
+                    mensaje = f"En rango pero cerca del mínimo ({margen_inf*1000:.0f}g de margen)"
+                elif margen_sup < 0.05:
+                    mensaje = f"En rango pero cerca del máximo ({margen_sup*1000:.0f}g de margen)"
+                else:
+                    mensaje = "Peso dentro del rango ideal"
+
+            # Diferencia respecto al peso objetivo de recepción
+            dif_vs_objetivo = round(peso_proyectado - params.peso_objetivo_recepcion, 3)
+
+            # Tracking por granja
+            if lote.granja not in granjas_stats:
+                granjas_stats[lote.granja] = {
+                    "total": 0, "ok": 0, "moderado": 0, "critico": 0,
+                    "pollos_total": 0, "suma_peso": 0.0,
+                }
+            gs = granjas_stats[lote.granja]
+            gs["total"] += 1
+            gs[nivel] += 1
+            gs["pollos_total"] += lote.cantidad
+            gs["suma_peso"] += peso_proyectado * lote.cantidad
+
+            lotes_pronostico.append({
+                "dia_index": dia_idx,
+                "fecha": dia.fecha.isoformat(),
+                "granja": lote.granja,
+                "galpon": lote.galpon,
+                "nucleo": lote.nucleo,
+                "cantidad": lote.cantidad,
+                "sexo": lote.sexo,
+                "edad_fin_retiro": lote.edad_fin_retiro,
+                "peso_muestreo": peso_muestreo,
+                "peso_proyectado": round(peso_proyectado, 3),
+                "peso_faenado": round(peso_faen, 3),
+                "peso_min": params.peso_min_faena,
+                "peso_max": params.peso_max_faena,
+                "peso_objetivo": params.peso_objetivo_recepcion,
+                "dif_vs_objetivo": dif_vs_objetivo,
+                "ganancia_diaria_lote": ganancia_usada,
+                "ganancia_esperada": ganancia_esperada,
+                "ganancia_deficiente": (
+                    ganancia_usada is not None
+                    and ganancia_esperada is not None
+                    and ganancia_usada < ganancia_esperada * 0.9
+                ),
+                "nivel": nivel,
+                "mensaje": mensaje,
+                "calibre": lote.calibre_promedio,
+            })
+
+    # Resumen por día
+    dias_resumen = []
+    for dia_idx, dia in enumerate(proyeccion.dias):
+        lotes_dia = [l for l in lotes_pronostico if l["dia_index"] == dia_idx]
+        if not lotes_dia:
+            continue
+        total_pollos = sum(l["cantidad"] for l in lotes_dia)
+        peso_prom = (
+            sum(l["peso_proyectado"] * l["cantidad"] for l in lotes_dia) / total_pollos
+            if total_pollos > 0 else 0
+        )
+        criticos = sum(1 for l in lotes_dia if l["nivel"] == "critico")
+        moderados = sum(1 for l in lotes_dia if l["nivel"] == "moderado")
+        if criticos > 0:
+            nivel_dia = "critico"
+        elif moderados > 0:
+            nivel_dia = "moderado"
+        else:
+            nivel_dia = "normal"
+
+        dias_resumen.append({
+            "dia_index": dia_idx,
+            "fecha": dia.fecha.isoformat(),
+            "total_pollos": total_pollos,
+            "peso_promedio": round(peso_prom, 3),
+            "lotes_total": len(lotes_dia),
+            "lotes_criticos": criticos,
+            "lotes_moderados": moderados,
+            "lotes_ok": len(lotes_dia) - criticos - moderados,
+            "nivel": nivel_dia,
+        })
+
+    # Resumen por granja
+    granjas_resumen = []
+    for granja, stats in sorted(granjas_stats.items()):
+        peso_prom = (
+            stats["suma_peso"] / stats["pollos_total"]
+            if stats["pollos_total"] > 0 else 0
+        )
+        if stats["critico"] > 0:
+            nivel_granja = "critico"
+        elif stats["moderado"] > 0:
+            nivel_granja = "moderado"
+        else:
+            nivel_granja = "normal"
+        granjas_resumen.append({
+            "granja": granja,
+            "total_lotes": stats["total"],
+            "lotes_ok": stats["ok"],
+            "lotes_moderados": stats["moderado"],
+            "lotes_criticos": stats["critico"],
+            "pollos_total": stats["pollos_total"],
+            "peso_promedio": round(peso_prom, 3),
+            "nivel": nivel_granja,
+        })
+
+    total_lotes = len(lotes_pronostico)
+    return {
+        "total_lotes": total_lotes,
+        "lotes_ok": lotes_ok,
+        "alertas_moderadas": alertas_moderadas,
+        "alertas_criticas": alertas_criticas,
+        "pct_ok": round(lotes_ok / total_lotes * 100, 1) if total_lotes > 0 else 0,
+        "peso_min_faena": params.peso_min_faena,
+        "peso_max_faena": params.peso_max_faena,
+        "peso_objetivo": params.peso_objetivo_recepcion,
+        "lotes": lotes_pronostico,
+        "dias": dias_resumen,
+        "granjas": granjas_resumen,
+    }
