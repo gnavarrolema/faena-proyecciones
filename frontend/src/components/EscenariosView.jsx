@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Layers, Save, Trash2, Eye, GitCompareArrows, RotateCcw, Loader2, CheckCircle2, X, Check, FileText } from 'lucide-react'
+import { Layers, Save, Trash2, Eye, GitCompareArrows, RotateCcw, Loader2, CheckCircle2, X, Check, FileText, Factory } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
   guardarEscenario, listarEscenarios, deleteEscenario,
@@ -35,6 +35,7 @@ export default function EscenariosView({ proyeccion, setProyeccion }) {
   const [saving, setSaving] = useState(false)
   const [nombre, setNombre] = useState('')
   const [descripcion, setDescripcion] = useState('')
+  const [tasaMortalidad, setTasaMortalidad] = useState('')
   const [selected, setSelected] = useState(new Set())
   const [comparacion, setComparacion] = useState(null)
   const [comparando, setComparando] = useState(false)
@@ -62,10 +63,12 @@ export default function EscenariosView({ proyeccion, setProyeccion }) {
     }
     setSaving(true)
     try {
-      await guardarEscenario(nombre.trim(), descripcion.trim())
+      const tasa = tasaMortalidad ? parseFloat(tasaMortalidad) / 100 : null
+      await guardarEscenario(nombre.trim(), descripcion.trim(), tasa)
       toast.success(`Escenario "${nombre}" guardado`)
       setNombre('')
       setDescripcion('')
+      setTasaMortalidad('')
       await cargarEscenarios()
     } catch (err) {
       toast.error('Error: ' + (err.response?.data?.detail || err.message))
@@ -184,6 +187,28 @@ export default function EscenariosView({ proyeccion, setProyeccion }) {
                     }}
                   />
                 </div>
+                <div style={{ minWidth: 140 }}>
+                  <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', display: 'block', marginBottom: 4 }}>
+                    <Factory size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                    Mortalidad % (opcional)
+                  </label>
+                  <select
+                    value={tasaMortalidad}
+                    onChange={(e) => setTasaMortalidad(e.target.value)}
+                    style={{
+                      width: '100%', padding: '0.5rem 0.75rem',
+                      border: '1px solid var(--border)', borderRadius: 6,
+                      fontSize: '0.9rem', background: 'var(--bg)',
+                    }}
+                  >
+                    <option value="">Sin seleccionar</option>
+                    <option value="4.5">4.5% (mejor caso)</option>
+                    <option value="5.0">5.0%</option>
+                    <option value="5.5">5.5%</option>
+                    <option value="6.0">6.0%</option>
+                    <option value="6.5">6.5% (peor caso)</option>
+                  </select>
+                </div>
                 <button className="btn btn-primary" disabled={saving || !nombre.trim()} onClick={handleGuardar}
                   style={{ whiteSpace: 'nowrap' }}>
                   {saving ? (
@@ -257,7 +282,28 @@ export default function EscenariosView({ proyeccion, setProyeccion }) {
                           <span>📅 {esc.resumen.dias} días</span>
                         </>
                       )}
+                      {esc.tasa_mortalidad != null && (
+                        <span style={{ color: 'var(--primary)', fontWeight: 500 }}>
+                          🧬 Mort. {(esc.tasa_mortalidad * 100).toFixed(1)}%
+                        </span>
+                      )}
                     </div>
+                    {esc.produccion_analisis && (
+                      <div style={{
+                        marginTop: 4, fontSize: '0.75rem', padding: '2px 8px',
+                        borderRadius: 4,
+                        background: esc.produccion_analisis.deficit
+                          ? 'rgba(251, 146, 60, 0.1)' : 'rgba(34, 197, 94, 0.1)',
+                        color: esc.produccion_analisis.deficit
+                          ? 'var(--orange)' : 'var(--success)',
+                        display: 'inline-block',
+                      }}>
+                        <Factory size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />
+                        {esc.produccion_analisis.deficit
+                          ? `Déficit: ${formatNumber(esc.produccion_analisis.deficit)} pollos (cobertura ${esc.produccion_analisis.cobertura_pct}%)`
+                          : `Producción cubre oferta (${formatNumber(esc.produccion_analisis.disponibles)} disp.)`}
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}
                     onClick={(e) => e.stopPropagation()}>
@@ -363,8 +409,39 @@ export default function EscenariosView({ proyeccion, setProyeccion }) {
                           {formatNumber(esc.parametros?.pollos_diarios_objetivo_max)}
                         </td>
                       ))}
+                    </tr>                    <tr>
+                      <td><strong>Tasa Mortalidad</strong></td>
+                      {comparacion.map(esc => (
+                        <td key={esc.id} className=\"text-right\" style={{ fontWeight: 500 }}>
+                          {esc.tasa_mortalidad != null ? `${(esc.tasa_mortalidad * 100).toFixed(1)}%` : '—'}
+                        </td>
+                      ))}
                     </tr>
-                  </tbody>
+                    {comparacion.some(esc => esc.produccion_analisis) && (
+                      <>
+                        <tr>
+                          <td><strong>Pollitos Disponibles</strong></td>
+                          {comparacion.map(esc => (
+                            <td key={esc.id} className=\"text-right\">
+                              {esc.produccion_analisis ? formatNumber(esc.produccion_analisis.disponibles) : '—'}
+                            </td>
+                          ))}
+                        </tr>
+                        <tr>
+                          <td><strong>Déficit Prod.</strong></td>
+                          {comparacion.map(esc => (
+                            <td key={esc.id} className=\"text-right\" style={{
+                              color: esc.produccion_analisis?.deficit ? '#ef4444' : 'var(--success)',
+                              fontWeight: 600,
+                            }}>
+                              {esc.produccion_analisis
+                                ? (esc.produccion_analisis.deficit ? formatNumber(esc.produccion_analisis.deficit) : '✓ Sin déficit')
+                                : '—'}
+                            </td>
+                          ))}
+                        </tr>
+                      </>
+                    )}                  </tbody>
                 </table>
               </div>
 

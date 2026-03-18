@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2 } from 'lucide-react'
+import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2, Factory } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia, agregarLote, getAnalisisTerceros, cargarDeficit, getParametros } from '../services/api'
 import { exportProyeccionPDF } from '../utils/pdfExport'
@@ -298,6 +298,54 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
           <div className="stat-value">{formatNumber(proyeccion.sofia)}</div>
         </div>
       </motion.div>
+
+      {/* Banner factibilidad producción */}
+      {proyeccion.factibilidad_produccion && proyeccion.factibilidad_produccion.encontrada && (() => {
+        const fact = proyeccion.factibilidad_produccion
+        const hayDeficit = fact.deficit_peor != null && fact.deficit_peor > 0
+        const borderColor = hayDeficit ? '#f97316' : '#22c55e'
+        const bgColor = hayDeficit ? 'rgba(249, 115, 22, 0.08)' : 'rgba(34, 197, 94, 0.08)'
+        const iconColor = hayDeficit ? '#ea580c' : '#16a34a'
+
+        return (
+          <motion.div variants={itemVariants} style={{
+            padding: '0.85rem 1rem',
+            background: bgColor,
+            border: `1px solid ${borderColor}40`,
+            borderLeft: `4px solid ${borderColor}`,
+            borderRadius: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+          }}>
+            <Factory size={18} color={iconColor} />
+            {hayDeficit ? (
+              <span style={{ fontSize: '0.88rem', color: 'var(--text)' }}>
+                <strong style={{ color: '#ea580c' }}>Atención:</strong>{' '}
+                La oferta ({formatNumber(fact.total_oferta)}) excede la producción propia disponible
+                ({formatNumber(fact.disponibles_peor)} al 6.5% mort.) en{' '}
+                <strong style={{ color: '#ef4444' }}>{formatNumber(fact.deficit_peor)} pollos</strong>.
+                Cobertura: <strong>{fact.cobertura_pct_peor}%</strong>
+                {' — '}
+                <span
+                  style={{ color: '#7c3aed', cursor: 'pointer', textDecoration: 'underline', fontWeight: 600 }}
+                  onClick={() => setShowTercerosModal(true)}
+                >
+                  Agregar compra a terceros
+                </span>
+              </span>
+            ) : (
+              <span style={{ fontSize: '0.88rem', color: 'var(--text)' }}>
+                <strong style={{ color: '#16a34a' }}>Producción OK:</strong>{' '}
+                La producción propia ({formatNumber(fact.disponibles_peor)} al 6.5% mort.) cubre la oferta
+                ({formatNumber(fact.total_oferta)}).
+                Cobertura: <strong>{fact.cobertura_pct_peor}%</strong>
+              </span>
+            )}
+          </motion.div>
+        )
+      })()}
 
       {/* Botón permanente — Compra a Terceros */}
       <motion.div variants={itemVariants} style={{ display: 'flex', justifyContent: 'flex-end' }}>

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Scale, AlertTriangle, CheckCircle2, ArrowUpDown, Save, Trash2, Loader2, MessageCircleWarning, Target, ShoppingCart, TrendingDown, Zap } from 'lucide-react'
+import { Scale, AlertTriangle, CheckCircle2, ArrowUpDown, Save, Trash2, Loader2, MessageCircleWarning, Target, ShoppingCart, TrendingDown, Zap, Factory, TrendingUp } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { cargarPesosReales, getDesvio, deletePesosReales, getRecomendacionPeso } from '../services/api'
+import { cargarPesosReales, getDesvio, deletePesosReales, getRecomendacionPeso, getMortalidadObservada } from '../services/api'
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -60,6 +60,7 @@ export default function DesvioView({ proyeccion }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [recomendacion, setRecomendacion] = useState(null)
+  const [mortalidad, setMortalidad] = useState(null)
 
   useEffect(() => {
     cargarDesvio()
@@ -71,6 +72,15 @@ export default function DesvioView({ proyeccion }) {
       setRecomendacion(data)
     } catch {
       setRecomendacion(null)
+    }
+  }
+
+  const cargarMortalidad = async () => {
+    try {
+      const data = await getMortalidadObservada()
+      setMortalidad(data)
+    } catch {
+      setMortalidad(null)
     }
   }
 
@@ -99,6 +109,7 @@ export default function DesvioView({ proyeccion }) {
     } finally {
       setLoading(false)
       cargarRecomendacion()
+      cargarMortalidad()
     }
   }
 
@@ -444,6 +455,123 @@ export default function DesvioView({ proyeccion }) {
                 )}
               </>
             )}
+          </div>
+        </motion.div>
+      )}
+
+      {/* Tendencia de Mortalidad Observada */}
+      {mortalidad && mortalidad.puntos && mortalidad.puntos.length > 0 && (
+        <motion.div variants={itemVariants} className="card" style={{
+          borderLeft: `4px solid ${
+            mortalidad.resumen?.tendencia === 'favorable' ? 'var(--success)'
+            : mortalidad.resumen?.tendencia === 'desfavorable' ? '#ef4444'
+            : 'var(--primary)'
+          }`,
+        }}>
+          <div className="card-header">
+            <h2><Factory size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Tendencia de Mortalidad Observada</h2>
+          </div>
+          <div className="card-body">
+            {/* Mensaje resumen */}
+            <div style={{
+              padding: '0.8rem 1rem',
+              background: mortalidad.resumen?.tendencia === 'favorable'
+                ? 'rgba(34, 197, 94, 0.06)'
+                : mortalidad.resumen?.tendencia === 'desfavorable'
+                ? 'rgba(239, 68, 68, 0.06)'
+                : 'rgba(99, 102, 241, 0.06)',
+              border: `1px solid ${
+                mortalidad.resumen?.tendencia === 'favorable'
+                  ? 'rgba(34, 197, 94, 0.2)'
+                  : mortalidad.resumen?.tendencia === 'desfavorable'
+                  ? 'rgba(239, 68, 68, 0.2)'
+                  : 'rgba(99, 102, 241, 0.2)'
+              }`,
+              borderRadius: 8,
+              fontSize: '0.9rem',
+              marginBottom: '1rem',
+            }}>
+              {mortalidad.mensaje}
+            </div>
+
+            {/* Stats */}
+            <div className="stats-grid" style={{ marginBottom: '1rem' }}>
+              <div className="stat-card">
+                <div className="stat-label">Mortalidad Promedio</div>
+                <div className="stat-value" style={{
+                  color: mortalidad.resumen?.tendencia === 'favorable' ? 'var(--success)'
+                    : mortalidad.resumen?.tendencia === 'desfavorable' ? '#ef4444'
+                    : 'var(--primary)',
+                }}>
+                  {mortalidad.resumen?.promedio_mortalidad_pct}%
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Rango Observado</div>
+                <div className="stat-value blue">
+                  {mortalidad.resumen?.min_mortalidad_pct}% – {mortalidad.resumen?.max_mortalidad_pct}%
+                </div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Semanas Analizadas</div>
+                <div className="stat-value">{mortalidad.resumen?.semanas_analizadas}</div>
+              </div>
+            </div>
+
+            {/* Tabla detalle */}
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Semana Carga</th>
+                    <th>Faena Estimada</th>
+                    <th className="text-right">Pollitos Cargados</th>
+                    <th className="text-right">Pollos Recibidos</th>
+                    <th className="text-right">Mortalidad</th>
+                    <th className="text-center">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mortalidad.puntos.map((p, idx) => {
+                    const color = p.evaluacion === 'excelente' ? 'var(--success)'
+                      : p.evaluacion === 'por_encima' ? '#ef4444'
+                      : 'var(--primary)'
+                    return (
+                      <tr key={idx} style={{
+                        background: p.evaluacion === 'excelente'
+                          ? 'rgba(34, 197, 94, 0.04)'
+                          : p.evaluacion === 'por_encima'
+                          ? 'rgba(239, 68, 68, 0.04)'
+                          : undefined,
+                      }}>
+                        <td>{new Date(p.fecha_carga + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</td>
+                        <td>{new Date(p.fecha_faena_estimada + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</td>
+                        <td className="text-right">{formatNumber(p.pollitos_cargados)}</td>
+                        <td className="text-right">{formatNumber(p.pollos_recibidos)}</td>
+                        <td className="text-right" style={{ color, fontWeight: 600 }}>
+                          {p.mortalidad_observada_pct}%
+                        </td>
+                        <td className="text-center">
+                          {p.evaluacion === 'excelente' && <CheckCircle2 size={16} color="var(--success)" />}
+                          {p.evaluacion === 'dentro_rango' && <ArrowUpDown size={16} color="var(--primary)" />}
+                          {p.evaluacion === 'por_encima' && <AlertTriangle size={16} color="#ef4444" />}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Rango esperado */}
+            <div style={{
+              marginTop: '0.75rem', fontSize: '0.8rem', color: 'var(--text-light)',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <ArrowUpDown size={14} />
+              Rango esperado: {mortalidad.resumen?.rango_esperado?.min}% – {mortalidad.resumen?.rango_esperado?.max}%
+              (basado en tasas de mortalidad configuradas)
+            </div>
           </div>
         </motion.div>
       )}

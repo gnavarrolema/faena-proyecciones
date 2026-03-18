@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { TrendingUp, Calendar, Home, Download, PieChart, Factory, ShoppingCart } from 'lucide-react'
+import { TrendingUp, Calendar, Home, Download, PieChart, Factory, ShoppingCart, AlertTriangle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { exportResumenPDF } from '../utils/pdfExport'
-import { getReferenciaProduccion, cargarDeficit } from '../services/api'
+import { getReferenciaProduccion, cargarDeficit, getAnalisisTerceros } from '../services/api'
 
 function formatNumber(n) {
   if (n == null) return '-'
@@ -35,6 +35,7 @@ const itemVariants = {
 export default function ResumenSemanal({ proyeccion }) {
   const [refProduccion, setRefProduccion] = useState(null)
   const [deficitLoading, setDeficitLoading] = useState(false)
+  const [analisisTerceros, setAnalisisTerceros] = useState(null)
 
   useEffect(() => {
     if (!proyeccion?.fecha_inicio) { setRefProduccion(null); return }
@@ -42,6 +43,13 @@ export default function ResumenSemanal({ proyeccion }) {
       .then(data => setRefProduccion(data))
       .catch(() => setRefProduccion(null))
   }, [proyeccion?.fecha_inicio])
+
+  useEffect(() => {
+    if (!proyeccion?.dias?.length) { setAnalisisTerceros(null); return }
+    getAnalisisTerceros()
+      .then(data => setAnalisisTerceros(data))
+      .catch(() => setAnalisisTerceros(null))
+  }, [proyeccion?.total_pollos_semana])
 
   const handleCargarDeficit = async () => {
     setDeficitLoading(true)
@@ -460,6 +468,110 @@ export default function ResumenSemanal({ proyeccion }) {
                 </div>
               </div>
             </div>
+
+            {/* Tabla multi-escenario de mortalidad */}
+            {refProduccion.coberturas && refProduccion.coberturas.length > 0 && (
+              <div style={{ marginTop: '1.2rem' }}>
+                <h3 style={{ fontSize: '0.9rem', marginBottom: '0.6rem', color: 'var(--text)' }}>
+                  Cobertura por escenario de mortalidad
+                </h3>
+                <div className="table-container">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Mortalidad</th>
+                        <th className="text-right">Disponibles</th>
+                        <th className="text-right">Oferta</th>
+                        <th className="text-right">Cobertura</th>
+                        <th className="text-right">Diferencia</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {refProduccion.coberturas.map((c, idx) => {
+                        const espeor = idx === refProduccion.coberturas.length - 1
+                        const esmejor = idx === 0
+                        const dif = refProduccion.total_oferta_actual - c.disponibles
+                        const cobColor = c.cobertura_pct == null
+                          ? 'var(--text-light)'
+                          : c.cobertura_pct > 105
+                          ? '#ef4444'
+                          : c.cobertura_pct >= 80
+                          ? '#22c55e'
+                          : '#f97316'
+                        return (
+                          <tr key={c.tasa} style={{
+                            background: espeor ? 'rgba(239,68,68,0.04)' : esmejor ? 'rgba(34,197,94,0.04)' : undefined,
+                            fontWeight: (espeor || esmejor) ? 600 : 400,
+                          }}>
+                            <td>
+                              {c.tasa}%
+                              {esmejor && <span style={{ fontSize: '0.7rem', marginLeft: 4, color: '#22c55e' }}>(mejor)</span>}
+                              {espeor && <span style={{ fontSize: '0.7rem', marginLeft: 4, color: '#ef4444' }}>(peor)</span>}
+                            </td>
+                            <td className="text-right">{formatNumber(c.disponibles)}</td>
+                            <td className="text-right">{formatNumber(refProduccion.total_oferta_actual)}</td>
+                            <td className="text-right" style={{ color: cobColor }}>
+                              {c.cobertura_pct != null ? `${c.cobertura_pct}%` : '-'}
+                            </td>
+                            <td className="text-right" style={{
+                              color: dif > 0 ? '#ef4444' : '#22c55e',
+                            }}>
+                              {dif > 0 ? `+${formatNumber(dif)}` : formatNumber(dif)}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--text-light)' }}>
+                  Diferencia positiva = oferta excede producción disponible. Negativa = hay margen.
+                </p>
+              </div>
+            )}
+
+            {/* Sugerencia de compra a terceros por déficit de producción */}
+            {analisisTerceros?.deficit_produccion?.hay_deficit && (() => {
+              const dp = analisisTerceros.deficit_produccion
+              return (
+                <div style={{
+                  marginTop: '1.2rem',
+                  padding: '0.85rem 1rem',
+                  background: 'rgba(249, 115, 22, 0.08)',
+                  border: '1px solid rgba(249, 115, 22, 0.3)',
+                  borderLeft: '4px solid #f97316',
+                  borderRadius: 8,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.5rem' }}>
+                    <AlertTriangle size={16} color="#ea580c" />
+                    <strong style={{ color: '#ea580c', fontSize: '0.9rem' }}>
+                      Sugerencia de Compra a Terceros
+                    </strong>
+                  </div>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text)', margin: 0 }}>
+                    {dp.recomendacion_terceros}
+                  </p>
+                  <div className="stats-grid" style={{ marginTop: '0.75rem' }}>
+                    <div className="stat-card">
+                      <div className="stat-label">Producción propia (6.5%)</div>
+                      <div className="stat-value blue">{formatNumber(dp.disponibles_peor)}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="stat-label">Oferta total</div>
+                      <div className="stat-value">{formatNumber(dp.total_oferta)}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="stat-label">Déficit estimado</div>
+                      <div className="stat-value" style={{ color: '#ef4444' }}>{formatNumber(dp.deficit_peor)}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="stat-label">Cobertura</div>
+                      <div className="stat-value orange">{dp.cobertura_pct_peor}%</div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </motion.div>
       )}

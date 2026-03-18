@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Factory, UploadCloud, FileSpreadsheet, Trash2, Calendar, TrendingDown, Loader2, X } from 'lucide-react'
+import { Factory, UploadCloud, FileSpreadsheet, Trash2, Calendar, TrendingDown, TrendingUp, Loader2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { uploadProduccion, getProduccion, getSimulacionMortalidad, deleteProduccion } from '../services/api'
+import { uploadProduccion, getProduccion, getSimulacionMortalidad, deleteProduccion, getForecastProduccion } from '../services/api'
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -33,6 +33,7 @@ function formatDateShort(d) {
 export default function ProduccionView() {
   const [produccion, setProduccion] = useState(null)
   const [simulacion, setSimulacion] = useState(null)
+  const [forecast, setForecast] = useState(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [file, setFile] = useState(null)
@@ -45,12 +46,14 @@ export default function ProduccionView() {
   const cargarDatos = async () => {
     setLoading(true)
     try {
-      const [prodData, simData] = await Promise.allSettled([
+      const [prodData, simData, forecastData] = await Promise.allSettled([
         getProduccion(),
         getSimulacionMortalidad(),
+        getForecastProduccion(),
       ])
       if (prodData.status === 'fulfilled') setProduccion(prodData.value)
       if (simData.status === 'fulfilled') setSimulacion(simData.value)
+      if (forecastData.status === 'fulfilled') setForecast(forecastData.value)
     } catch (err) {
       // No data yet
     } finally {
@@ -71,6 +74,10 @@ export default function ProduccionView() {
         const sim = await getSimulacionMortalidad()
         setSimulacion(sim)
       } catch {}
+      try {
+        const fc = await getForecastProduccion()
+        setForecast(fc)
+      } catch {}
     } catch (err) {
       toast.error('Error: ' + (err.response?.data?.detail || err.message))
     } finally {
@@ -84,6 +91,7 @@ export default function ProduccionView() {
       await deleteProduccion()
       setProduccion(null)
       setSimulacion(null)
+      setForecast(null)
       toast.success('Datos de producción eliminados')
     } catch (err) {
       toast.error('Error: ' + (err.response?.data?.detail || err.message))
@@ -251,6 +259,55 @@ export default function ProduccionView() {
                       ))}
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Forecast de producción */}
+      {forecast && forecast.semanas && forecast.semanas.length > 0 && (
+        <motion.div variants={itemVariants} className="card">
+          <div className="card-body">
+            <h2><TrendingUp size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Forecast de Producción ({forecast.semanas.length} semanas)</h2>
+            <p style={{ color: 'var(--text-light)', fontSize: '0.85rem', marginBottom: '1rem' }}>
+              Proyección de pollitos disponibles para faena según las cargas registradas y distintos escenarios de mortalidad.
+            </p>
+            <div className="table-responsive">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Semana de Faena</th>
+                    <th className="text-right">Semanas Incluidas</th>
+                    <th className="text-right">Mejor Caso</th>
+                    <th className="text-right">Peor Caso</th>
+                    <th className="text-right">Rango</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {forecast.semanas.map((sem, idx) => {
+                    const mejor = sem.mejor_caso?.pollitos_disponibles ?? 0
+                    const peor = sem.peor_caso?.pollitos_disponibles ?? 0
+                    return (
+                      <tr key={idx}>
+                        <td>
+                          <strong>{formatDateShort(sem.inicio)}</strong>
+                          <span style={{ color: 'var(--text-light)', fontSize: '0.8rem' }}> – {formatDateShort(sem.fin)}</span>
+                        </td>
+                        <td className="text-right">{sem.semanas_incluidas}</td>
+                        <td className="text-right" style={{ color: 'var(--primary)', fontWeight: 600 }}>
+                          {formatNumber(mejor)}
+                        </td>
+                        <td className="text-right" style={{ color: 'var(--orange)', fontWeight: 600 }}>
+                          {formatNumber(peor)}
+                        </td>
+                        <td className="text-right" style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
+                          {mejor > 0 ? `${formatNumber(peor)} – ${formatNumber(mejor)}` : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
