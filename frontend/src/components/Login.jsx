@@ -101,7 +101,7 @@ const styles = {
         fontSize: '28px',
         fontWeight: 'bold',
         textAlign: 'center',
-        color: '#38bdf8'
+        color: '#4ade80'
     },
     subtitle: {
         margin: '0 0 30px 0',
@@ -138,12 +138,12 @@ const styles = {
         padding: '14px',
         borderRadius: '8px',
         border: 'none',
-        background: '#0284c7',
+        background: 'linear-gradient(135deg, #2d8a4e 0%, #1a5632 100%)',
         color: '#fff',
         fontSize: '16px',
         fontWeight: 'bold',
         cursor: 'pointer',
-        boxShadow: '0 4px 14px 0 rgba(0, 118, 255, 0.39)',
+        boxShadow: '0 4px 14px 0 rgba(26, 86, 50, 0.4)',
     }
 };
 

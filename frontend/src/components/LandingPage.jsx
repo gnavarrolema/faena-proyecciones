@@ -26,8 +26,8 @@ const LandingPage = () => {
                     animate={{ opacity: 1, x: 0 }}
                     style={styles.logo}
                 >
-                    <Activity color="#38bdf8" size={28} />
-                    <span style={{ fontWeight: 'bold', fontSize: '20px' }}>ProyecFaena</span>
+                    <Activity color="#4ade80" size={28} />
+                    <span style={{ fontWeight: 'bold', fontSize: '20px' }}>Proyecto de Frigorífico de Aves</span>
                 </motion.div>
 
                 <motion.button
@@ -55,7 +55,7 @@ const LandingPage = () => {
 
                     <motion.h1 variants={itemVariants} style={styles.h1}>
                         Optimiza tu Planificación de <br />
-                        <span style={{ color: '#38bdf8' }}>Faena Avícola</span>
+                        <span style={{ color: '#4ade80' }}>Faena Avícola</span>
                     </motion.h1>
 
                     <motion.p variants={itemVariants} style={styles.description}>
@@ -66,7 +66,7 @@ const LandingPage = () => {
 
                     <motion.button
                         variants={itemVariants}
-                        whileHover={{ scale: 1.05, boxShadow: '0 0 20px rgba(56, 189, 248, 0.4)' }}
+                        whileHover={{ scale: 1.05, boxShadow: '0 0 20px rgba(45, 138, 78, 0.4)' }}
                         whileTap={{ scale: 0.95 }}
                         style={styles.cta}
                         onClick={() => navigate('/login')}
@@ -83,17 +83,17 @@ const LandingPage = () => {
                     style={styles.features}
                 >
                     <FeatureCard
-                        icon={<BarChart2 size={32} color="#38bdf8" />}
+                        icon={<BarChart2 size={32} color="#4ade80" />}
                         title="Proyecciones Exactas"
                         desc="Calcula automáticamente el peso y edad proyectada de cada lote según ganancia diaria."
                     />
                     <FeatureCard
-                        icon={<Zap size={32} color="#a855f7" />}
+                        icon={<Zap size={32} color="#f5a623" />}
                         title="Distribución Dinámica"
                         desc="Asigna y mueve lotes entre días de la semana con feedback visual inmediato."
                     />
                     <FeatureCard
-                        icon={<Shield size={32} color="#10b981" />}
+                        icon={<Shield size={32} color="#2d8a4e" />}
                         title="Seguridad y Control"
                         desc="Entorno seguro con acceso autenticado para proteger la información estratégica."
                     />
@@ -164,14 +164,14 @@ const styles = {
         marginTop: '40px'
     },
     badge: {
-        background: 'rgba(56, 189, 248, 0.1)',
-        color: '#38bdf8',
+        background: 'rgba(45, 138, 78, 0.15)',
+        color: '#4ade80',
         padding: '8px 16px',
         borderRadius: '20px',
         fontSize: '14px',
         fontWeight: '600',
         marginBottom: '24px',
-        border: '1px solid rgba(56, 189, 248, 0.2)'
+        border: '1px solid rgba(45, 138, 78, 0.3)'
     },
     h1: {
         fontSize: '64px',
@@ -188,7 +188,7 @@ const styles = {
         margin: '0 0 40px 0'
     },
     cta: {
-        background: 'linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%)',
+        background: 'linear-gradient(135deg, #2d8a4e 0%, #1a5632 100%)',
         color: '#fff',
         border: 'none',
         padding: '16px 40px',
@@ -196,7 +196,7 @@ const styles = {
         fontSize: '18px',
         fontWeight: 'bold',
         cursor: 'pointer',
-        boxShadow: '0 10px 20px rgba(14, 165, 233, 0.3)'
+        boxShadow: '0 10px 20px rgba(26, 86, 50, 0.4)'
     },
     features: {
         display: 'grid',
@@ -237,7 +237,7 @@ const styles = {
         left: '-10%',
         width: '50vw',
         height: '50vw',
-        background: 'radial-gradient(circle, rgba(14,165,233,0.15) 0%, rgba(15,23,42,0) 70%)',
+        background: 'radial-gradient(circle, rgba(26,86,50,0.2) 0%, rgba(15,23,42,0) 70%)',
         zIndex: 1,
         pointerEvents: 'none'
     },
@@ -247,7 +247,7 @@ const styles = {
         right: '-10%',
         width: '60vw',
         height: '60vw',
-        background: 'radial-gradient(circle, rgba(168,85,247,0.1) 0%, rgba(15,23,42,0) 70%)',
+        background: 'radial-gradient(circle, rgba(245,166,35,0.1) 0%, rgba(15,23,42,0) 70%)',
         zIndex: 1,
         pointerEvents: 'none'
     }
