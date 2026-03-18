@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia, agregarLote, getAnalisisTerceros, cargarDeficit } from '../services/api'
+import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia, agregarLote, getAnalisisTerceros, cargarDeficit, getParametros } from '../services/api'
 import { exportProyeccionPDF } from '../utils/pdfExport'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
@@ -86,9 +86,19 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
     ganancia_diaria: 0.09, fecha_peso: '', fecha_ingreso: '', motivo_compra: ''
   })
   const [analisisTerceros, setAnalisisTerceros] = useState(null)
+  const [parametros, setParametros] = useState({
+    pollos_diarios_objetivo_max: 38000,
+    capacidad_maxima_planta: 42000,
+    capacidad_con_horas_extras: 45000,
+    limite_sabado: 20000,
+  })
   const ajusteInputRef = React.useRef(null)
 
-  // Cargar análisis de déficit al montar o cuando cambia la proyección
+  // Cargar parámetros y análisis de déficit al montar o cuando cambia la proyección
+  useEffect(() => {
+    getParametros().then(p => setParametros(prev => ({ ...prev, ...p }))).catch(() => {})
+  }, [])
+
   useEffect(() => {
     const cargarAnalisis = async () => {
       try {
@@ -287,6 +297,27 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
           <div className="stat-label">Sofía (Total - 10.000)</div>
           <div className="stat-value">{formatNumber(proyeccion.sofia)}</div>
         </div>
+      </motion.div>
+
+      {/* Botón permanente — Compra a Terceros */}
+      <motion.div variants={itemVariants} style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          className="btn"
+          style={{
+            background: '#7c3aed',
+            color: '#fff',
+            border: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            fontWeight: 600,
+            fontSize: '0.88rem',
+            padding: '0.5rem 1.1rem',
+          }}
+          onClick={() => setShowTercerosModal(true)}
+        >
+          <ShoppingCart size={15} /> Compra a Terceros
+        </button>
       </motion.div>
 
       {/* Panel interactivo de feriados */}
@@ -1085,6 +1116,103 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                     </div>
                   </div>
                 </div>
+                {/* Indicador de capacidad del día seleccionado */}
+                {(() => {
+                  const diaSeleccionado = dias[Number(tercerosForm.dia_faena)]
+                  if (!diaSeleccionado) return null
+                  const esSabado = new Date(diaSeleccionado.fecha + 'T12:00:00').getDay() === 6
+                  const capNormal = esSabado ? parametros.limite_sabado : parametros.capacidad_maxima_planta
+                  const capExtras = parametros.capacidad_con_horas_extras
+                  const objMax = parametros.pollos_diarios_objetivo_max
+                  const totalActual = (diaSeleccionado.total_pollos || 0) + (diaSeleccionado.gallinas_cantidad || 0)
+                  const cantAgregar = Number(tercerosForm.cantidad) || 0
+                  const totalProyectado = totalActual + cantAgregar
+
+                  let nivelActual = totalActual > capNormal ? 'horas_extras' : totalActual > objMax ? 'alto' : 'normal'
+                  let nivelProyectado = totalProyectado > capNormal ? 'horas_extras' : totalProyectado > objMax ? 'alto' : 'normal'
+                  const excedeLimiteAbsoluto = totalProyectado > capExtras
+
+                  const colorNivel = (n) => n === 'horas_extras' ? '#ef4444' : n === 'alto' ? '#f97316' : '#22c55e'
+                  const labelNivel = (n) => n === 'horas_extras' ? 'Horas Extras' : n === 'alto' ? 'Carga Alta' : 'Normal'
+
+                  const pct = (v) => Math.min(100, Math.round((v / capExtras) * 100))
+
+                  return (
+                    <div style={{
+                      padding: '0.75rem 1rem',
+                      background: excedeLimiteAbsoluto ? 'rgba(239,68,68,0.08)' : 'rgba(124,58,237,0.06)',
+                      border: `1px solid ${excedeLimiteAbsoluto ? 'rgba(239,68,68,0.4)' : 'rgba(124,58,237,0.2)'}`,
+                      borderRadius: 8,
+                      fontSize: '0.82rem',
+                    }}>
+                      <div style={{ fontWeight: 600, marginBottom: 8, color: excedeLimiteAbsoluto ? '#ef4444' : '#7c3aed' }}>
+                        Capacidad del día — {getDiaNombre(diaSeleccionado.fecha)} {formatDate(diaSeleccionado.fecha)}
+                      </div>
+
+                      {/* Barra de progreso */}
+                      <div style={{ position: 'relative', height: 10, background: 'rgba(0,0,0,0.08)', borderRadius: 6, marginBottom: 8, overflow: 'hidden' }}>
+                        {/* Barra actual */}
+                        <div style={{
+                          position: 'absolute', left: 0, top: 0, bottom: 0,
+                          width: `${pct(totalActual)}%`,
+                          background: colorNivel(nivelActual),
+                          borderRadius: 6,
+                          transition: 'width 0.3s',
+                          opacity: 0.5,
+                        }} />
+                        {/* Barra proyectada */}
+                        {cantAgregar > 0 && (
+                          <div style={{
+                            position: 'absolute', left: 0, top: 0, bottom: 0,
+                            width: `${pct(totalProyectado)}%`,
+                            background: colorNivel(nivelProyectado),
+                            borderRadius: 6,
+                            transition: 'width 0.3s',
+                            opacity: 0.85,
+                          }} />
+                        )}
+                        {/* Marcadores */}
+                        <div style={{ position: 'absolute', left: `${pct(objMax)}%`, top: 0, bottom: 0, width: 1, background: '#f97316', opacity: 0.7 }} title={`Carga alta: ${formatNumber(objMax)}`} />
+                        <div style={{ position: 'absolute', left: `${pct(capNormal)}%`, top: 0, bottom: 0, width: 1, background: '#ef4444', opacity: 0.7 }} title={`Cap. máx: ${formatNumber(capNormal)}`} />
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                        <div style={{ display: 'flex', gap: 12 }}>
+                          <span style={{ color: 'var(--text-light)' }}>
+                            Actual: <strong style={{ color: colorNivel(nivelActual) }}>{formatNumber(totalActual)}</strong>
+                            <span style={{
+                              marginLeft: 4, padding: '0.1rem 0.4rem',
+                              background: colorNivel(nivelActual) + '22',
+                              border: `1px solid ${colorNivel(nivelActual)}44`,
+                              borderRadius: 8, fontSize: '0.75rem', color: colorNivel(nivelActual),
+                            }}>{labelNivel(nivelActual)}</span>
+                          </span>
+                          {cantAgregar > 0 && (
+                            <span style={{ color: 'var(--text-light)' }}>
+                              → Con compra: <strong style={{ color: colorNivel(nivelProyectado) }}>{formatNumber(totalProyectado)}</strong>
+                              <span style={{
+                                marginLeft: 4, padding: '0.1rem 0.4rem',
+                                background: colorNivel(nivelProyectado) + '22',
+                                border: `1px solid ${colorNivel(nivelProyectado)}44`,
+                                borderRadius: 8, fontSize: '0.75rem', color: colorNivel(nivelProyectado),
+                              }}>{labelNivel(nivelProyectado)}</span>
+                            </span>
+                          )}
+                        </div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>
+                          Cap. máx: {formatNumber(esSabado ? parametros.limite_sabado : parametros.capacidad_maxima_planta)} / Con ext: {formatNumber(capExtras)}
+                        </span>
+                      </div>
+
+                      {excedeLimiteAbsoluto && (
+                        <div style={{ marginTop: 8, color: '#ef4444', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <AlertTriangle size={13} /> Excede la capacidad máxima con horas extras ({formatNumber(capExtras)}). Reducir la cantidad o elegir otro día.
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+
                 <div>
                   <label style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', marginBottom: 4, display: 'block' }}>Motivo de Compra</label>
                   <textarea
@@ -1101,17 +1229,27 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                 <button className="btn btn-outline" onClick={() => { setShowTercerosModal(false); resetTercerosForm() }}>
                   Cancelar
                 </button>
-                <button
-                  className="btn"
-                  style={{ background: '#7c3aed', color: 'white' }}
-                  onClick={handleAgregarTerceros}
-                  disabled={tercerosLoading}
-                >
-                  {tercerosLoading
-                    ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite', marginRight: 4 }} /> Agregando...</>
-                    : <><PlusCircle size={14} style={{ marginRight: 4 }} /> Agregar Lote</>
-                  }
-                </button>
+                {(() => {
+                  const diaSeleccionado = dias[Number(tercerosForm.dia_faena)]
+                  const esSabado = diaSeleccionado ? new Date(diaSeleccionado.fecha + 'T12:00:00').getDay() === 6 : false
+                  const capExtras = parametros.capacidad_con_horas_extras
+                  const totalActual = (diaSeleccionado?.total_pollos || 0) + (diaSeleccionado?.gallinas_cantidad || 0)
+                  const excede = totalActual + (Number(tercerosForm.cantidad) || 0) > capExtras
+                  return (
+                    <button
+                      className="btn"
+                      style={{ background: excede ? '#9ca3af' : '#7c3aed', color: 'white', cursor: excede ? 'not-allowed' : 'pointer' }}
+                      onClick={handleAgregarTerceros}
+                      disabled={tercerosLoading || excede}
+                      title={excede ? `Excede la capacidad máxima (${formatNumber(capExtras)} pollos)` : ''}
+                    >
+                      {tercerosLoading
+                        ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite', marginRight: 4 }} /> Agregando...</>
+                        : <><PlusCircle size={14} style={{ marginRight: 4 }} /> Agregar Lote</>
+                      }
+                    </button>
+                  )
+                })()}
               </div>
             </motion.div>
           </motion.div>
