@@ -47,3 +47,7 @@ docker-compose.override.yml
 *.xls
 !Anexos/
 Anexos/Notas.txt
+
+# Documentos Word
+*.docx
+*.doc
