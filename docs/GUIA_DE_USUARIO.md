@@ -2,8 +2,8 @@
 
 ## Proyección de Faena Avícola
 
-**Versión:** 1.0  
-**Última actualización:** Febrero 2026
+**Versión:** 2.0  
+**Última actualización:** Marzo 2026
 
 ---
 
@@ -33,19 +33,42 @@
    - 7.6 [Vista Tabla](#76-vista-tabla)
    - 7.7 [Mover un lote a otro día](#77-mover-un-lote-a-otro-día)
    - 7.8 [Eliminar un lote](#78-eliminar-un-lote)
+   - 7.9 [Redistribuir un día](#79-redistribuir-un-día)
+   - 7.10 [Agregar compra a terceros](#710-agregar-compra-a-terceros)
+   - 7.11 [Configurar gallinas](#711-configurar-gallinas)
+   - 7.12 [Déficit entre semanas](#712-déficit-entre-semanas)
 8. [Resumen Semanal (Pestaña "Resumen")](#8-resumen-semanal)
    - 8.1 [Resumen Diario](#81-resumen-diario)
    - 8.2 [Distribución por Granja](#82-distribución-por-granja)
    - 8.3 [Cobertura de la Oferta](#83-cobertura-de-la-oferta)
-9. [Parámetros de Cálculo (Pestaña "Parámetros")](#9-parámetros-de-cálculo)
-   - 9.1 [Secciones de parámetros](#91-secciones-de-parámetros)
-   - 9.2 [Guardar cambios](#92-guardar-cambios)
-10. [Exportación a PDF](#10-exportación-a-pdf)
-11. [Semáforo de edades](#11-semáforo-de-edades)
-12. [Flujo de trabajo recomendado](#12-flujo-de-trabajo-recomendado)
-13. [Glosario de términos](#13-glosario-de-términos)
-14. [Preguntas frecuentes](#14-preguntas-frecuentes)
-15. [Solución de problemas](#15-solución-de-problemas)
+9. [Cargas Pollitos BB (Pestaña "Cargas Pollitos BB")](#9-cargas-pollitos-bb)
+   - 9.1 [Cargar archivo de producción](#91-cargar-archivo-de-producción)
+   - 9.2 [Semanas cargadas](#92-semanas-cargadas)
+   - 9.3 [Simulación de mortalidad](#93-simulación-de-mortalidad)
+   - 9.4 [Forecast de producción](#94-forecast-de-producción)
+10. [Desvíos de Peso (Pestaña "Desvíos")](#10-desvíos-de-peso)
+    - 10.1 [Cargar pesos reales](#101-cargar-pesos-reales)
+    - 10.2 [Tabla de desvíos](#102-tabla-de-desvíos)
+    - 10.3 [Niveles de alerta](#103-niveles-de-alerta)
+    - 10.4 [Recomendaciones y mortalidad observada](#104-recomendaciones-y-mortalidad-observada)
+11. [Pronóstico de Pesos (Pestaña "Pronóstico Pesos")](#11-pronóstico-de-pesos)
+    - 11.1 [Vista por Lote](#111-vista-por-lote)
+    - 11.2 [Vista por Día](#112-vista-por-día)
+    - 11.3 [Vista por Granja (Ranking)](#113-vista-por-granja-ranking)
+    - 11.4 [Alertas y niveles](#114-alertas-y-niveles)
+12. [Escenarios (Pestaña "Escenarios")](#12-escenarios)
+    - 12.1 [Guardar un escenario](#121-guardar-un-escenario)
+    - 12.2 [Comparar escenarios](#122-comparar-escenarios)
+    - 12.3 [Restaurar un escenario](#123-restaurar-un-escenario)
+13. [Parámetros de Cálculo (Pestaña "Parámetros")](#13-parámetros-de-cálculo)
+    - 13.1 [Secciones de parámetros](#131-secciones-de-parámetros)
+    - 13.2 [Guardar cambios](#132-guardar-cambios)
+14. [Exportación a PDF](#14-exportación-a-pdf)
+15. [Semáforo de edades](#15-semáforo-de-edades)
+16. [Flujo de trabajo recomendado](#16-flujo-de-trabajo-recomendado)
+17. [Glosario de términos](#17-glosario-de-términos)
+18. [Preguntas frecuentes](#18-preguntas-frecuentes)
+19. [Solución de problemas](#19-solución-de-problemas)
 
 ---
 
@@ -101,7 +124,7 @@ Si los datos son correctos, verá el mensaje "¡Bienvenido!" y será redirigido 
 
 ## 4. Pantalla principal — Navegación
 
-Una vez autenticado, la pantalla principal muestra una **barra de navegación superior** con 5 pestañas:
+Una vez autenticado, la pantalla principal muestra una **barra de navegación superior** con 9 pestañas:
 
 | Pestaña | Ícono | Función |
 |---|---|---|
@@ -109,6 +132,10 @@ Una vez autenticado, la pantalla principal muestra una **barra de navegación su
 | **Oferta** | 📋 | Ver los lotes cargados y generar la proyección |
 | **Proyección** | 📊 | Ver y ajustar la distribución diaria de lotes |
 | **Resumen** | 📈 | Dashboard con totales diarios y semanales |
+| **Cargas Pollitos BB** | 🏭 | Cargar datos de producción (pollitos en granjas) y simular mortalidad |
+| **Desvíos** | ⚖️ | Comparar pesos proyectados vs. reales con alertas |
+| **Pronóstico Pesos** | 📉 | Pronosticar pesos de lotes y alertar sobre lotes fuera de rango |
+| **Escenarios** | 🗂️ | Guardar, comparar y restaurar escenarios de proyección |
 | **Parámetros** | ⚙️ | Configurar los valores de cálculo (ganancias, edades, rendimientos) |
 
 En el extremo derecho de la barra hay un botón **"Salir"** para cerrar sesión.
@@ -293,6 +320,49 @@ Alterne a esta vista haciendo clic en **"Vista Tabla"**. Muestra todos los lotes
 
 > **Precaución:** Eliminar un lote no lo devuelve a la oferta. Si necesita recuperarlo, regenere la proyección desde la pestaña Oferta.
 
+### 7.9 Redistribuir un día
+
+Si necesita vaciar un día completo (por ejemplo, anular el sábado), puede redistribuir todos sus lotes a los días restantes:
+
+1. En la columna del día, haga clic en el botón **"Redistribuir"** (ícono ↻).
+2. Confirme en el diálogo.
+3. El sistema mueve automáticamente cada lote al día que tenga más capacidad disponible, respetando los topes diarios.
+
+> **Nota:** Si no hay capacidad suficiente en los demás días, algunos lotes quedarán sin asignar.
+
+### 7.10 Agregar compra a terceros
+
+Cuando la oferta propia no alcanza para cubrir la demanda, puede agregar un lote de compra a terceros:
+
+1. Haga clic en **"Agregar Terceros"** (ícono 🛒) en la barra de herramientas.
+2. Complete el formulario:
+   - **Día de faena**: seleccione el día destino.
+   - **Granja**: nombre del proveedor externo.
+   - **Galpón / Núcleo**: identificadores del lote.
+   - **Cantidad de pollos**, **Sexo**, **Edad proyectada**, **Peso muestreo**.
+   - **Ganancia diaria** y fechas de peso e ingreso.
+   - **Motivo de compra** (opcional).
+3. Haga clic en **"Agregar"**. El lote se incorpora a la proyección del día seleccionado.
+
+> **Tip:** Si la aplicación detecta déficit de pollos (según el análisis de terceros), mostrará un panel con la cantidad de pollos que falta cubrir en cada día. Esto ayuda a decidir cuántos pollos comprar.
+
+### 7.11 Configurar gallinas
+
+Para integrar gallinas de descarte en la planificación:
+
+1. En la tarjeta de cada día, verá los campos **"Livianas"** y **"Pesadas"**.
+2. Ingrese la cantidad de gallinas a asignar a ese día.
+3. El sistema las incorpora al cálculo diario, actualizando pollos totales y cajas.
+4. Para quitar las gallinas de un día, haga clic en el botón de eliminar gallinas junto al campo correspondiente.
+
+### 7.12 Déficit entre semanas
+
+Si se cargaron datos de producción (Cargas Pollitos BB) y se generó un escenario con mortalidad, la pestaña Proyección puede mostrar un análisis de **déficit entre la oferta y la producción esperada**:
+
+- Se indica cuántos pollos faltan o sobran por semana.
+- Si hay déficit, el sistema sugiere cubrir la diferencia con compra a terceros o redistribución.
+- Este panel se actualiza automáticamente al cambiar la proyección.
+
 ---
 
 ## 8. Resumen Semanal
@@ -333,11 +403,215 @@ Incluye un botón **"Descargar PDF"** para exportar este resumen.
 
 ---
 
-## 9. Parámetros de Cálculo
+## 9. Cargas Pollitos BB
+
+Esta pestaña permite cargar y visualizar los datos de producción de pollitos BB en granjas propias, para estimar la disponibilidad futura de pollos para faena.
+
+### 9.1 Cargar archivo de producción
+
+1. Haga clic en la **zona de carga** o arrastre el archivo Excel "13.Datos Produccion por Semana".
+2. Haga clic en **"Cargar Datos"**.
+3. El sistema importa las semanas de producción, mostrando la cantidad de pollitos cargados por semana.
+
+> **Tip:** Use el botón **"Limpiar"** para eliminar los datos de producción cargados y comenzar de nuevo.
+
+### 9.2 Semanas cargadas
+
+Una vez importados, se muestra una tabla con:
+
+| Columna | Descripción |
+|---|---|
+| **Semana** | Número correlativo |
+| **Desde / Hasta** | Rango de fechas de carga |
+| **Pollitos Cargados** | Total de pollitos BB cargados en ese rango |
+
+En el encabezado se indica el total de semanas y la suma total de pollitos.
+
+### 9.3 Simulación de mortalidad
+
+Esta sección proyecta cuántos pollitos estarán disponibles para faena (fecha de carga + 42 días) descontando diferentes tasas de mortalidad (4.5%, 5.0%, 5.5%, 6.0%, 6.5%).
+
+| Columna | Descripción |
+|---|---|
+| **Semana Carga** | Rango de fechas de la carga original |
+| **Faena Estimada** | Fecha estimada de faena (+42 días) |
+| **Cargados** | Pollitos BB originales |
+| **Mort. X%** | Pollitos disponibles tras descontar la mortalidad |
+
+> La columna **Mort. 6.5%** se resalta como el escenario de referencia (peor caso).
+
+### 9.4 Forecast de producción
+
+Tabla que agrupa las semanas de carga en semanas de faena y muestra:
+
+| Columna | Descripción |
+|---|---|
+| **Semana de Faena** | Rango de fechas de la proyección |
+| **Semanas Incluidas** | Cuántas semanas de carga se agrupan |
+| **Mejor Caso** | Pollitos disponibles con la menor mortalidad |
+| **Peor Caso** | Pollitos disponibles con la mayor mortalidad |
+| **Rango** | Intervalo entre mejor y peor caso |
+
+---
+
+## 10. Desvíos de Peso
+
+Esta pestaña permite comparar los pesos proyectados con los pesos reales recibidos en planta, detectando desvíos y generando alertas para el equipo comercial.
+
+> **Requisito previo:** Debe existir una proyección generada para poder cargar desvíos.
+
+### 10.1 Cargar pesos reales
+
+1. En la tabla de desvíos, ingrese el **peso promedio real (kg)** recibido en cada día (columna "Peso Real").
+2. Haga clic en **"Guardar Pesos Reales"**.
+3. El sistema calcula automáticamente los desvíos para cada día.
+
+> Use el botón **"Limpiar"** para eliminar todos los pesos reales cargados.
+
+### 10.2 Tabla de desvíos
+
+La tabla muestra, por cada día de faena:
+
+| Columna | Descripción |
+|---|---|
+| **Día** | Lunes a Sábado |
+| **Pollos** | Total de pollos del día |
+| **Peso Proyectado** | Peso promedio ponderado esperado |
+| **Peso Real (kg)** | Campo de entrada para el peso recibido |
+| **Desvío (kg)** | Diferencia peso real − peso proyectado |
+| **Desvío (%)** | Desvío porcentual respecto al proyectado |
+| **Estado** | Ícono de nivel (✅ normal, ⚠️ moderado, 🔴 crítico) |
+
+En la parte superior se muestran tarjetas con:
+- **Desvío Promedio** de la semana (en gramos).
+- **Nivel de Alerta** general (normal / moderado / crítico).
+- **Días con Datos** cargados vs. total de días.
+
+### 10.3 Niveles de alerta
+
+| Nivel | Significado |
+|---|---|
+| **Normal** (verde) | El peso real está dentro del rango esperado |
+| **Moderado** (naranja) | El peso real difiere moderadamente del proyectado |
+| **Crítico** (rojo) | El peso real difiere significativamente; requiere acción |
+
+Si el nivel semanal es moderado o crítico, aparece un **banner de alerta** en la parte superior con un mensaje para el equipo comercial.
+
+### 10.4 Recomendaciones y mortalidad observada
+
+Una vez cargados los pesos reales, el sistema genera:
+
+- **Recomendación Óptima:** Comparación contra el peso objetivo de recepción. Si los pesos están por debajo, se calculan: kg de déficit por día, pollos de compensación necesarios, y si se pueden absorber con capacidad normal, con horas extras, o si se requiere compra a terceros.
+- **Mortalidad Observada:** Si hay datos de producción cargados, el sistema calcula la mortalidad real observada comparando los pollitos cargados vs. la cantidad real recibida.
+
+---
+
+## 11. Pronóstico de Pesos
+
+Esta pestaña analiza todos los lotes de la proyección para pronosticar si llegarán al peso ideal para faena, clasificándolos por nivel de alerta.
+
+> **Requisito previo:** Debe existir una proyección generada.
+
+El sistema clasifica cada lote en tres niveles según su peso proyectado:
+
+| Nivel | Criterio |
+|---|---|
+| **Normal** (verde) | Peso dentro del rango ideal (2.80 – 3.20 kg) |
+| **Moderado** (naranja) | Peso al límite del rango aceptable |
+| **Crítico** (rojo) | Peso fuera del rango ideal; no llegaría a los estándares de faena |
+
+En la parte superior aparecen tarjetas de resumen:
+- **Total Lotes** en la proyección.
+- **Alertas Críticas** y **Alertas Moderadas** (cantidad de lotes afectados).
+- **Peso Promedio** de todos los lotes.
+
+### 11.1 Vista por Lote
+
+La vista predeterminada muestra una tabla con todos los lotes, incluyendo:
+
+| Columna | Descripción |
+|---|---|
+| **Día** | Día asignado (Lunes – Sábado) |
+| **Granja / Galpón** | Identificación del lote |
+| **Pollos** | Cantidad de pollos |
+| **Peso Proyectado** | Peso al momento de la faena |
+| **Barra de Rango** | Barra visual mostrando la posición del peso respecto al rango ideal |
+| **Ganancia Diaria** | Ganancia de peso diaria del lote |
+| **Estado** | Ícono y etiqueta del nivel (Normal / Moderado / Crítico) |
+
+Se incluye un selector de **filtro por nivel** (Todos / Crítico / Moderado / Normal) y un **filtro por día**.
+
+### 11.2 Vista por Día
+
+Muestra una tabla agrupada por día de faena:
+
+| Columna | Descripción |
+|---|---|
+| **Día** | Nombre y fecha |
+| **Lotes** | Cantidad de lotes del día |
+| **Peso Prom.** | Peso promedio ponderado del día |
+| **Críticos / Moderados / Normales** | Cantidad de lotes en cada nivel |
+| **Estado** | Ícono según el peor nivel del día |
+
+### 11.3 Vista por Granja (Ranking)
+
+Tabla que agrupa los lotes por granja, mostrando:
+
+- Nombre de la granja y cantidad de lotes.
+- Peso promedio.
+- Cantidad de alertas críticas y moderadas.
+- Haga clic en una granja para expandir y ver el detalle de cada lote.
+
+Las granjas se ordenan por cantidad de alertas (de mayor a menor), facilitando la detección de granjas con problemas.
+
+### 11.4 Alertas y niveles
+
+- **Sin alertas (verde):** "Todos los lotes dentro del rango ideal de peso".
+- **Alertas moderadas (naranja):** "{N} lotes con peso al límite del rango aceptable".
+- **Alertas críticas (rojo):** "{N} lotes con alerta crítica. Estos lotes no llegarían al peso ideal para faena."
+
+Si hay alertas de ganancia insuficiente (ganancia diaria < 90% de la esperada), se resaltan en la columna de ganancia.
+
+---
+
+## 12. Escenarios
+
+Esta pestaña permite guardar "fotos" de la proyección actual, compararlas entre sí y restaurar una versión anterior.
+
+### 12.1 Guardar un escenario
+
+1. Complete los campos:
+   - **Nombre** (obligatorio): ej. "Semana sin sábado".
+   - **Descripción** (opcional): ej. "Sin horas extra, tope 35k".
+   - **Mortalidad %** (opcional): seleccione una tasa de mortalidad del 4.5% al 6.5%.
+2. Haga clic en **"Guardar"**.
+3. El escenario se almacena con un resumen automático (total pollos, cajas, días) y la fecha de creación.
+
+### 12.2 Comparar escenarios
+
+1. En la lista de **"Escenarios Guardados"**, marque las casillas de 2 o 3 escenarios.
+2. Haga clic en **"Comparar"**.
+3. Se genera una tabla comparativa con:
+   - Total pollos, promedio de edad, cajas semanales, Sofía.
+   - Desglose por día (pollos y cajas por día para cada escenario).
+   - Diferencia absoluta entre escenarios por cada indicador.
+
+> **Límite:** Puede comparar hasta 3 escenarios simultáneamente.
+
+### 12.3 Restaurar un escenario
+
+1. En la tarjeta del escenario, haga clic en **"Restaurar"** (ícono ↺).
+2. Confirme en el diálogo. **Esto reemplaza la proyección actual** con la versión guardada.
+
+> Puede también eliminar escenarios con el botón **"Eliminar"** (ícono 🗑️).
+
+---
+
+## 13. Parámetros de Cálculo
 
 En esta pestaña puede configurar todos los valores que afectan los cálculos de la proyección.
 
-### 9.1 Secciones de parámetros
+### 13.1 Secciones de parámetros
 
 #### Ganancia de Peso
 | Parámetro | Valor por defecto | Descripción |
@@ -375,7 +649,7 @@ En esta pestaña puede configurar todos los valores que afectan los cálculos de
 | Pollos diarios máx. | 35.000 | Objetivo máximo de pollos por día |
 | Descuento Sofía | 10.000 | Constante que se resta del total semanal para calcular "Sofía" |
 
-### 9.2 Guardar cambios
+### 13.2 Guardar cambios
 
 Después de modificar cualquier valor:
 
@@ -388,7 +662,7 @@ También puede descargar los parámetros actuales en PDF con el botón **"Descar
 
 ---
 
-## 10. Exportación a PDF
+## 14. Exportación a PDF
 
 La aplicación permite exportar varios reportes en formato PDF:
 
@@ -403,7 +677,7 @@ Los PDFs se generan al instante y se descargan directamente al navegador con un 
 
 ---
 
-## 11. Semáforo de edades
+## 15. Semáforo de edades
 
 En las vistas de proyección, la **diferencia de edad ideal** se muestra con un código de colores para identificar rápidamente si un lote está en su punto óptimo:
 
@@ -424,7 +698,7 @@ Donde:
 
 ---
 
-## 12. Flujo de trabajo recomendado
+## 16. Flujo de trabajo recomendado
 
 A continuación se describe el flujo semanal típico de uso de la aplicación:
 
@@ -439,8 +713,11 @@ A continuación se describe el flujo semanal típico de uso de la aplicación:
 6. Clic en "Generar Proyección Automática"
 7. Ir a "Proyección" → revisar la distribución
 8. Mover lotes entre días si es necesario
-9. Ir a "Resumen" → validar los totales
-10. Exportar a PDF para compartir con el equipo
+9. Si hay déficit, considerar agregar compra a terceros o gallinas
+10. Ir a "Resumen" → validar los totales
+11. Ir a "Pronóstico Pesos" → verificar que los lotes llegarán al peso ideal
+12. Guardar un escenario en "Escenarios" para comparar luego
+13. Exportar a PDF para compartir con el equipo
 ```
 
 ### Martes — Ajuste con datos actualizados
@@ -452,7 +729,18 @@ A continuación se describe el flujo semanal típico de uso de la aplicación:
 4. Revisar el resumen de cambios
 5. Verificar si hay lotes que ahora quedan fuera de rango
 6. Ajustar manualmente si es necesario
-7. Exportar el PDF actualizado
+7. Cargar pesos reales en "Desvíos" para comparar con lo proyectado
+8. Revisar pronóstico de pesos actualizado
+9. Exportar el PDF actualizado
+```
+
+### Producción — Carga periódica
+
+```
+1. Ir a "Cargas Pollitos BB" → subir el Excel "13.Datos Produccion por Semana"
+2. Revisar simulación de mortalidad
+3. Ir a "Escenarios" → guardar proyección con diferentes tasas de mortalidad
+4. Comparar escenarios para evaluar el impacto
 ```
 
 ### Si necesita rehacer todo desde cero
@@ -466,7 +754,7 @@ A continuación se describe el flujo semanal típico de uso de la aplicación:
 
 ---
 
-## 13. Glosario de términos
+## 17. Glosario de términos
 
 | Término | Definición |
 |---|---|
@@ -486,10 +774,17 @@ A continuación se describe el flujo semanal típico de uso de la aplicación:
 | **Descuento sin sexar** | Penalización del 4% en peso aplicada a pollos cuyo sexo no se determinó |
 | **Galpón** | Estructura individual dentro de una granja donde se crían los pollos |
 | **Núcleo** | Subdivisión dentro de una granja (agrupación de galpones) |
+| **Desvío** | Diferencia entre el peso real recibido en planta y el peso proyectado |
+| **Escenario** | Copia guardada de una proyección con sus parámetros, para comparar alternativas |
+| **Pollitos BB** | Pollitos bebé cargados en granjas, que estarán disponibles para faena en ~42 días |
+| **Mortalidad** | Porcentaje de pollitos que no sobreviven hasta la edad de faena |
+| **Terceros** | Pollos comprados a proveedores externos para complementar la oferta propia |
+| **Gallinas** | Gallinas de descarte (livianas o pesadas) incorporadas a la planificación de faena |
+| **Pronóstico de peso** | Estimación del peso al momento de faena basada en ganancia diaria proyectada |
 
 ---
 
-## 14. Preguntas frecuentes
+## 18. Preguntas frecuentes
 
 ### ¿Puedo cargar la oferta más de una vez?
 Sí. Cada vez que carga una nueva oferta desde "Cargar Oferta", **reemplaza completamente** la oferta anterior y la proyección. Si solo desea actualizar datos de peso/edad sin perder la planificación, use "Ajustar con Oferta del Martes" en la pestaña Proyección.
@@ -507,7 +802,19 @@ Sí. Al generar la proyección, seleccione "5 días" en el menú desplegable. La
 Es un indicador que resta una cantidad fija (por defecto 10.000) al total de pollos semanales. Representa un ajuste contractual o de destino específico. El valor es configurable desde Parámetros.
 
 ### ¿Puedo agregar un lote manualmente?
-Actualmente, los lotes se agregan cargando el archivo Excel. La interfaz principal no tiene un formulario de ingreso manual individual, pero la API del backend sí soporta esta operación.
+Sí. Use la función **"Agregar Terceros"** en la pestaña Proyección para agregar un lote de compra a terceros con todos sus datos (granja, cantidad, peso, etc.). También puede cargar lotes desde el archivo Excel.
+
+### ¿Para qué sirven los escenarios?
+Los escenarios permiten guardar diferentes versiones de la proyección (por ejemplo, con distintas tasas de mortalidad o distribución de días) y luego compararlas lado a lado para tomar la mejor decisión.
+
+### ¿Qué es el pronóstico de pesos?
+Es una vista que analiza cada lote de la proyección y estima si llegará al peso ideal para faena. Si algún lote tiene ganancia diaria insuficiente o peso fuera de rango, genera una alerta para que tome acción antes de la fecha de faena.
+
+### ¿Cómo funciona la simulación de mortalidad?
+Al cargar los datos de "Cargas Pollitos BB", el sistema calcula la disponibilidad estimada de pollos restando diferentes tasas de mortalidad (4.5% a 6.5%). La fecha de faena estimada es 42 días después de la carga.
+
+### ¿Puedo redistribuir un día completo?
+Sí. Use el botón **"Redistribuir"** en la columna del día en la pestaña Proyección. Los lotes se moverán automáticamente a los días con más capacidad disponible.
 
 ### ¿Mis datos se pierden al cerrar el navegador?
 No. Los datos (oferta, proyección, parámetros) se almacenan en el servidor y persisten entre sesiones. Al volver a iniciar sesión, se cargarán automáticamente.
@@ -517,7 +824,7 @@ La interfaz es responsive y funciona en dispositivos móviles, aunque la experie
 
 ---
 
-## 15. Solución de problemas
+## 19. Solución de problemas
 
 | Problema | Causa posible | Solución |
 |---|---|---|
