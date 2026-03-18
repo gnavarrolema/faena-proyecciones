@@ -2171,7 +2171,7 @@ def get_pronostico_pesos(current_user: TokenData = Depends(get_current_user)):
                 }
             gs = granjas_stats[lote.granja]
             gs["total"] += 1
-            gs[nivel] += 1
+            gs["ok" if nivel == "normal" else nivel] += 1
             gs["pollos_total"] += lote.cantidad
             gs["suma_peso"] += peso_proyectado * lote.cantidad
 
