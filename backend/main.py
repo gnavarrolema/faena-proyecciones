@@ -1237,17 +1237,33 @@ def forecast_produccion(
     hoy = date.today()
     tolerancia = 3
 
-    result_semanas = []
+    # Pre-calcular rangos de cada semana de forecast
+    rangos = []
     for i in range(semanas):
         inicio_sem = hoy + timedelta(weeks=i)
         fin_sem = inicio_sem + timedelta(days=6)
+        centro = inicio_sem + timedelta(days=3)
+        rangos.append((inicio_sem, fin_sem, centro))
 
-        # Buscar semanas de producción cuya faena caiga en este rango
-        matched = []
-        for sp in semanas_prod:
-            faena_est = sp.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
+    # Asignar cada carga a UNA sola semana (la más cercana) para evitar duplicados
+    asignaciones: dict[int, list] = {i: [] for i in range(semanas)}
+    for sp in semanas_prod:
+        faena_est = sp.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
+        mejor_idx = None
+        mejor_dist = None
+        for i, (inicio_sem, fin_sem, centro) in enumerate(rangos):
             if inicio_sem - timedelta(days=tolerancia) <= faena_est <= fin_sem + timedelta(days=tolerancia):
-                matched.append(sp)
+                dist = abs((faena_est - centro).days)
+                if mejor_dist is None or dist < mejor_dist:
+                    mejor_dist = dist
+                    mejor_idx = i
+        if mejor_idx is not None:
+            asignaciones[mejor_idx].append(sp)
+
+    result_semanas = []
+    for i in range(semanas):
+        inicio_sem, fin_sem, _ = rangos[i]
+        matched = asignaciones[i]
 
         total_cargados = sum(s.pollitos_cargados for s in matched)
         mejor_tasa = min(TASAS_MORTALIDAD_DEFAULT)
