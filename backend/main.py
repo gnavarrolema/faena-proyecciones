@@ -1539,17 +1539,20 @@ def mortalidad_observada(current_user: TokenData = Depends(get_current_user)):
         raise HTTPException(404, "No hay proyección generada.")
 
     semanas_prod = [SemanaProduccion(**s) for s in prod_data]
-    tolerancia = 3
+    tolerancia = 2  # margen en los extremos del rango
 
     puntos = []
     for sp in semanas_prod:
-        fecha_faena_est = sp.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
+        # Los pollitos cargados durante TODA la semana (fecha_desde→fecha_hasta)
+        # estarán listos para faena entre fecha_desde+42 y fecha_hasta+42.
+        faena_rango_ini = sp.fecha_desde + timedelta(days=DIAS_HASTA_FAENA) - timedelta(days=tolerancia)
+        faena_rango_fin = sp.fecha_hasta + timedelta(days=DIAS_HASTA_FAENA) + timedelta(days=tolerancia)
 
-        # Buscar el día de faena que coincida con esta semana de producción
+        # Buscar todos los días de faena dentro de ese rango
         pollos_recibidos = 0
         dias_match = 0
         for dia in proyeccion.dias:
-            if abs((dia.fecha - fecha_faena_est).days) <= tolerancia:
+            if faena_rango_ini <= dia.fecha <= faena_rango_fin:
                 pollos_recibidos += dia.total_pollos
                 dias_match += 1
 
@@ -1572,6 +1575,7 @@ def mortalidad_observada(current_user: TokenData = Depends(get_current_user)):
         else:
             evaluacion = "por_encima"
 
+        fecha_faena_est = sp.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
         puntos.append({
             "fecha_carga": sp.fecha_desde.isoformat(),
             "fecha_faena_estimada": fecha_faena_est.isoformat(),
