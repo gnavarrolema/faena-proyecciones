@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { BarChart2, Activity, Home, List, AlertCircle, Download, CalendarOff, Plus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { generarProyeccion, generarEscenarios, getFeriados, addFeriadoCustom, deleteFeriadoCustom } from '../services/api'
+import { generarProyeccion, generarEscenarios, getFeriados, addFeriadoCustom, deleteFeriadoCustom, getParametros } from '../services/api'
 import { exportOfertaPDF } from '../utils/pdfExport'
 import VariantesPicker from './VariantesPicker'
 
@@ -42,6 +42,14 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
   const [fechaInicio, setFechaInicio] = useState('')
   const [pollosPorDia, setPollosPorDia] = useState(35000)
   const [diasFaena, setDiasFaena] = useState(5)
+
+  useEffect(() => {
+    getParametros().then(params => {
+      if (params.pollos_diarios_objetivo_max) {
+        setPollosPorDia(params.pollos_diarios_objetivo_max)
+      }
+    }).catch(() => {})
+  }, [])
   const [habilitarSabado, setHabilitarSabado] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
