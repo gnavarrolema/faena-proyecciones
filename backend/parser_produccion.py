@@ -143,20 +143,26 @@ def _buscar_hoja_produccion_xlrd(wb, sheet_name: Optional[str]):
 def _detectar_columna_hasta(ws_openpyxl=None, ws_xlrd=None, fila_header: int = 4) -> int:
     """
     Detecta si la columna HASTA es B(1) o C(2), buscando en el header.
-    Por defecto retorna 1 (columna B).
+    Por defecto retorna COL_HASTA (columna C, 0-indexed = 2).
     """
+    filas_a_buscar = range(max(1, fila_header - 2), fila_header + 3)
     if ws_openpyxl:
-        for col in range(1, 4):  # Columnas A-C (1-indexed)
-            val = ws_openpyxl.cell(row=fila_header, column=col + 1).value
-            if val and "HASTA" in str(val).upper():
-                return col  # 0-indexed
-    elif ws_xlrd:
-        for col in range(3):  # Columnas A-C (0-indexed)
-            if col < ws_xlrd.ncols:
-                val = ws_xlrd.cell_value(fila_header - 1, col)
+        for fila in filas_a_buscar:
+            for col in range(1, 4):  # Columnas A-C (1-indexed)
+                val = ws_openpyxl.cell(row=fila, column=col + 1).value
                 if val and "HASTA" in str(val).upper():
-                    return col
-    return 1  # Default: columna B (0-indexed)
+                    return col  # 0-indexed
+    elif ws_xlrd:
+        for fila in filas_a_buscar:
+            row_idx = fila - 1
+            if row_idx < 0 or row_idx >= ws_xlrd.nrows:
+                continue
+            for col in range(3):  # Columnas A-C (0-indexed)
+                if col < ws_xlrd.ncols:
+                    val = ws_xlrd.cell_value(row_idx, col)
+                    if val and "HASTA" in str(val).upper():
+                        return col
+    return COL_HASTA  # Default: columna C (0-indexed = 2)
 
 
 def _leer_produccion_openpyxl(wb, sheet_name: Optional[str]) -> List[SemanaProduccion]:
