@@ -403,275 +403,179 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
       initial="hidden"
       animate="show"
     >
-      {/* Stats generales */}
-      <motion.div variants={itemVariants} className="stats-grid">
-        <div className="stat-card">
-          <div className="stat-label">Total Pollos Semana</div>
-          <div className="stat-value green">{formatNumber(proyeccion.total_pollos_semana)}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Promedio Edad Semana</div>
-          <div className="stat-value blue">{proyeccion.promedio_edad_semana?.toFixed(1)}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Cajas Semanales</div>
-          <div className="stat-value orange">{formatNumber(proyeccion.produccion_cajas_semanales)}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">Sofía (Total - 10.000)</div>
-          <div className="stat-value">{formatNumber(proyeccion.sofia)}</div>
-        </div>
-      </motion.div>
-
-      {/* Banner factibilidad producción */}
-      {proyeccion.factibilidad_produccion && proyeccion.factibilidad_produccion.encontrada && (() => {
-        const fact = proyeccion.factibilidad_produccion
-        const hayDeficit = fact.deficit_peor != null && fact.deficit_peor > 0
-        const borderColor = hayDeficit ? '#f97316' : '#22c55e'
-        const bgColor = hayDeficit ? 'rgba(249, 115, 22, 0.08)' : 'rgba(34, 197, 94, 0.08)'
-        const iconColor = hayDeficit ? '#ea580c' : '#16a34a'
-
-        return (
-          <motion.div variants={itemVariants} style={{
-            padding: '0.85rem 1rem',
-            background: bgColor,
-            border: `1px solid ${borderColor}40`,
-            borderLeft: `4px solid ${borderColor}`,
-            borderRadius: 8,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            flexWrap: 'wrap',
-          }}>
-            <Factory size={18} color={iconColor} />
-            {hayDeficit ? (
-              <span style={{ fontSize: '0.88rem', color: 'var(--text)' }}>
-                <strong style={{ color: '#ea580c' }}>Atención:</strong>{' '}
-                La oferta ({formatNumber(fact.total_oferta)}) excede la producción propia disponible
-                ({formatNumber(fact.disponibles_peor)} al 6.5% mort.) en{' '}
-                <strong style={{ color: '#ef4444' }}>{formatNumber(fact.deficit_peor)} pollos</strong>.
-                Cobertura: <strong>{fact.cobertura_pct_peor}%</strong>
-                {' — '}
-                <span
-                  style={{ color: '#7c3aed', cursor: 'pointer', textDecoration: 'underline', fontWeight: 600 }}
-                  onClick={() => setShowTercerosModal(true)}
-                >
-                  Agregar compra a terceros
-                </span>
-              </span>
-            ) : (
-              <span style={{ fontSize: '0.88rem', color: 'var(--text)' }}>
-                <strong style={{ color: '#16a34a' }}>Producción OK:</strong>{' '}
-                La producción propia ({formatNumber(fact.disponibles_peor)} al 6.5% mort.) cubre la oferta
-                ({formatNumber(fact.total_oferta)}).
-                Cobertura: <strong>{fact.cobertura_pct_peor}%</strong>
-              </span>
-            )}
-          </motion.div>
-        )
-      })()}
-
-      {/* Botón permanente — Compra a Terceros */}
-      <motion.div variants={itemVariants} style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <button
-          className="btn"
-          style={{
-            background: '#7c3aed',
-            color: '#fff',
-            border: 'none',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            fontWeight: 600,
-            fontSize: '0.88rem',
-            padding: '0.5rem 1.1rem',
-          }}
-          onClick={() => setShowTercerosModal(true)}
-        >
-          <ShoppingCart size={15} /> Compra a Terceros
-        </button>
-      </motion.div>
-
-      {/* Panel interactivo de feriados */}
-      {proyeccion.feriados_aplicados && proyeccion.feriados_aplicados.length > 0 && (
-        <motion.div variants={itemVariants} style={{
-          padding: '1rem',
-          background: 'rgba(251, 146, 60, 0.08)',
-          border: '1px solid rgba(251, 146, 60, 0.3)',
-          borderRadius: 8,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '0.75rem' }}>
-            <Calendar size={16} color="#ea580c" />
-            <strong style={{ color: '#ea580c', fontSize: '0.9rem' }}>
-              {proyeccion.feriados_aplicados.length} feriado{proyeccion.feriados_aplicados.length > 1 ? 's' : ''} en esta semana
-            </strong>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>
-              — Las aves se redistribuyeron entre los {dias.length} días hábiles restantes
-            </span>
+      {/* Header Dashboard section */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', marginBottom: '1.5rem' }}>
+        {/* Stats generales */}
+        <motion.div variants={itemVariants} className="stats-grid" style={{ marginBottom: 0 }}>
+          <div className="stat-card" style={{ padding: '1.25rem' }}>
+            <div className="stat-label" style={{ color: 'var(--success)' }}><BarChart size={16} /> Total Pollos Semana</div>
+            <div className="stat-value green" style={{ fontSize: '1.8rem' }}>{formatNumber(proyeccion.total_pollos_semana)}</div>
           </div>
+          <div className="stat-card" style={{ padding: '1.25rem' }}>
+            <div className="stat-label" style={{ color: 'var(--info)' }}><Clock size={16} /> Promedio Edad Semana</div>
+            <div className="stat-value blue" style={{ fontSize: '1.8rem', display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
+              {proyeccion.promedio_edad_semana?.toFixed(1)} 
+              <span style={{ fontSize: '1rem', color: 'var(--text-light)', fontWeight: 500 }}>días</span>
+            </div>
+          </div>
+          <div className="stat-card" style={{ padding: '1.25rem' }}>
+            <div className="stat-label" style={{ color: 'var(--warning)' }}><PackageOpen size={16} /> Cajas Semanales</div>
+            <div className="stat-value orange" style={{ fontSize: '1.8rem' }}>{formatNumber(proyeccion.produccion_cajas_semanales)}</div>
+          </div>
+          <div className="stat-card" style={{ padding: '1.25rem' }}>
+            <div className="stat-label" style={{ color: 'var(--primary)' }}><Factory size={16} /> Sofía (Total - 10.000)</div>
+            <div className="stat-value" style={{ fontSize: '1.8rem' }}>{formatNumber(proyeccion.sofia)}</div>
+          </div>
+        </motion.div>
 
-          {proyeccion.feriados_aplicados.map(f => {
-            const avesDesplazadas = Math.round((proyeccion.total_pollos_semana || 0) / (dias.length || 1))
+        {/* Dashboard Alerts Grid (Factibilidad, Feriados, Gallinas, Compra Terceros) */}
+        <motion.div variants={itemVariants} style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
+          gap: '1rem'
+        }}>
+          {proyeccion.factibilidad_produccion && proyeccion.factibilidad_produccion.encontrada && (() => {
+            const fact = proyeccion.factibilidad_produccion
+            const hayDeficit = fact.deficit_peor != null && fact.deficit_peor > 0
+            const borderColor = hayDeficit ? '#f97316' : '#22c55e'
+            const bgColor = hayDeficit ? 'rgba(249, 115, 22, 0.08)' : 'rgba(34, 197, 94, 0.08)'
+            const iconColor = hayDeficit ? '#ea580c' : '#16a34a'
+
             return (
-              <div key={f.fecha} style={{
-                display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap',
-                padding: '0.6rem 0.75rem',
-                background: 'rgba(251, 146, 60, 0.1)',
-                border: '1px solid rgba(251, 146, 60, 0.2)',
-                borderRadius: 8,
-                marginBottom: '0.5rem',
+              <div style={{
+                padding: '1rem 1.25rem',
+                background: bgColor,
+                border: `1px solid ${borderColor}40`,
+                borderLeft: `4px solid ${borderColor}`,
+                borderRadius: 10,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 12,
+                height: '100%',
               }}>
-                <span style={{
-                  padding: '0.2rem 0.6rem',
-                  background: 'rgba(251, 146, 60, 0.2)',
-                  borderRadius: 16,
-                  fontSize: '0.8rem',
-                  color: '#ea580c',
-                  fontWeight: 600,
-                }}>
-                  {getDiaNombre(f.fecha)} — {f.nombre}
-                </span>
-                <span style={{ fontSize: '0.78rem', color: 'var(--text-light)' }}>
-                  ~{formatNumber(avesDesplazadas)} aves redistribuidas
-                </span>
-                <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }}>
+                <Factory size={22} color={iconColor} style={{ marginTop: 2, flexShrink: 0 }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {hayDeficit ? (
+                    <>
+                      <div style={{ fontWeight: 600, color: '#ea580c', fontSize: '0.95rem' }}>Déficit de Producción Detectado</div>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text)', lineHeight: 1.5 }}>
+                        La oferta ({formatNumber(fact.total_oferta)}) excede la producción disponible ({formatNumber(fact.disponibles_peor)} al 6.5% mort.) en <strong style={{ color: '#ef4444' }}>{formatNumber(fact.deficit_peor)} pollos</strong>. Cobertura: <strong>{fact.cobertura_pct_peor}%</strong>.
+                      </span>
+                      <button 
+                        className="btn btn-sm"
+                        style={{
+                          background: '#7c3aed', color: '#fff', border: 'none', 
+                          alignSelf: 'flex-start', marginTop: 4, padding: '0.35rem 0.8rem',
+                          display: 'flex', alignItems: 'center', gap: 6
+                        }}
+                        onClick={() => setShowTercerosModal(true)}
+                      >
+                        <ShoppingCart size={14} /> Agregar compra a terceros
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontWeight: 600, color: '#16a34a', fontSize: '0.95rem' }}>Producción OK</div>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text)', lineHeight: 1.5 }}>
+                        La producción propia ({formatNumber(fact.disponibles_peor)} al 6.5% mort.) cubre la oferta ({formatNumber(fact.total_oferta)}). Cobertura: <strong>{fact.cobertura_pct_peor}%</strong>.
+                      </span>
+                      {/* Botón opcional de compras a terceros, aunque todo este OK */}
+                      <button 
+                        className="btn btn-sm btn-outline"
+                        style={{
+                          alignSelf: 'flex-start', marginTop: 4, padding: '0.2rem 0.6rem',
+                          fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: 4
+                        }}
+                        onClick={() => setShowTercerosModal(true)}
+                      >
+                        <ShoppingCart size={12} /> Compra manual
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* Feriados o Gallinas */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%' }}>
+            {proyeccion.feriados_aplicados && proyeccion.feriados_aplicados.length > 0 && (
+              <div style={{
+                padding: '1rem 1.25rem',
+                background: 'rgba(251, 146, 60, 0.08)',
+                border: '1px solid rgba(251, 146, 60, 0.3)',
+                borderLeft: '4px solid #f97316',
+                borderRadius: 10,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Calendar size={18} color="#ea580c" />
+                  <strong style={{ color: '#ea580c', fontSize: '0.95rem' }}>
+                    {proyeccion.feriados_aplicados.length} feriado{proyeccion.feriados_aplicados.length > 1 ? 's' : ''} esta semana
+                  </strong>
+                </div>
+                {proyeccion.feriados_aplicados.map(f => (
+                  <div key={f.fecha} style={{ fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 600, color: '#9a3412' }}>{getDiaNombre(f.fecha)} {f.nombre}</span>
+                    <span style={{ color: 'var(--text-light)' }}>— redistribuyendo sobre los días restantes</span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: 4 }}>
                   {!dias.some(d => d.es_sabado) && (
-                    <button
-                      className="btn btn-sm btn-outline"
-                      style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
-                      onClick={async () => {
-                        try {
-                          setLoading(true)
-                          const data = await generarProyeccion({
-                            fecha_inicio_semana: proyeccion.fecha_inicio,
-                            dias_faena: 6,
-                            pollos_por_dia: Math.round(proyeccion.total_pollos_semana / dias.length),
-                            habilitar_sabado: true,
-                            gallinas: proyeccion.eventos_gallinas?.length > 0
-                              ? Object.fromEntries(proyeccion.eventos_gallinas.map(e => [e.fecha, { livianas: e.gallinas_livianas_cantidad || 0, pesadas: e.gallinas_pesadas_cantidad || 0 }]))
-                              : null,
-                          })
-                          setProyeccion(data)
-                          toast.success('Proyección regenerada con sábado habilitado')
-                        } catch (err) {
-                          toast.error(err.response?.data?.detail || 'Error al regenerar')
-                        } finally {
-                          setLoading(false)
-                        }
-                      }}
-                    >
+                    <button className="btn btn-sm btn-outline" style={{ fontSize: '0.75rem', borderColor: '#ea580c', color: '#ea580c' }} onClick={async () => {
+                      try {
+                        setLoading(true)
+                        const data = await generarProyeccion({
+                          fecha_inicio_semana: proyeccion.fecha_inicio, dias_faena: 6,
+                          pollos_por_dia: Math.round(proyeccion.total_pollos_semana / dias.length),
+                          habilitar_sabado: true,
+                          gallinas: proyeccion.eventos_gallinas?.length > 0 ? Object.fromEntries(proyeccion.eventos_gallinas.map(e => [e.fecha, { livianas: e.gallinas_livianas_cantidad || 0, pesadas: e.gallinas_pesadas_cantidad || 0 }])) : null,
+                        })
+                        setProyeccion(data)
+                        toast.success('Proyección regenerada con sábado habilitado')
+                      } catch (err) { toast.error(err.response?.data?.detail || 'Error al regenerar') } finally { setLoading(false) }
+                    }}>
                       Habilitar sábado
                     </button>
                   )}
-                  <button
-                    className="btn btn-sm btn-outline"
-                    style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
-                    onClick={async () => {
-                      if (lotesNoAsignados.length > 0) {
-                        try {
-                          const result = await cargarDeficit()
-                          toast.success(result.mensaje || 'Déficit trasladado a semana siguiente')
-                        } catch (err) {
-                          toast.error(err.response?.data?.detail || 'Error al trasladar déficit')
-                        }
-                      } else {
-                        toast('No hay lotes no asignados para diferir', { icon: 'ℹ️' })
-                      }
-                    }}
-                  >
+                  <button className="btn btn-sm btn-outline" style={{ fontSize: '0.75rem', borderColor: '#ea580c', color: '#ea580c' }} onClick={async () => {
+                    if (lotesNoAsignados.length > 0) {
+                      try { const result = await cargarDeficit(); toast.success(result.mensaje || 'Déficit trasladado a semana siguiente'); } catch (err) { toast.error(err.response?.data?.detail || 'Error al trasladar déficit') }
+                    } else { toast('No hay lotes no asignados para diferir', { icon: 'ℹ️' }) }
+                  }}>
                     Diferir a semana siguiente
                   </button>
                 </div>
               </div>
-            )
-          })}
-        </motion.div>
-      )}
+            )}
 
-      {/* Eventos de gallinas */}
-      {proyeccion.eventos_gallinas && proyeccion.eventos_gallinas.length > 0 && (
-        <motion.div variants={itemVariants} style={{
-          padding: '0.7rem 1rem',
-          background: 'rgba(139, 92, 246, 0.08)',
-          border: '1px solid rgba(139, 92, 246, 0.25)',
-          borderRadius: 8,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          flexWrap: 'wrap',
-          fontSize: '0.85rem',
-          color: '#7c3aed',
-        }}>
-          <strong>Gallinas:</strong>
-          {proyeccion.eventos_gallinas.map((e, i) => (
-            <span key={i} style={{
-              padding: '0.2rem 0.6rem',
-              background: e.tipo === 'pesada' ? 'rgba(219, 39, 119, 0.1)' : 'rgba(139, 92, 246, 0.12)',
-              border: `1px solid ${e.tipo === 'pesada' ? 'rgba(219, 39, 119, 0.3)' : 'rgba(139, 92, 246, 0.25)'}`,
-              borderRadius: 16,
-              fontSize: '0.8rem',
-              color: e.tipo === 'pesada' ? '#be185d' : '#7c3aed',
-            }}>
-              {getDiaNombre(e.fecha)} — {formatNumber(e.cantidad)} {e.tipo === 'pesada' ? 'pesadas' : 'livianas'}
-            </span>
-          ))}
-        </motion.div>
-      )}
-
-      {/* Banner de déficit — sugerencia de compra a terceros */}
-      {analisisTerceros?.requiere_compra && (
-        <motion.div variants={itemVariants} style={{
-          padding: '0.8rem 1rem',
-          background: 'rgba(168, 85, 247, 0.08)',
-          border: '1px solid rgba(168, 85, 247, 0.3)',
-          borderRadius: 8,
-          fontSize: '0.85rem',
-          color: '#7c3aed',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-            <ShoppingCart size={18} style={{ flexShrink: 0, marginTop: 2 }} />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>Déficit detectado — Considerar compra a terceros</div>
-              <div style={{ fontWeight: 400, marginBottom: 6 }}>{analisisTerceros.recomendacion}</div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {analisisTerceros.dias_con_deficit.map(d => (
-                  <span key={d.fecha} style={{
-                    padding: '0.15rem 0.5rem',
-                    background: 'rgba(168, 85, 247, 0.12)',
-                    border: '1px solid rgba(168, 85, 247, 0.25)',
-                    borderRadius: 12,
-                    fontSize: '0.78rem',
-                  }}>
-                    {d.dia_nombre}: faltan {formatNumber(d.faltante)}
-                  </span>
-                ))}
+            {proyeccion.eventos_gallinas && proyeccion.eventos_gallinas.length > 0 && (
+              <div style={{
+                padding: '0.85rem 1.25rem', background: 'rgba(139, 92, 246, 0.08)',
+                border: '1px solid rgba(139, 92, 246, 0.25)', borderLeft: '4px solid #8b5cf6',
+                borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 6,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <AlertTriangle size={18} color="#7c3aed" />
+                  <strong style={{ color: '#7c3aed', fontSize: '0.9rem' }}>Evento de Gallinas Programado</strong>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {proyeccion.eventos_gallinas.map((e, i) => (
+                    <span key={i} style={{ padding: '0.15rem 0.5rem', background: 'rgba(139, 92, 246, 0.1)', borderRadius: 4, fontSize: '0.8rem', color: e.tipo === 'pesada' ? '#be185d' : '#7c3aed', fontWeight: 500 }}>
+                      {getDiaNombre(e.fecha)}: {formatNumber(e.cantidad)} {e.tipo}s
+                    </span>
+                  ))}
+                </div>
               </div>
-              <button
-                className="btn btn-sm"
-                onClick={() => {
-                  const primerDia = analisisTerceros.dias_con_deficit[0]
-                  if (primerDia) {
-                    setTercerosForm(prev => ({ ...prev, dia_faena: primerDia.dia_index }))
-                  }
-                  setShowTercerosModal(true)
-                }}
-                style={{
-                  marginTop: 8,
-                  background: '#7c3aed',
-                  color: '#fff',
-                  border: 'none',
-                  fontSize: '0.8rem',
-                }}
-              >
-                <PlusCircle size={13} style={{ marginRight: 4 }} /> Agregar Compra a Terceros
-              </button>
-            </div>
+            )}
           </div>
         </motion.div>
-      )}
+      </div>
 
       {/* Ajuste con Oferta del Martes */}
-      <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid var(--info)' }}>
+      <motion.div variants={itemVariants} className="card card-compact" style={{ borderLeft: '4px solid var(--info)' }}>
         <div
           className="card-header"
           style={{ cursor: 'pointer', userSelect: 'none' }}
@@ -926,7 +830,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
       </motion.div>
 
       {lotesNoAsignados.length > 0 && (
-        <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid var(--warning)' }}>
+        <motion.div variants={itemVariants} className="card card-compact" style={{ borderLeft: '4px solid var(--warning)' }}>
           <div className="card-header">
             <h2><PackageOpen size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Lotes no asignados por tope diario</h2>
             <button
@@ -980,7 +884,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
       )}
 
       {lotesFueraRango.length > 0 && (
-        <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid var(--danger, #ef4444)' }}>
+        <motion.div variants={itemVariants} className="card card-compact" style={{ borderLeft: '4px solid var(--danger, #ef4444)' }}>
           <div className="card-header">
             <h2><Ban size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Lotes fuera de rango (edad/peso)</h2>
           </div>
@@ -1067,7 +971,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
           edad_temprana: { label: 'Edad temprana', color: '#0ea5e9', icon: '🐣' },
         }
         return (
-          <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid #f59e0b', marginBottom: '0.5rem' }}>
+          <motion.div variants={itemVariants} className="card card-compact" style={{ borderLeft: '4px solid #f59e0b', marginBottom: '0.5rem' }}>
             <div
               className="card-header"
               style={{ cursor: 'pointer', userSelect: 'none', background: 'rgba(245, 158, 11, 0.04)' }}

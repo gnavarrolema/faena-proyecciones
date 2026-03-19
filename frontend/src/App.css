@@ -120,6 +120,20 @@ body {
 }
 .card-body { padding: 1.5rem; }
 
+.card-compact {
+  margin-bottom: 1rem;
+}
+.card-compact .card-header {
+  padding: 0.75rem 1.25rem;
+  background: white;
+}
+.card-compact .card-header h2 {
+  font-size: 0.95rem;
+}
+.card-compact .card-body {
+  padding: 1rem 1.25rem;
+}
+
 /* Buttons */
 .btn {
   display: inline-flex;
