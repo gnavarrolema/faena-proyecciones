@@ -123,7 +123,7 @@ def main():
 
     add_subtitle(doc, "¿Cómo se interpreta la tabla?")
     add_bullet(doc, "Semana de Faena: Rango de fechas (lunes a domingo) de la semana proyectada.")
-    add_bullet(doc, "Semanas Incluidas: Cantidad de semanas de carga que alimentan esa semana de faena.")
+    add_bullet(doc, "Cargas Incluidas: Cantidad de semanas de carga que alimentan esa semana de faena.")
     add_bullet(
         doc,
         "Mejor Caso (azul): Pollos disponibles aplicando 4.5% de mortalidad — "

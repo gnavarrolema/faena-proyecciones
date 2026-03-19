@@ -423,7 +423,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
             <div className="stat-value orange" style={{ fontSize: '1.8rem' }}>{formatNumber(proyeccion.produccion_cajas_semanales)}</div>
           </div>
           <div className="stat-card" style={{ padding: '1.25rem' }}>
-            <div className="stat-label" style={{ color: 'var(--primary)' }}><Factory size={16} /> Sofía (Total - 10.000)</div>
+            <div className="stat-label" style={{ color: 'var(--primary)' }}><Factory size={16} /> Sofía</div>
             <div className="stat-value" style={{ fontSize: '1.8rem' }}>{formatNumber(proyeccion.sofia)}</div>
           </div>
         </motion.div>

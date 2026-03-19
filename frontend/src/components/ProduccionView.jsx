@@ -279,7 +279,7 @@ export default function ProduccionView() {
                 <thead>
                   <tr>
                     <th>Semana de Faena</th>
-                    <th className="text-right">Semanas Incluidas</th>
+                    <th className="text-right">Cargas Incluidas</th>
                     <th className="text-right">Mejor Caso</th>
                     <th className="text-right">Peor Caso</th>
                     <th className="text-right">Rango</th>

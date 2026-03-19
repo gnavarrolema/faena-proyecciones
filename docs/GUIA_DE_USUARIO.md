@@ -246,7 +246,7 @@ En la parte superior se muestran 4 tarjetas:
 | **Total Pollos Semana** | Suma de todos los pollos asignados en la semana |
 | **Promedio Edad Semana** | Edad promedio de retiro de todos los lotes |
 | **Cajas Semanales** | Total de cajas de 20 kg producidas en la semana |
-| **Sofía (Total - 10.000)** | Pollos semanales menos el descuento de Sofía (configurable) |
+| **Sofía** | Pollos semanales menos el descuento de Sofía (configurable) |
 
 ### 7.2 Ajuste con Oferta del Martes
 
@@ -480,7 +480,7 @@ Tabla que agrupa las semanas de carga en semanas de faena y muestra:
 | Columna | Descripción |
 |---|---|
 | **Semana de Faena** | Rango de fechas de la proyección |
-| **Semanas Incluidas** | Cuántas semanas de carga se agrupan |
+| **Cargas Incluidas** | Cuántas semanas de carga se agrupan en esa semana de faena |
 | **Mejor Caso** | Pollitos disponibles con la menor mortalidad |
 | **Peor Caso** | Pollitos disponibles con la mayor mortalidad |
 | **Rango** | Intervalo entre mejor y peor caso |
