@@ -459,6 +459,27 @@ export default function DesvioView({ proyeccion }) {
         </motion.div>
       )}
 
+      {/* Mortalidad Observada: mensaje cuando no hay datos suficientes */}
+      {mortalidad && mortalidad.mensaje && (!mortalidad.puntos || mortalidad.puntos.length === 0) && (
+        <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid var(--text-light)' }}>
+          <div className="card-header">
+            <h2><Factory size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Tendencia de Mortalidad Observada</h2>
+          </div>
+          <div className="card-body">
+            <div style={{
+              padding: '0.8rem 1rem',
+              background: 'rgba(107, 114, 128, 0.06)',
+              border: '1px solid rgba(107, 114, 128, 0.2)',
+              borderRadius: 8,
+              fontSize: '0.9rem',
+              color: 'var(--text-light)',
+            }}>
+              {mortalidad.mensaje}
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {/* Tendencia de Mortalidad Observada */}
       {mortalidad && mortalidad.puntos && mortalidad.puntos.length > 0 && (
         <motion.div variants={itemVariants} className="card" style={{
@@ -527,6 +548,7 @@ export default function DesvioView({ proyeccion }) {
                     <th>Faena Estimada</th>
                     <th className="text-right">Pollitos Cargados</th>
                     <th className="text-right">Pollos Recibidos</th>
+                    <th className="text-right">Excluidos (vivos)</th>
                     <th className="text-right">Mortalidad</th>
                     <th className="text-center">Estado</th>
                   </tr>
@@ -548,6 +570,7 @@ export default function DesvioView({ proyeccion }) {
                         <td>{new Date(p.fecha_faena_estimada + 'T12:00:00').toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</td>
                         <td className="text-right">{formatNumber(p.pollitos_cargados)}</td>
                         <td className="text-right">{formatNumber(p.pollos_recibidos)}</td>
+                        <td className="text-right" style={{ color: 'var(--text-light)' }}>{formatNumber(p.pollos_excluidos || 0)}</td>
                         <td className="text-right" style={{ color, fontWeight: 600 }}>
                           {p.mortalidad_observada_pct}%
                         </td>

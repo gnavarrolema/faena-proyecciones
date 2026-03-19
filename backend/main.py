@@ -1532,8 +1532,13 @@ def get_recomendacion_peso(current_user: TokenData = Depends(get_current_user)):
 def mortalidad_observada(current_user: TokenData = Depends(get_current_user)):
     """
     Back-calcula la mortalidad observada comparando producción (pollitos cargados)
-    con los pollos realmente recibidos en faena (de la proyección + pesos reales).
-    Muestra la tendencia: ¿la mortalidad real es mayor o menor a lo estimado?
+    con los pollos realmente recibidos en faena (de la proyección).
+
+    Ajustes respecto a la versión original:
+    - Descuenta pollos fuera de rango (edad/peso) y no asignados (capacidad)
+      del total de pollitos cargados, ya que están vivos pero no entran en faena.
+    - Solo evalúa semanas cuyo rango de faena esté completamente cubierto por
+      los días de la proyección (evita mortalidades ficticias por datos parciales).
     """
     prod_data = storage.load_produccion()
     if not prod_data:
@@ -1546,12 +1551,50 @@ def mortalidad_observada(current_user: TokenData = Depends(get_current_user)):
     semanas_prod = [SemanaProduccion(**s) for s in prod_data]
     tolerancia = 2  # margen en los extremos del rango
 
+    # Rango de fechas cubierto por la proyección
+    fechas_proyeccion = {dia.fecha for dia in proyeccion.dias if dia.total_pollos > 0}
+    if not fechas_proyeccion:
+        return {
+            "puntos": [],
+            "resumen": None,
+            "mensaje": "La proyección no tiene días con pollos asignados.",
+        }
+    proy_fecha_min = min(fechas_proyeccion)
+    proy_fecha_max = max(fechas_proyeccion)
+
+    # Indexar pollos fuera de rango y no asignados por fecha_ingreso
+    # para vincularlos a su semana de producción.
+    pollos_excluidos_por_ingreso: dict[date, int] = {}
+    for lote in (proyeccion.lotes_fuera_rango or []):
+        if lote.fecha_ingreso:
+            pollos_excluidos_por_ingreso[lote.fecha_ingreso] = (
+                pollos_excluidos_por_ingreso.get(lote.fecha_ingreso, 0) + lote.cantidad
+            )
+    for lote in (proyeccion.lotes_no_asignados or []):
+        if lote.fecha_ingreso:
+            pollos_excluidos_por_ingreso[lote.fecha_ingreso] = (
+                pollos_excluidos_por_ingreso.get(lote.fecha_ingreso, 0) + lote.cantidad
+            )
+
     puntos = []
     for sp in semanas_prod:
         # Los pollitos cargados durante TODA la semana (fecha_desde→fecha_hasta)
         # estarán listos para faena entre fecha_desde+42 y fecha_hasta+42.
         faena_rango_ini = sp.fecha_desde + timedelta(days=DIAS_HASTA_FAENA) - timedelta(days=tolerancia)
         faena_rango_fin = sp.fecha_hasta + timedelta(days=DIAS_HASTA_FAENA) + timedelta(days=tolerancia)
+
+        # Verificar cobertura: el rango de faena debe estar completamente
+        # dentro de las fechas de la proyección.
+        if faena_rango_ini < proy_fecha_min or faena_rango_fin > proy_fecha_max:
+            continue
+
+        # Contar días hábiles esperados (lun-vie) en el rango de faena
+        dias_habiles_esperados = 0
+        d = faena_rango_ini
+        while d <= faena_rango_fin:
+            if d.weekday() < 5:  # lun=0 … vie=4
+                dias_habiles_esperados += 1
+            d += timedelta(days=1)
 
         # Buscar todos los días de faena dentro de ese rango
         pollos_recibidos = 0
@@ -1561,11 +1604,23 @@ def mortalidad_observada(current_user: TokenData = Depends(get_current_user)):
                 pollos_recibidos += dia.total_pollos
                 dias_match += 1
 
-        if dias_match == 0 or sp.pollitos_cargados == 0:
+        # Exigir al menos 80% de los días hábiles cubiertos
+        if dias_habiles_esperados == 0 or sp.pollitos_cargados == 0:
+            continue
+        cobertura = dias_match / dias_habiles_esperados
+        if cobertura < 0.8:
             continue
 
-        # Mortalidad observada = 1 - (pollos_recibidos / pollitos_cargados)
-        mortalidad_obs = 1 - (pollos_recibidos / sp.pollitos_cargados)
+        # Sumar pollos excluidos (fuera de rango + no asignados) que pertenecen
+        # a esta semana de producción (fecha_ingreso dentro de fecha_desde..fecha_hasta).
+        pollos_excluidos = 0
+        for fi, cant in pollos_excluidos_por_ingreso.items():
+            if sp.fecha_desde <= fi <= sp.fecha_hasta:
+                pollos_excluidos += cant
+
+        # Mortalidad = 1 - (pollos_recibidos + pollos_excluidos) / pollitos_cargados
+        pollos_contabilizados = pollos_recibidos + pollos_excluidos
+        mortalidad_obs = 1 - (pollos_contabilizados / sp.pollitos_cargados)
         mortalidad_obs = max(0, min(1, mortalidad_obs))  # clamp 0-100%
         mortalidad_pct = round(mortalidad_obs * 100, 2)
 
@@ -1586,15 +1641,20 @@ def mortalidad_observada(current_user: TokenData = Depends(get_current_user)):
             "fecha_faena_estimada": fecha_faena_est.isoformat(),
             "pollitos_cargados": sp.pollitos_cargados,
             "pollos_recibidos": pollos_recibidos,
+            "pollos_excluidos": pollos_excluidos,
             "mortalidad_observada_pct": mortalidad_pct,
             "evaluacion": evaluacion,
+            "cobertura_dias_pct": round(cobertura * 100, 1),
         })
 
     if not puntos:
         return {
             "puntos": [],
             "resumen": None,
-            "mensaje": "No se encontraron coincidencias entre producción y proyección para calcular mortalidad observada.",
+            "mensaje": (
+                "No se encontraron semanas de producción cuyo rango de faena "
+                "esté completamente cubierto por la proyección actual."
+            ),
         }
 
     # Resumen
