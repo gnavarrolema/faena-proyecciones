@@ -91,11 +91,14 @@ body {
 .card {
   background: var(--card-bg);
   border-radius: 12px;
-  box-shadow: var(--shadow);
-  border: 1px solid var(--border);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(226, 232, 240, 0.8);
   overflow: hidden;
   margin-bottom: 1.5rem;
-  transition: box-shadow 0.3s ease;
+  transition: box-shadow 0.2s;
+}
+.card:hover {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08);
 }
 .card:hover {
   box-shadow: var(--shadow-md);
@@ -270,13 +273,13 @@ tbody tr.row-subtotal td {
 }
 
 /* Stats */
-.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 2rem; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
 .stat-card {
-  background: var(--card-bg);
-  border-radius: 12px;
-  padding: 1.25rem 1.5rem;
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow);
+  background: linear-gradient(180deg, var(--card-bg) 0%, #fcfdfd 100%);
+  border-radius: 14px;
+  padding: 1.5rem;
+  border: 1px solid rgba(26, 86, 50, 0.08);
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.06), 0 2px 4px -1px rgba(0,0,0,0.04);
   transition: transform 0.2s, box-shadow 0.2s;
   position: relative;
   overflow: hidden;
@@ -284,16 +287,16 @@ tbody tr.row-subtotal td {
 .stat-card::before {
   content: '';
   position: absolute;
-  top: 0; left: 0; width: 4px; height: 100%;
+  top: 0; left: 0; width: 5px; height: 100%;
   background: var(--primary);
   border-radius: 4px 0 0 4px;
 }
 .stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  transform: translateY(-4px);
+  box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
 }
-.stat-card .stat-label { font-size: 0.8rem; text-transform: uppercase; color: var(--text-light); font-weight: 600; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
-.stat-card .stat-value { font-size: 1.8rem; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
+.stat-card .stat-label { font-size: 0.85rem; text-transform: uppercase; color: var(--text-light); font-weight: 600; letter-spacing: 0.05em; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 6px; }
+.stat-card .stat-value { font-size: 2.2rem; font-weight: 800; color: var(--text); letter-spacing: -0.02em; }
 .stat-card .stat-value.green { color: var(--success); }
 .stat-card .stat-value.orange { color: var(--warning); }
 .stat-card .stat-value.red { color: var(--danger); }
@@ -304,7 +307,7 @@ tbody tr.row-subtotal td {
 .tab {
   padding: 0.75rem 1.25rem;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   font-weight: 500;
   color: var(--text-light);
   border: none;
@@ -318,66 +321,86 @@ tbody tr.row-subtotal td {
 .tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
 
 /* Day columns */
-.proyeccion-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-top: 1rem; }
-.day-column { 
-  border: 1px solid var(--border); 
-  border-radius: 10px; 
-  overflow: hidden; 
-  background: var(--card-bg); 
-  box-shadow: var(--shadow-sm);
+.proyeccion-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 1.5rem; margin-top: 1.5rem; }
+.day-column {
+  border: 1px solid rgba(26, 86, 50, 0.12);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--card-bg);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
   display: flex;
   flex-direction: column;
+  transition: transform 0.2s;
+}
+.day-column:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
 }
 .day-header {
-  padding: 0.75rem 1rem;
-  background: linear-gradient(to right, var(--primary-dark), var(--primary));
+  padding: 1rem 1.25rem;
+  background: var(--primary-dark);
+  border-bottom: 3px solid var(--accent);
   color: white;
-  font-weight: 600;
-  font-size: 0.95rem;
+  font-weight: 700;
+  font-size: 1.05rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 .day-header .day-total {
-  font-size: 0.8rem;
-  background: rgba(255,255,255,0.2);
-  padding: 0.2rem 0.6rem;
+  font-size: 0.85rem;
+  background: rgba(255,255,255,0.25);
+  padding: 0.25rem 0.75rem;
   border-radius: 20px;
   backdrop-filter: blur(4px);
+  font-weight: 600;
 }
-.day-body { padding: 0.75rem; max-height: 500px; overflow-y: auto; flex: 1; }
+.day-body { padding: 1rem; max-height: 600px; overflow-y: auto; flex: 1; background: linear-gradient(180deg, #f8fafc 0%, #ffffff 15%); }
 .day-body::-webkit-scrollbar { width: 6px; }
 .day-body::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
 
 .lote-card {
   background: white;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.75rem;
-  margin-bottom: 0.75rem;
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1rem;
   font-size: 0.85rem;
   transition: all 0.2s;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  position: relative;
 }
-.lote-card:hover { 
-  box-shadow: var(--shadow); 
-  transform: translateY(-2px); 
-  border-color: #cbd5e1;
+.lote-card:hover {
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+  transform: translateY(-2px);
+  border-color: var(--primary-light);
 }
-.lote-card .lote-header { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 0.5rem; color: var(--text); }
-.lote-card .lote-detail { display: flex; justify-content: space-between; color: var(--text-light); margin-bottom: 0.25rem; }
-.lote-card .lote-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; justify-content: flex-end; padding-top: 0.5rem; border-top: 1px solid var(--border); }
+.lote-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; width: 4px; height: 100%;
+  background: transparent;
+  border-radius: 4px 0 0 4px;
+  transition: background 0.2s;
+}
+.lote-card:hover::before {
+  background: var(--primary-light);
+}
+.lote-card .lote-header { display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 0.75rem; color: var(--text); font-size: 0.95rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+.lote-card .lote-detail { display: flex; justify-content: space-between; color: var(--text-light); margin-bottom: 0.4rem; align-items: center;}
+.lote-card .lote-actions { display: flex; gap: 0.6rem; margin-top: 1rem; justify-content: flex-end; padding-top: 0.75rem; border-top: 1px solid var(--border); }
 
 .day-summary {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 0.4rem;
-  padding: 1rem;
-  background: #f8fafc;
+  gap: 0.6rem;
+  padding: 1.25rem 1.5rem;
+  background: linear-gradient(135deg, rgba(26, 86, 50, 0.03), rgba(245, 166, 35, 0.02));
   border-top: 1px solid var(--border);
-  font-size: 0.8rem;
+  border-left: 3px solid var(--primary-light);
+  font-size: 0.85rem;
 }
-.day-summary .label { color: var(--text-light); font-weight: 500; }
+.day-summary .label { color: var(--text-light); font-weight: 600; text-transform: uppercase; font-size: 0.75rem; }
 .day-summary .value { text-align: right; font-weight: 600; color: var(--text); }
 
 /* Badge */
@@ -440,3 +463,6 @@ tbody tr.row-subtotal td {
   background: #f8fafc;
   border-radius: 0 0 12px 12px;
 }
+
+
+
