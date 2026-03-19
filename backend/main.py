@@ -34,6 +34,7 @@ from .calculo import (
     evaluar_elegibilidad_lote,
     calcular_alerta_temprana,
     generar_sugerencias_diferimiento,
+    validar_mortalidad_oferta,
 )
 from .parser_excel import leer_oferta_excel
 from .parser_produccion import (
@@ -375,7 +376,7 @@ async def upload_oferta(file: UploadFile = File(...), sheet_name: Optional[str] 
 
     content = await file.read()
     try:
-        ofertas = leer_oferta_excel(content, sheet_name)
+        ofertas, filas_descartadas = leer_oferta_excel(content, sheet_name)
     except Exception as e:
         raise HTTPException(400, f"Error al leer el archivo: {str(e)}")
 
@@ -391,12 +392,16 @@ async def upload_oferta(file: UploadFile = File(...), sheet_name: Optional[str] 
         resumen[o.granja]["lotes"] += 1
         resumen[o.granja]["pollos"] += o.cantidad
 
-    return {
+    resultado = {
         "total_lotes": len(ofertas),
         "total_pollos": sum(o.cantidad for o in ofertas),
         "granjas": resumen,
         "ofertas": [o.model_dump() for o in ofertas],
     }
+    if filas_descartadas:
+        resultado["filas_descartadas"] = filas_descartadas
+        resultado["total_descartadas"] = len(filas_descartadas)
+    return resultado
 
 
 @app.get("/oferta")
@@ -440,7 +445,7 @@ async def upload_ajuste_martes(
 
     content = await file.read()
     try:
-        ofertas_martes = leer_oferta_excel(content, sheet_name)
+        ofertas_martes, _ = leer_oferta_excel(content, sheet_name)
     except Exception as e:
         raise HTTPException(400, f"Error al leer el archivo: {str(e)}")
 
@@ -2602,6 +2607,7 @@ def get_alerta_temprana(current_user: TokenData = Depends(get_current_user)):
     Analiza todos los lotes de la oferta y proyecta anticipadamente
     cuáles llegarán al rango de peso ideal para faena y cuáles no.
     Permite detectar problemas de peso días antes de la semana de faena.
+    Incluye validación de mortalidad cruzando oferta vs producción.
     """
     params = _get_parametros()
     ofertas = _get_ofertas()
@@ -2609,4 +2615,12 @@ def get_alerta_temprana(current_user: TokenData = Depends(get_current_user)):
     if not ofertas:
         raise HTTPException(404, "No hay ofertas cargadas.")
 
-    return calcular_alerta_temprana(ofertas, params)
+    resultado = calcular_alerta_temprana(ofertas, params)
+
+    # Cruce oferta vs producción: validación de mortalidad por cohorte
+    prod_data = storage.load_produccion()
+    resultado["validacion_mortalidad"] = validar_mortalidad_oferta(
+        ofertas, prod_data or [],
+    )
+
+    return resultado

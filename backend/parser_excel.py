@@ -92,16 +92,17 @@ def _parse_sexo(val) -> str:
 def leer_oferta_excel(
     file_content: bytes,
     sheet_name: Optional[str] = None
-) -> List[LoteOferta]:
+) -> tuple[List[LoteOferta], List[dict]]:
     """
-    Lee un archivo Excel de oferta y devuelve la lista de LoteOferta.
-    
+    Lee un archivo Excel de oferta y devuelve la lista de LoteOferta
+    junto con las filas descartadas (lotes con granja pero sin datos completos).
+
     Args:
         file_content: contenido binario del archivo Excel
         sheet_name: nombre de la pestaña (si None, usa la primera o busca 'OFERTA')
-    
+
     Returns:
-        Lista de LoteOferta parseados
+        Tupla (lotes_parseados, filas_descartadas)
     """
     # Detectar formato: intentar primero con openpyxl (.xlsx)
     # Si falla, intentar con xlrd (.xls)
@@ -122,7 +123,7 @@ def leer_oferta_excel(
         return _leer_oferta_openpyxl(wb, sheet_name)
 
 
-def _leer_oferta_openpyxl(wb, sheet_name: Optional[str]) -> List[LoteOferta]:
+def _leer_oferta_openpyxl(wb, sheet_name: Optional[str]) -> tuple[List[LoteOferta], List[dict]]:
     """Lee oferta desde un workbook de openpyxl (.xlsx)."""
     # Buscar la pestaña adecuada
     if sheet_name and sheet_name in wb.sheetnames:
@@ -140,15 +141,18 @@ def _leer_oferta_openpyxl(wb, sheet_name: Optional[str]) -> List[LoteOferta]:
             ws = wb.active
 
     lotes: List[LoteOferta] = []
+    descartadas: List[dict] = []
 
     for row_idx in range(FILA_INICIO_DATOS, ws.max_row + 1):
         row = [ws.cell(row=row_idx, column=c + 1).value for c in range(14)]
-        lote = _parse_row_to_lote(row)
+        lote, descartada = _parse_row_to_lote(row)
         if lote:
             lotes.append(lote)
+        elif descartada:
+            descartadas.append(descartada)
 
     wb.close()
-    return lotes
+    return lotes, descartadas
 
 
 def _xlrd_cell_value(sheet, row, col):
@@ -168,7 +172,7 @@ def _xlrd_cell_value(sheet, row, col):
     return cell.value
 
 
-def _leer_oferta_xlrd(wb, sheet_name: Optional[str]) -> List[LoteOferta]:
+def _leer_oferta_xlrd(wb, sheet_name: Optional[str]) -> tuple[List[LoteOferta], List[dict]]:
     """Lee oferta desde un workbook de xlrd (.xls)."""
     # Buscar la pestaña adecuada
     if sheet_name and sheet_name in wb.sheet_names():
@@ -185,28 +189,47 @@ def _leer_oferta_xlrd(wb, sheet_name: Optional[str]) -> List[LoteOferta]:
             ws = wb.sheet_by_index(0)
 
     lotes: List[LoteOferta] = []
+    descartadas: List[dict] = []
 
     # xlrd usa índices 0-based; FILA_INICIO_DATOS es 4 (1-indexed) → fila 3 en 0-indexed
     for row_idx in range(FILA_INICIO_DATOS - 1, ws.nrows):
         row = [_xlrd_cell_value(ws, row_idx, c) for c in range(14)]
-        lote = _parse_row_to_lote(row)
+        lote, descartada = _parse_row_to_lote(row)
         if lote:
             lotes.append(lote)
+        elif descartada:
+            descartadas.append(descartada)
 
-    return lotes
+    return lotes, descartadas
 
 
-def _parse_row_to_lote(row: list) -> Optional[LoteOferta]:
-    """Convierte una fila de datos a LoteOferta. Retorna None si la fila es inválida."""
+def _parse_row_to_lote(row: list) -> tuple[Optional[LoteOferta], Optional[dict]]:
+    """
+    Convierte una fila de datos a LoteOferta.
+    Retorna (lote, None) si es válida, (None, None) si es vacía,
+    o (None, info_descartada) si tiene granja pero le faltan datos clave.
+    """
     granja = row[COLUMNAS_OFERTA["granja"]]
     if not granja or str(granja).strip() == "":
-        return None
+        return None, None
 
     fecha_peso = _parse_date(row[COLUMNAS_OFERTA["fecha_peso"]])
     fecha_ingreso = _parse_date(row[COLUMNAS_OFERTA["fecha_ingreso"]])
 
     if not fecha_peso:
-        return None
+        # Tiene granja pero no fecha_peso → fila incompleta, reportar
+        # (ignorar filas de encabezado o sin cantidad)
+        cant = _parse_int(row[COLUMNAS_OFERTA["cantidad"]])
+        if cant <= 0:
+            return None, None
+        return None, {
+            "granja": str(granja).strip(),
+            "galpon": _parse_int(row[COLUMNAS_OFERTA["galpon"]]),
+            "nucleo": _parse_int(row[COLUMNAS_OFERTA["nucleo"]]),
+            "cantidad": cant,
+            "sexo": _parse_sexo(row[COLUMNAS_OFERTA["sexo"]]),
+            "motivo": "Sin fecha de peso ni datos de proyección",
+        }
 
     cantidad_raw = row[COLUMNAS_OFERTA["cantidad"]]
     cantidad = _parse_int(cantidad_raw)
@@ -230,7 +253,7 @@ def _parse_row_to_lote(row: list) -> Optional[LoteOferta]:
         edad_real=_parse_int(row[COLUMNAS_OFERTA["edad_real"]]),
         peso_muestreo_real=_parse_float(row[COLUMNAS_OFERTA["peso_muestreo_real"]]),
         fecha_ingreso=fecha_ingreso or fecha_peso,
-    )
+    ), None
 
 
 def leer_proyeccion_excel(

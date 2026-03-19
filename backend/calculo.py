@@ -1095,9 +1095,11 @@ def calcular_alerta_temprana(
             "lotes": [], "granjas": [],
         }
 
-    # Fecha de referencia: fecha base de la oferta (fecha_peso + dias_proyectados)
+    # Fecha de referencia: hoy, para reflejar la edad real actual de los lotes.
+    # Antes usaba la fecha de la oferta, lo que congelaba las edades al momento
+    # de la carga y no reflejaba el paso del tiempo.
     if fecha_referencia is None:
-        fecha_referencia = ofertas[0].fecha_peso + timedelta(days=ofertas[0].dias_proyectados)
+        fecha_referencia = date.today()
 
     lotes_resultado = []
     alertas_rojas = 0
@@ -1318,6 +1320,11 @@ def calcular_alerta_temprana(
         })
 
     total_lotes = len(lotes_resultado)
+
+    # Metadata de antigüedad: fecha efectiva de la oferta y días desde entonces
+    fecha_oferta = ofertas[0].fecha_peso + timedelta(days=ofertas[0].dias_proyectados)
+    dias_antiguedad = (fecha_referencia - fecha_oferta).days
+
     return {
         "total_lotes": total_lotes,
         "lotes_ok": lotes_ok,
@@ -1328,8 +1335,143 @@ def calcular_alerta_temprana(
         "peso_max_faena": params.peso_max_faena,
         "edad_min_faena": params.edad_min_faena,
         "edad_max_faena": params.edad_max_faena,
+        "fecha_referencia": fecha_referencia.isoformat(),
+        "fecha_oferta": fecha_oferta.isoformat(),
+        "dias_antiguedad": dias_antiguedad,
         "lotes": lotes_resultado,
         "granjas": granjas_resumen,
+    }
+
+
+# ─── Validación de mortalidad: cruce oferta vs producción ─────────────────────
+
+def validar_mortalidad_oferta(
+    ofertas: List[LoteOferta],
+    semanas_produccion: list[dict],
+) -> dict:
+    """
+    Cruza las cantidades de aves de la oferta contra los pollitos cargados
+    en la semana de producción correspondiente (por fecha_ingreso).
+    Detecta inconsistencias de mortalidad por cohorte semanal.
+
+    Args:
+        ofertas: Lista de lotes de la oferta cargada.
+        semanas_produccion: Lista de dicts con fecha_desde, fecha_hasta, pollitos_cargados.
+
+    Returns:
+        dict con cohortes analizadas y alertas.
+    """
+    if not ofertas or not semanas_produccion:
+        return {"cohortes": [], "tiene_produccion": bool(semanas_produccion)}
+
+    # Indexar semanas de producción por rango de fechas
+    semanas = []
+    for s in semanas_produccion:
+        desde = s["fecha_desde"]
+        hasta = s["fecha_hasta"]
+        if isinstance(desde, str):
+            desde = date.fromisoformat(desde)
+        if isinstance(hasta, str):
+            hasta = date.fromisoformat(hasta)
+        semanas.append({
+            "fecha_desde": desde,
+            "fecha_hasta": hasta,
+            "pollitos_cargados": s["pollitos_cargados"],
+        })
+
+    def buscar_semana(fecha_ingreso: date):
+        """Busca la semana de producción que contiene la fecha de ingreso."""
+        for sem in semanas:
+            if sem["fecha_desde"] <= fecha_ingreso <= sem["fecha_hasta"]:
+                return sem
+        # Tolerancia: buscar ±3 días si no hay match exacto
+        for sem in semanas:
+            if abs((fecha_ingreso - sem["fecha_desde"]).days) <= 3:
+                return sem
+            if abs((fecha_ingreso - sem["fecha_hasta"]).days) <= 3:
+                return sem
+        return None
+
+    # Agrupar lotes por semana de producción (cohorte)
+    cohortes_map: dict[str, dict] = {}
+
+    for oferta in ofertas:
+        if not oferta.fecha_ingreso:
+            continue
+
+        sem = buscar_semana(oferta.fecha_ingreso)
+        if sem is None:
+            continue
+
+        key = sem["fecha_desde"].isoformat()
+        if key not in cohortes_map:
+            cohortes_map[key] = {
+                "fecha_desde": sem["fecha_desde"].isoformat(),
+                "fecha_hasta": sem["fecha_hasta"].isoformat(),
+                "pollitos_cargados": sem["pollitos_cargados"],
+                "aves_en_oferta": 0,
+                "lotes": 0,
+                "granjas": set(),
+            }
+        c = cohortes_map[key]
+        c["aves_en_oferta"] += oferta.cantidad
+        c["lotes"] += 1
+        c["granjas"].add(oferta.granja)
+
+    # Calcular mortalidad implícita por cohorte
+    cohortes = []
+    for key in sorted(cohortes_map.keys()):
+        c = cohortes_map[key]
+        cargados = c["pollitos_cargados"]
+        en_oferta = c["aves_en_oferta"]
+
+        # La producción es agregada (todas las granjas). La oferta puede no
+        # incluir todos los lotes de esa semana. Calculamos cobertura para
+        # distinguir mortalidad real de cobertura parcial.
+        if cargados > 0:
+            cobertura_pct = round(en_oferta / cargados * 100, 1)
+            mortalidad_implicita = round((1 - en_oferta / cargados) * 100, 2)
+        else:
+            cobertura_pct = 0.0
+            mortalidad_implicita = None
+
+        # Clasificar según cobertura y mortalidad
+        if mortalidad_implicita is None:
+            nivel = "sin_dato"
+        elif cobertura_pct > 105:
+            # Más aves que las cargadas → error de datos o matcheo incorrecto
+            nivel = "inconsistente"
+        elif cobertura_pct < 50:
+            # Menos del 50% de cobertura → la oferta no incluye todas las
+            # granjas de esa semana, no se puede inferir mortalidad
+            nivel = "cobertura_parcial"
+        elif mortalidad_implicita <= 4.5:
+            nivel = "excelente"
+        elif mortalidad_implicita <= 6.5:
+            nivel = "normal"
+        elif mortalidad_implicita <= 10.0:
+            nivel = "elevada"
+        else:
+            nivel = "critica"
+
+        cohortes.append({
+            "fecha_desde": c["fecha_desde"],
+            "fecha_hasta": c["fecha_hasta"],
+            "pollitos_cargados": cargados,
+            "aves_en_oferta": en_oferta,
+            "diferencia": cargados - en_oferta,
+            "cobertura_pct": cobertura_pct,
+            "mortalidad_pct": mortalidad_implicita,
+            "nivel": nivel,
+            "lotes": c["lotes"],
+            "granjas": sorted(c["granjas"]),
+        })
+
+    return {
+        "tiene_produccion": True,
+        "cohortes": cohortes,
+        "total_cohortes": len(cohortes),
+        "alertas": sum(1 for c in cohortes if c["nivel"] in ("elevada", "critica", "inconsistente")),
     }
 
 

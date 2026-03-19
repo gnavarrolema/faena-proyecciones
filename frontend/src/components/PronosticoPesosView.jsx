@@ -348,6 +348,29 @@ export default function PronosticoPesosView({ proyeccion }) {
             </div>
           ) : (
             <>
+              {/* Advertencia de datos antiguos */}
+              {alertaData.dias_antiguedad > 2 && (
+                <div style={{
+                  padding: '0.85rem 1.2rem',
+                  background: 'rgba(59, 130, 246, 0.08)',
+                  border: '1px solid #3b82f6',
+                  borderRadius: 10,
+                  display: 'flex', alignItems: 'flex-start', gap: 10,
+                  fontSize: '0.85rem', color: '#3b82f6', fontWeight: 500,
+                  marginBottom: '0.75rem',
+                }}>
+                  <Clock size={20} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 2 }}>Datos con {alertaData.dias_antiguedad} días de antigüedad</div>
+                    <div style={{ fontWeight: 400 }}>
+                      Oferta del {new Date(alertaData.fecha_oferta + 'T12:00:00').toLocaleDateString('es-AR')}.
+                      Las edades y proyecciones se calculan a la fecha de hoy ({new Date(alertaData.fecha_referencia + 'T12:00:00').toLocaleDateString('es-AR')}).
+                      Se recomienda cargar una oferta actualizada para mayor precisión.
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Alerta global temprana */}
               {alertaData.alertas_rojas > 0 && (
                 <div style={{
@@ -663,6 +686,116 @@ export default function PronosticoPesosView({ proyeccion }) {
                   </div>
                 </div>
               </div>
+
+              {/* Validación de mortalidad: cruce oferta vs producción */}
+              {alertaData.validacion_mortalidad?.tiene_produccion && alertaData.validacion_mortalidad.cohortes.length > 0 && (
+                <div className="card" style={{ borderLeft: '4px solid #8b5cf6', marginTop: '0.75rem' }}>
+                  <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h2><Activity size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Validación de Mortalidad por Cohorte</h2>
+                    {alertaData.validacion_mortalidad.alertas > 0 && (
+                      <span style={{
+                        padding: '0.2rem 0.6rem', borderRadius: 12,
+                        background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444',
+                        fontSize: '0.75rem', fontWeight: 600,
+                      }}>
+                        {alertaData.validacion_mortalidad.alertas} alerta{alertaData.validacion_mortalidad.alertas !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+                  <div className="card-body">
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-light)', marginBottom: '0.75rem' }}>
+                      Cruza las aves reportadas en la oferta contra los pollitos cargados en la semana de ingreso (datos de producción).
+                    </p>
+                    <div className="table-container">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Semana Ingreso</th>
+                            <th className="text-right">Pollitos Cargados</th>
+                            <th className="text-right">Aves en Oferta</th>
+                            <th className="text-right">Cobertura</th>
+                            <th className="text-right">Mortalidad Impl.</th>
+                            <th className="text-center">Estado</th>
+                            <th>Granjas</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {alertaData.validacion_mortalidad.cohortes.map((c, idx) => {
+                            const nivelColor = c.nivel === 'excelente' ? 'var(--success, #22c55e)'
+                              : c.nivel === 'normal' ? '#3b82f6'
+                              : c.nivel === 'elevada' ? 'var(--warning, #fb923c)'
+                              : c.nivel === 'critica' ? '#ef4444'
+                              : c.nivel === 'inconsistente' ? '#ef4444'
+                              : c.nivel === 'cobertura_parcial' ? '#a78bfa'
+                              : 'var(--text-light)'
+                            const nivelBg = c.nivel === 'elevada' ? 'rgba(251, 146, 60, 0.06)'
+                              : c.nivel === 'critica' ? 'rgba(239, 68, 68, 0.06)'
+                              : c.nivel === 'inconsistente' ? 'rgba(239, 68, 68, 0.06)'
+                              : 'transparent'
+                            const nivelLabel = c.nivel === 'excelente' ? 'Excelente'
+                              : c.nivel === 'normal' ? 'Normal'
+                              : c.nivel === 'elevada' ? 'Elevada'
+                              : c.nivel === 'critica' ? 'Critica'
+                              : c.nivel === 'inconsistente' ? 'Inconsistente'
+                              : c.nivel === 'cobertura_parcial' ? 'Parcial'
+                              : 'Sin dato'
+                            const desde = new Date(c.fecha_desde + 'T12:00:00')
+                            const hasta = new Date(c.fecha_hasta + 'T12:00:00')
+                            return (
+                              <tr key={idx} style={{ background: nivelBg }}>
+                                <td style={{ whiteSpace: 'nowrap', fontSize: '0.85rem' }}>
+                                  {desde.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })} - {hasta.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}
+                                </td>
+                                <td className="text-right">{formatNumber(c.pollitos_cargados)}</td>
+                                <td className="text-right">{formatNumber(c.aves_en_oferta)}</td>
+                                <td className="text-right" style={{
+                                  color: c.cobertura_pct > 105 ? '#ef4444' : c.cobertura_pct < 50 ? '#a78bfa' : 'var(--text)',
+                                }}>
+                                  {c.cobertura_pct?.toFixed(1)}%
+                                </td>
+                                <td className="text-right" style={{ fontWeight: 600, color: nivelColor }}>
+                                  {c.nivel === 'cobertura_parcial' ? '-' : c.mortalidad_pct != null ? `${c.mortalidad_pct.toFixed(1)}%` : '-'}
+                                </td>
+                                <td className="text-center">
+                                  <span style={{
+                                    padding: '0.15rem 0.5rem', borderRadius: 10,
+                                    fontSize: '0.75rem', fontWeight: 600,
+                                    color: nivelColor,
+                                    background: c.nivel === 'excelente' ? 'rgba(34, 197, 94, 0.1)'
+                                      : c.nivel === 'normal' ? 'rgba(59, 130, 246, 0.1)'
+                                      : c.nivel === 'elevada' ? 'rgba(251, 146, 60, 0.1)'
+                                      : c.nivel === 'critica' || c.nivel === 'inconsistente' ? 'rgba(239, 68, 68, 0.1)'
+                                      : c.nivel === 'cobertura_parcial' ? 'rgba(167, 139, 250, 0.1)'
+                                      : 'rgba(0,0,0,0.05)',
+                                  }}>
+                                    {nivelLabel}
+                                  </span>
+                                </td>
+                                <td style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>
+                                  {c.granjas?.join(', ')}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {alertaData.validacion_mortalidad && !alertaData.validacion_mortalidad.tiene_produccion && (
+                <div style={{
+                  padding: '0.75rem 1rem',
+                  background: 'rgba(139, 92, 246, 0.06)',
+                  border: '1px solid rgba(139, 92, 246, 0.2)',
+                  borderRadius: 8, marginTop: '0.75rem',
+                  fontSize: '0.85rem', color: '#7c3aed',
+                }}>
+                  <Activity size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                  Para validar mortalidad por cohorte, cargue el archivo de producción semanal en la pestaña correspondiente.
+                </div>
+              )}
             </>
           )}
         </motion.div>

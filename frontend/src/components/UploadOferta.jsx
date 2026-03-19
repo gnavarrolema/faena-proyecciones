@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { UploadCloud, CheckCircle2, FileSpreadsheet, AlertCircle, Trash2, FolderUp, TriangleAlert } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { uploadOferta } from '../services/api'
 
 function formatNumber(n) {
@@ -32,6 +33,14 @@ export default function UploadOferta({ onUpload, hayDatosExistentes, deficitGuar
     setError(null)
     try {
       const data = await uploadOferta(file)
+      if (data.filas_descartadas?.length > 0) {
+        const granjas = [...new Set(data.filas_descartadas.map(f => f.granja))].join(', ')
+        const aves = data.filas_descartadas.reduce((s, f) => s + (f.cantidad || 0), 0)
+        toast(
+          `${data.total_descartadas} lote${data.total_descartadas !== 1 ? 's' : ''} sin fecha de peso fueron descartados (${granjas}, ${formatNumber(aves)} aves). Estos lotes no tienen datos suficientes para proyectar.`,
+          { icon: '⚠️', duration: 8000, style: { background: '#fffbeb', border: '1px solid #f59e0b', color: '#92400e', fontSize: '0.85rem' } }
+        )
+      }
       onUpload(data)
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al procesar el archivo')
