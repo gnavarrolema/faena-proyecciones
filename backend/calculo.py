@@ -1333,6 +1333,344 @@ def calcular_alerta_temprana(
     }
 
 
+# ─── Sugerencias inteligentes de diferimiento ──────────────────────────────────
+
+def generar_sugerencias_diferimiento(
+    semana: SemanaFaena,
+    ofertas: List[LoteOferta],
+    params: Optional[Parametros] = None,
+    feriados: Optional[dict] = None,
+) -> dict:
+    """
+    Analiza la proyección actual y genera sugerencias de lotes candidatos
+    a diferir a Semana 2, priorizadas por criterio.
+
+    Criterios evaluados (en orden de prioridad):
+    1. Sobrecarga de día: lotes en días que superan objetivo_max con más
+       flexibilidad de días elegibles (pueden ir a otros días o a S2).
+    2. Mejor calibre en S2: lotes cerca del peso mínimo que pesarían más
+       en S2 (7 días extra de ganancia).
+    3. Feriado cercano: días adyacentes a feriados que quedan sobrecargados.
+    4. Edad temprana: lotes en edad mínima que estarían más cerca de la
+       edad ideal si se faenaran en S2.
+
+    Returns:
+        dict con sugerencias priorizadas y resumen.
+    """
+    if params is None:
+        params = Parametros()
+
+    if not semana.dias:
+        return {"total_sugerencias": 0, "sugerencias": []}
+
+    sugerencias = []
+
+    # Indexar ofertas por (granja, galpon, nucleo, sexo, fecha_ingreso)
+    ofertas_index: dict[tuple, LoteOferta] = {}
+    for o in ofertas:
+        key = (o.granja, o.galpon, o.nucleo, o.sexo,
+               o.fecha_ingreso.isoformat() if o.fecha_ingreso else "")
+        ofertas_index[key] = o
+
+    # Fecha inicio hipotética de S2
+    fecha_inicio_s2 = semana.fecha_inicio + timedelta(days=7)
+
+    # Pre-calcular elegibilidad de cada lote para cada día (para medir flexibilidad)
+    lote_dias_elegibles: dict[str, int] = {}  # "diaIdx-loteIdx" → cantidad de días elegibles
+    for dia_idx, dia in enumerate(semana.dias):
+        for lote_idx, lote in enumerate(dia.lotes):
+            key_oferta = (lote.granja, lote.galpon, lote.nucleo, lote.sexo,
+                          lote.fecha_ingreso_original.isoformat() if lote.fecha_ingreso_original else "")
+            oferta = ofertas_index.get(key_oferta)
+            if not oferta:
+                continue
+            n_elegibles = 0
+            for d in semana.dias:
+                result = evaluar_elegibilidad_lote(oferta, d.fecha, params)
+                if result:
+                    n_elegibles += 1
+            lote_dias_elegibles[f"{dia_idx}-{lote_idx}"] = n_elegibles
+
+    # IDs ya sugeridos (evitar duplicados entre criterios)
+    sugeridos_set: set[str] = set()
+
+    def _lote_id(dia_idx: int, lote_idx: int, lote: LoteProyectado) -> str:
+        return f"{dia_idx}-{lote_idx}-{lote.granja}-{lote.galpon}-{lote.nucleo}"
+
+    def _peso_en_s2(lote: LoteProyectado) -> Optional[float]:
+        """Calcula peso proyectado si se faenara al inicio de S2 (lunes S2)."""
+        key_oferta = (lote.granja, lote.galpon, lote.nucleo, lote.sexo,
+                      lote.fecha_ingreso_original.isoformat() if lote.fecha_ingreso_original else "")
+        oferta = ofertas_index.get(key_oferta)
+        if not oferta:
+            return None
+        # Evaluar para el miércoles de S2 (día típico medio)
+        fecha_media_s2 = fecha_inicio_s2 + timedelta(days=2)
+        result = evaluar_elegibilidad_lote(oferta, fecha_media_s2, params)
+        if result:
+            return result[0]  # peso_proy
+        return None
+
+    def _edad_en_s2(lote: LoteProyectado) -> Optional[int]:
+        """Calcula edad si se faenara al inicio de S2."""
+        key_oferta = (lote.granja, lote.galpon, lote.nucleo, lote.sexo,
+                      lote.fecha_ingreso_original.isoformat() if lote.fecha_ingreso_original else "")
+        oferta = ofertas_index.get(key_oferta)
+        if not oferta:
+            return None
+        fecha_media_s2 = fecha_inicio_s2 + timedelta(days=2)
+        return calcular_edad_fin_retiro_v2(
+            fecha_media_s2, oferta.fecha_peso, oferta.edad_proyectada,
+            dias_proyectados=oferta.dias_proyectados,
+        )
+
+    DIAS_SEMANA_NOMBRES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+
+    def _dia_nombre(dia_idx: int) -> str:
+        if dia_idx < len(semana.dias):
+            wd = semana.dias[dia_idx].fecha.weekday()
+            return DIAS_SEMANA_NOMBRES[wd] if wd < len(DIAS_SEMANA_NOMBRES) else str(dia_idx)
+        return str(dia_idx)
+
+    # ── Criterio 1: Sobrecarga de día ───────────────────────────────────────
+    for dia_idx, dia in enumerate(semana.dias):
+        es_sabado = dia.fecha.weekday() == 5
+        objetivo = params.limite_sabado if es_sabado else params.pollos_diarios_objetivo_max
+        exceso = dia.total_pollos - objetivo
+        if exceso <= 0:
+            continue
+
+        # Buscar lotes con más flexibilidad (más días elegibles) para mover
+        candidatos = []
+        for lote_idx, lote in enumerate(dia.lotes):
+            if lote.es_compra_terceros:
+                continue
+            lid = _lote_id(dia_idx, lote_idx, lote)
+            if lid in sugeridos_set:
+                continue
+            n_eleg = lote_dias_elegibles.get(f"{dia_idx}-{lote_idx}", 0)
+            # Solo sugerir lotes con flexibilidad (>1 día elegible)
+            if n_eleg > 1:
+                candidatos.append((lote_idx, lote, n_eleg))
+
+        # Ordenar: más flexibles primero, luego los más pequeños (menor impacto)
+        candidatos.sort(key=lambda x: (-x[2], x[1].cantidad))
+
+        # Sugerir los necesarios para bajar del objetivo
+        pollos_a_mover = exceso
+        for lote_idx, lote, n_eleg in candidatos:
+            if pollos_a_mover <= 0:
+                break
+            lid = _lote_id(dia_idx, lote_idx, lote)
+            peso_s2 = _peso_en_s2(lote)
+            sugerencias.append({
+                "dia_index": dia_idx,
+                "lote_index": lote_idx,
+                "granja": lote.granja,
+                "galpon": lote.galpon,
+                "nucleo": lote.nucleo,
+                "cantidad": lote.cantidad,
+                "sexo": lote.sexo,
+                "criterio": "sobrecarga",
+                "prioridad": 1,
+                "dia_nombre": _dia_nombre(dia_idx),
+                "motivo": (
+                    f"{_dia_nombre(dia_idx)} tiene {dia.total_pollos:,} pollos "
+                    f"(excede objetivo de {objetivo:,} en {exceso:,}). "
+                    f"Este lote tiene {n_eleg} días elegibles → flexible para diferir."
+                ),
+                "impacto": {
+                    "pollos_removidos": lote.cantidad,
+                    "dia_post_diferir": dia.total_pollos - lote.cantidad,
+                    "peso_actual": round(lote.peso_vivo_retiro, 3),
+                    "peso_estimado_s2": round(peso_s2, 3) if peso_s2 else None,
+                },
+            })
+            sugeridos_set.add(lid)
+            pollos_a_mover -= lote.cantidad
+
+    # ── Criterio 2: Mejor calibre en S2 ────────────────────────────────────
+    MARGEN_PESO_MINIMO = 0.08  # kg - lotes a menos de 80g del mínimo
+    for dia_idx, dia in enumerate(semana.dias):
+        for lote_idx, lote in enumerate(dia.lotes):
+            if lote.es_compra_terceros:
+                continue
+            lid = _lote_id(dia_idx, lote_idx, lote)
+            if lid in sugeridos_set:
+                continue
+            # Lotes cerca del peso mínimo
+            margen = lote.peso_vivo_retiro - params.peso_min_faena
+            if margen > MARGEN_PESO_MINIMO or margen < 0:
+                continue
+            peso_s2 = _peso_en_s2(lote)
+            if peso_s2 is None:
+                continue
+            mejora = peso_s2 - lote.peso_vivo_retiro
+            # Solo sugerir si mejora significativamente (>50g)
+            if mejora < 0.05:
+                continue
+            # Verificar que en S2 esté dentro del rango
+            if peso_s2 > params.peso_max_faena:
+                continue
+            sugerencias.append({
+                "dia_index": dia_idx,
+                "lote_index": lote_idx,
+                "granja": lote.granja,
+                "galpon": lote.galpon,
+                "nucleo": lote.nucleo,
+                "cantidad": lote.cantidad,
+                "sexo": lote.sexo,
+                "criterio": "mejor_calibre",
+                "prioridad": 2,
+                "dia_nombre": _dia_nombre(dia_idx),
+                "motivo": (
+                    f"Peso actual {lote.peso_vivo_retiro:.3f} kg "
+                    f"(solo {margen*1000:.0f}g sobre el mínimo de {params.peso_min_faena:.2f}). "
+                    f"En S2 pesaría ~{peso_s2:.3f} kg (+{mejora*1000:.0f}g) → mejor calibre."
+                ),
+                "impacto": {
+                    "pollos_removidos": lote.cantidad,
+                    "dia_post_diferir": dia.total_pollos - lote.cantidad,
+                    "peso_actual": round(lote.peso_vivo_retiro, 3),
+                    "peso_estimado_s2": round(peso_s2, 3),
+                    "mejora_peso_g": round(mejora * 1000),
+                },
+            })
+            sugeridos_set.add(lid)
+
+    # ── Criterio 3: Feriado cercano ─────────────────────────────────────────
+    if feriados:
+        for dia_idx, dia in enumerate(semana.dias):
+            # Ver si este día está adyacente a un feriado
+            fecha = dia.fecha
+            adyacente_feriado = False
+            feriado_nombre = ""
+            for f_fecha, f_nombre in feriados.items():
+                diff = abs((fecha - f_fecha).days)
+                if diff <= 1 and f_fecha != fecha:
+                    adyacente_feriado = True
+                    feriado_nombre = f_nombre
+                    break
+
+            if not adyacente_feriado:
+                continue
+
+            es_sabado = dia.fecha.weekday() == 5
+            objetivo = params.limite_sabado if es_sabado else params.pollos_diarios_objetivo_max
+            # Solo sugerir si el día está al menos al 90% del objetivo
+            if dia.total_pollos < objetivo * 0.9:
+                continue
+
+            for lote_idx, lote in enumerate(dia.lotes):
+                if lote.es_compra_terceros:
+                    continue
+                lid = _lote_id(dia_idx, lote_idx, lote)
+                if lid in sugeridos_set:
+                    continue
+                n_eleg = lote_dias_elegibles.get(f"{dia_idx}-{lote_idx}", 0)
+                if n_eleg <= 1:
+                    continue
+                peso_s2 = _peso_en_s2(lote)
+                sugerencias.append({
+                    "dia_index": dia_idx,
+                    "lote_index": lote_idx,
+                    "granja": lote.granja,
+                    "galpon": lote.galpon,
+                    "nucleo": lote.nucleo,
+                    "cantidad": lote.cantidad,
+                    "sexo": lote.sexo,
+                    "criterio": "feriado",
+                    "prioridad": 3,
+                    "dia_nombre": _dia_nombre(dia_idx),
+                    "motivo": (
+                        f"{_dia_nombre(dia_idx)} adyacente a feriado ({feriado_nombre}). "
+                        f"Día con {dia.total_pollos:,} pollos ({dia.total_pollos*100//objetivo}% del objetivo). "
+                        f"Diferir alivia carga del día."
+                    ),
+                    "impacto": {
+                        "pollos_removidos": lote.cantidad,
+                        "dia_post_diferir": dia.total_pollos - lote.cantidad,
+                        "peso_actual": round(lote.peso_vivo_retiro, 3),
+                        "peso_estimado_s2": round(peso_s2, 3) if peso_s2 else None,
+                    },
+                })
+                sugeridos_set.add(lid)
+                break  # Solo 1 sugerencia por día feriado
+
+    # ── Criterio 4: Edad temprana ───────────────────────────────────────────
+    for dia_idx, dia in enumerate(semana.dias):
+        for lote_idx, lote in enumerate(dia.lotes):
+            if lote.es_compra_terceros:
+                continue
+            lid = _lote_id(dia_idx, lote_idx, lote)
+            if lid in sugeridos_set:
+                continue
+            # Solo lotes en edad mínima de faena
+            if lote.edad_fin_retiro > params.edad_min_faena:
+                continue
+            # Calcular edad ideal según sexo
+            if lote.sexo.upper() == "M":
+                edad_ideal = params.edad_ideal_macho
+            elif lote.sexo.upper() == "H":
+                edad_ideal = params.edad_ideal_hembra
+            else:
+                edad_ideal = params.edad_ideal_sin_sexar
+            dif_actual = abs(lote.edad_fin_retiro - edad_ideal)
+            edad_s2 = _edad_en_s2(lote)
+            if edad_s2 is None or edad_s2 > params.edad_max_faena:
+                continue
+            dif_s2 = abs(edad_s2 - edad_ideal)
+            # Solo sugerir si S2 mejora la diferencia a la edad ideal
+            if dif_s2 >= dif_actual:
+                continue
+            peso_s2 = _peso_en_s2(lote)
+            if peso_s2 is not None and peso_s2 > params.peso_max_faena:
+                continue
+            sugerencias.append({
+                "dia_index": dia_idx,
+                "lote_index": lote_idx,
+                "granja": lote.granja,
+                "galpon": lote.galpon,
+                "nucleo": lote.nucleo,
+                "cantidad": lote.cantidad,
+                "sexo": lote.sexo,
+                "criterio": "edad_temprana",
+                "prioridad": 4,
+                "dia_nombre": _dia_nombre(dia_idx),
+                "motivo": (
+                    f"Edad actual {lote.edad_fin_retiro}d (mínima de faena). "
+                    f"Ideal para {lote.sexo}: {edad_ideal}d. "
+                    f"En S2 tendría ~{edad_s2}d → más cerca del ideal."
+                ),
+                "impacto": {
+                    "pollos_removidos": lote.cantidad,
+                    "dia_post_diferir": dia.total_pollos - lote.cantidad,
+                    "peso_actual": round(lote.peso_vivo_retiro, 3),
+                    "peso_estimado_s2": round(peso_s2, 3) if peso_s2 else None,
+                    "edad_actual": lote.edad_fin_retiro,
+                    "edad_estimada_s2": edad_s2,
+                    "edad_ideal": edad_ideal,
+                },
+            })
+            sugeridos_set.add(lid)
+
+    # Ordenar por prioridad
+    sugerencias.sort(key=lambda s: (s["prioridad"], -s["cantidad"]))
+
+    # Contadores por criterio
+    por_criterio = {}
+    for s in sugerencias:
+        c = s["criterio"]
+        por_criterio[c] = por_criterio.get(c, 0) + 1
+
+    return {
+        "total_sugerencias": len(sugerencias),
+        "sugerencias": sugerencias,
+        "por_criterio": por_criterio,
+        "total_pollos_sugeridos": sum(s["cantidad"] for s in sugerencias),
+    }
+
+
 # ─── Ajuste con oferta del martes ──────────────────────────────────────────────
 
 def aplicar_ajuste_martes(

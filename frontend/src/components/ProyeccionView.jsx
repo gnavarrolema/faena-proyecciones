@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2, Factory, ArrowRight, Undo2, Clock } from 'lucide-react'
+import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2, Factory, ArrowRight, Undo2, Clock, Lightbulb, Check, Eye, EyeOff } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia, agregarLote, getAnalisisTerceros, cargarDeficit, getParametros, diferirLote, restaurarLoteSemana1, getSemana2, clearLotesDiferidos } from '../services/api'
+import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia, agregarLote, getAnalisisTerceros, cargarDeficit, getParametros, diferirLote, restaurarLoteSemana1, getSemana2, clearLotesDiferidos, getSugerenciasDiferimiento } from '../services/api'
 import { exportProyeccionPDF } from '../utils/pdfExport'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
@@ -96,6 +96,10 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
   const [semana2Loading, setSemana2Loading] = useState(false)
   const [semana2Open, setSemana2Open] = useState(false)
   const [diferirLoading, setDiferirLoading] = useState(null) // 'diaIdx-loteIdx'
+  const [sugerencias, setSugerencias] = useState(null)
+  const [sugerenciasOpen, setSugerenciasOpen] = useState(false)
+  const [sugerenciasLoading, setSugerenciasLoading] = useState(false)
+  const [sugerenciasIgnoradas, setSugerenciasIgnoradas] = useState(new Set())
   const ajusteInputRef = React.useRef(null)
 
   // Cargar semana 2 cuando cambia la proyección
@@ -147,6 +151,71 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Error al limpiar diferidos')
     }
+  }
+
+  // ─── Sugerencias de diferimiento ───────────────────────────────────────────
+  const cargarSugerencias = async () => {
+    setSugerenciasLoading(true)
+    try {
+      const data = await getSugerenciasDiferimiento()
+      setSugerencias(data)
+      setSugerenciasIgnoradas(new Set())
+    } catch {
+      setSugerencias(null)
+    } finally {
+      setSugerenciasLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (proyeccion?.dias?.length) cargarSugerencias()
+  }, [proyeccion?.total_pollos_semana])
+
+  const handleAceptarSugerencia = async (sug) => {
+    setDiferirLoading(`${sug.dia_index}-${sug.lote_index}`)
+    try {
+      const data = await diferirLote(sug.dia_index, sug.lote_index, `Sugerencia: ${sug.criterio}`)
+      setProyeccion(data.proyeccion)
+      toast.success(`Lote ${sug.granja} G${sug.galpon} diferido a S2`)
+    } catch (err) {
+      toast.error('Error al diferir: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setDiferirLoading(null)
+    }
+  }
+
+  const handleAceptarTodas = async () => {
+    if (!sugerencias?.sugerencias?.length) return
+    const activas = sugerencias.sugerencias.filter((_, i) => !sugerenciasIgnoradas.has(i))
+    if (!activas.length) return
+    if (!window.confirm(`¿Diferir ${activas.length} lote${activas.length > 1 ? 's' : ''} sugeridos a Semana 2?`)) return
+
+    // Diferir de atrás para adelante para no invalidar índices
+    const ordenadas = [...activas].sort((a, b) => {
+      if (b.dia_index !== a.dia_index) return b.dia_index - a.dia_index
+      return b.lote_index - a.lote_index
+    })
+
+    let ultima = null
+    for (const sug of ordenadas) {
+      try {
+        ultima = await diferirLote(sug.dia_index, sug.lote_index, `Sugerencia: ${sug.criterio}`)
+      } catch {
+        // Si falla uno (por índices ya cambiados), seguir con el resto
+      }
+    }
+    if (ultima) {
+      setProyeccion(ultima.proyeccion)
+      toast.success(`${ordenadas.length} lotes diferidos a S2`)
+    }
+  }
+
+  const handleIgnorarSugerencia = (idx) => {
+    setSugerenciasIgnoradas(prev => {
+      const next = new Set(prev)
+      next.add(idx)
+      return next
+    })
   }
 
   // Cargar parámetros y análisis de déficit al montar o cuando cambia la proyección
@@ -987,6 +1056,207 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
           </div>
         </motion.div>
       )}
+
+      {/* ═══ Sugerencias inteligentes de diferimiento ═══ */}
+      {sugerencias && sugerencias.total_sugerencias > 0 && (() => {
+        const activas = sugerencias.sugerencias.filter((_, i) => !sugerenciasIgnoradas.has(i))
+        const CRITERIO_LABELS = {
+          sobrecarga: { label: 'Sobrecarga', color: '#ef4444', icon: '⚠️' },
+          mejor_calibre: { label: 'Mejor calibre', color: '#f59e0b', icon: '⚖️' },
+          feriado: { label: 'Feriado', color: '#6366f1', icon: '📅' },
+          edad_temprana: { label: 'Edad temprana', color: '#0ea5e9', icon: '🐣' },
+        }
+        return (
+          <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid #f59e0b', marginBottom: '0.5rem' }}>
+            <div
+              className="card-header"
+              style={{ cursor: 'pointer', userSelect: 'none', background: 'rgba(245, 158, 11, 0.04)' }}
+              onClick={() => setSugerenciasOpen(!sugerenciasOpen)}
+            >
+              <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Lightbulb size={18} color="#f59e0b" />
+                Sugerencias de diferimiento
+                <span style={{
+                  padding: '0.15rem 0.5rem',
+                  background: 'rgba(245, 158, 11, 0.12)',
+                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                  borderRadius: 12,
+                  fontSize: '0.72rem',
+                  color: '#d97706',
+                  fontWeight: 600,
+                }}>
+                  {activas.length} sugerencia{activas.length !== 1 ? 's' : ''}
+                </span>
+                {sugerencias.total_pollos_sugeridos > 0 && (
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-light)', fontWeight: 400 }}>
+                    ({formatNumber(sugerencias.total_pollos_sugeridos)} pollos)
+                  </span>
+                )}
+              </h2>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
+                {sugerenciasOpen ? '▲ Cerrar' : '▼ Abrir'}
+              </span>
+            </div>
+            <AnimatePresence>
+              {sugerenciasOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  style={{ overflow: 'hidden' }}
+                >
+                  <div className="card-body">
+                    {/* Info banner */}
+                    <div style={{
+                      padding: '0.6rem 0.9rem',
+                      background: 'rgba(245, 158, 11, 0.06)',
+                      border: '1px solid rgba(245, 158, 11, 0.2)',
+                      borderRadius: 8,
+                      marginBottom: '0.75rem',
+                      fontSize: '0.82rem',
+                      color: '#92400e',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      flexWrap: 'wrap',
+                      gap: 8,
+                    }}>
+                      <span>
+                        El sistema sugiere diferir estos lotes a Semana 2 para optimizar la proyección.
+                        <strong> Usted decide</strong> cuáles aceptar.
+                      </span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {activas.length > 1 && (
+                          <button
+                            className="btn btn-sm"
+                            style={{ background: '#d97706', color: 'white', fontSize: '0.78rem' }}
+                            onClick={handleAceptarTodas}
+                          >
+                            <Check size={12} /> Aceptar todas ({activas.length})
+                          </button>
+                        )}
+                        <button
+                          className="btn btn-sm btn-outline"
+                          style={{ borderColor: '#d97706', color: '#d97706', fontSize: '0.78rem' }}
+                          onClick={cargarSugerencias}
+                          disabled={sugerenciasLoading}
+                        >
+                          <RefreshCw size={12} /> Actualizar
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Badges por criterio */}
+                    {sugerencias.por_criterio && Object.keys(sugerencias.por_criterio).length > 0 && (
+                      <div style={{ display: 'flex', gap: 6, marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+                        {Object.entries(sugerencias.por_criterio).map(([criterio, count]) => {
+                          const info = CRITERIO_LABELS[criterio] || { label: criterio, color: '#6b7280', icon: '📌' }
+                          return (
+                            <span key={criterio} style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                              padding: '0.2rem 0.6rem',
+                              background: `${info.color}10`,
+                              border: `1px solid ${info.color}30`,
+                              borderRadius: 16,
+                              fontSize: '0.75rem',
+                              color: info.color,
+                              fontWeight: 600,
+                            }}>
+                              {info.icon} {info.label}: {count}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {/* Lista de sugerencias */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {sugerencias.sugerencias.map((sug, idx) => {
+                        if (sugerenciasIgnoradas.has(idx)) return null
+                        const info = CRITERIO_LABELS[sug.criterio] || { label: sug.criterio, color: '#6b7280', icon: '📌' }
+                        const isLoading = diferirLoading === `${sug.dia_index}-${sug.lote_index}`
+                        return (
+                          <motion.div
+                            key={idx}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: idx * 0.05 }}
+                            style={{
+                              padding: '0.7rem 0.9rem',
+                              background: `${info.color}06`,
+                              border: `1px solid ${info.color}20`,
+                              borderLeft: `3px solid ${info.color}`,
+                              borderRadius: 8,
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: 10,
+                            }}
+                          >
+                            <div style={{ flex: 1 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                                <span style={{
+                                  padding: '0.1rem 0.4rem',
+                                  background: `${info.color}15`,
+                                  border: `1px solid ${info.color}30`,
+                                  borderRadius: 10,
+                                  fontSize: '0.68rem',
+                                  color: info.color,
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase',
+                                }}>
+                                  {info.icon} {info.label}
+                                </span>
+                                <strong style={{ fontSize: '0.88rem' }}>{sug.granja} G{sug.galpon} N{sug.nucleo}</strong>
+                                <span className={`badge badge-${sug.sexo === 'M' ? 'info' : sug.sexo === 'H' ? 'warning' : 'success'}`}>
+                                  {sug.sexo}
+                                </span>
+                                <span style={{ fontSize: '0.78rem', color: 'var(--text-light)' }}>
+                                  {formatNumber(sug.cantidad)} pollos · {sug.dia_nombre}
+                                </span>
+                              </div>
+                              <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-light)', lineHeight: 1.4 }}>
+                                {sug.motivo}
+                              </p>
+                              {sug.impacto?.peso_estimado_s2 && (
+                                <div style={{ marginTop: 4, fontSize: '0.78rem', color: info.color }}>
+                                  Peso S1: {sug.impacto.peso_actual?.toFixed(3)} kg → S2: ~{sug.impacto.peso_estimado_s2?.toFixed(3)} kg
+                                  {sug.impacto.mejora_peso_g > 0 && <strong> (+{sug.impacto.mejora_peso_g}g)</strong>}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
+                              <button
+                                className="btn btn-sm"
+                                style={{ background: '#d97706', color: 'white', fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+                                onClick={() => handleAceptarSugerencia(sug)}
+                                disabled={isLoading}
+                                title="Aceptar: diferir este lote a S2"
+                              >
+                                {isLoading
+                                  ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                                  : <><Check size={12} /> Aceptar</>
+                                }
+                              </button>
+                              <button
+                                className="btn btn-sm btn-outline"
+                                style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem', color: 'var(--text-light)', borderColor: 'var(--border)' }}
+                                onClick={() => handleIgnorarSugerencia(idx)}
+                                title="Ignorar esta sugerencia"
+                              >
+                                <EyeOff size={12} />
+                              </button>
+                            </div>
+                          </motion.div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        )
+      })()}
 
       {/* Toggle vista */}
       <motion.div variants={itemVariants} className="tabs" style={{ justifyContent: 'space-between' }}>

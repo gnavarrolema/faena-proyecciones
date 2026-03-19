@@ -189,6 +189,11 @@ export const getLotesDiferidos = () =>
 export const clearLotesDiferidos = () =>
   api.delete('/proyeccion/lotes-diferidos').then(r => r.data);
 
+// ─── Sugerencias de diferimiento ───────────────────────────────────────────────
+
+export const getSugerenciasDiferimiento = () =>
+  api.get('/proyeccion/sugerencias-diferimiento').then(r => r.data);
+
 // ─── Pronóstico de Pesos ───────────────────────────────────────────────────────
 
 export const getPronosticoPesos = () =>

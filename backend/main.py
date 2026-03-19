@@ -33,6 +33,7 @@ from .calculo import (
     peso_vivo_retiro, peso_faenado, calibre_promedio, cajas_lote,
     evaluar_elegibilidad_lote,
     calcular_alerta_temprana,
+    generar_sugerencias_diferimiento,
 )
 from .parser_excel import leer_oferta_excel
 from .parser_produccion import (
@@ -2348,6 +2349,45 @@ def clear_lotes_diferidos(current_user: TokenData = Depends(get_current_user)):
     """Limpia todos los lotes diferidos."""
     storage.delete_lotes_diferidos()
     return {"message": "Lotes diferidos limpiados."}
+
+
+# ─── Sugerencias inteligentes de diferimiento ───────────────────────────────────
+
+@app.get("/proyeccion/sugerencias-diferimiento")
+def get_sugerencias_diferimiento(current_user: TokenData = Depends(get_current_user)):
+    """
+    Analiza la proyección actual y sugiere lotes candidatos a diferir a S2.
+    Criterios: sobrecarga, mejor calibre en S2, feriado cercano, edad temprana.
+    Las sugerencias son orientativas — el planificador decide.
+    """
+    semana = _get_proyeccion()
+    if semana is None:
+        raise HTTPException(404, "No hay proyección generada aún.")
+
+    ofertas = _get_ofertas()
+    if not ofertas:
+        return {"total_sugerencias": 0, "sugerencias": [], "por_criterio": {}, "total_pollos_sugeridos": 0}
+
+    params = _get_parametros()
+
+    # Obtener feriados del rango de la semana actual
+    feriados = None
+    try:
+        feriados_custom = storage.load_feriados_custom() or []
+        fecha_fin_rango = semana.fecha_inicio + timedelta(days=13)
+        feriados = obtener_feriados_rango(
+            semana.fecha_inicio, fecha_fin_rango,
+            feriados_custom=feriados_custom if feriados_custom else None,
+        )
+    except Exception:
+        pass
+
+    return generar_sugerencias_diferimiento(
+        semana=semana,
+        ofertas=ofertas,
+        params=params,
+        feriados=feriados,
+    )
 
 
 # ─── Pronóstico de Pesos ────────────────────────────────────────────────────────
