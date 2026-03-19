@@ -65,6 +65,28 @@ def _crear_proyeccion_simple(fecha_inicio: date, pollos_dia: int = 30000):
     return semana
 
 
+def _crear_proyeccion_amplia(fecha_inicio: date, dias: int = 13, pollos_dia: int = 7500):
+    """Crea una proyección que cubre un rango amplio (para tests de cobertura)."""
+    nombres_dia = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    dias_list = []
+    for i in range(dias):
+        f = fecha_inicio + timedelta(days=i)
+        dias_list.append(DiaFaena(
+            fecha=f,
+            dia_nombre=nombres_dia[f.weekday()],
+            total_pollos=pollos_dia,
+            peso_promedio_ponderado=3.0,
+        ))
+    semana = SemanaFaena(
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_inicio + timedelta(days=dias - 1),
+        dias=dias_list,
+        total_pollos_semana=pollos_dia * dias,
+    )
+    storage.save_proyeccion(semana.model_dump())
+    return semana
+
+
 # ─── Tests 3.1: Escenarios con tasa de mortalidad ───────────────────────────────
 
 def test_guardar_escenario_sin_mortalidad(client, auth_headers):
@@ -194,7 +216,10 @@ def test_mortalidad_observada_con_match(client, auth_headers):
     fecha_faena = date(2026, 3, 16)
     fecha_prod = fecha_faena - timedelta(days=DIAS_HASTA_FAENA)
     _guardar_produccion(fecha_prod, 100000)
-    _crear_proyeccion_simple(fecha_faena, pollos_dia=15500)  # 93000 total ~ 7% mort
+    # Crear proyección que cubra todo el rango de faena (tolerancia ±3 días)
+    # rango: fecha_prod+42-3 .. fecha_prod+6+42+3 = 13 días antes de fecha_faena-3
+    rango_ini = fecha_prod + timedelta(days=DIAS_HASTA_FAENA) - timedelta(days=3)
+    _crear_proyeccion_amplia(rango_ini, dias=13, pollos_dia=7200)  # ~93600 total ~ 6.4% mort
 
     r = client.get("/desvio/mortalidad-observada", headers=auth_headers)
     assert r.status_code == 200
@@ -218,9 +243,12 @@ def test_mortalidad_observada_evaluacion_excelente(client, auth_headers):
     fecha_faena = date(2026, 3, 16)
     fecha_prod = fecha_faena - timedelta(days=DIAS_HASTA_FAENA)
     _guardar_produccion(fecha_prod, 100000)
-    # La tolerancia es ±3 días, así que de 6 días (Lun-Sáb) sólo 4 caen en rango.
-    # 4 días × 24500 = 98000 recibidos de 100000 → 2% mortalidad (bajo 4.5%)
-    _crear_proyeccion_simple(fecha_faena, pollos_dia=24500)
+    # Crear proyección amplia que cubra todo el rango de faena
+    rango_ini = fecha_prod + timedelta(days=DIAS_HASTA_FAENA) - timedelta(days=3)
+    # Necesitamos ~98000 pollos recibidos de 100000 → 2% mortalidad (bajo 4.5%)
+    # Con 13 días × 10000 = 130000 total, pero solo ~9 días hábiles cuentan
+    # 9 × 10800 ≈ 97200 → ~2.8% mort → excelente
+    _crear_proyeccion_amplia(rango_ini, dias=13, pollos_dia=10800)
 
     r = client.get("/desvio/mortalidad-observada", headers=auth_headers)
     data = r.json()
