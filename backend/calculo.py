@@ -1062,6 +1062,277 @@ def _intentar_asignar_lotes_nuevos(
     return dias, no_asignados_resultado, fuera_rango_resultado, detalle_asignados
 
 
+# ─── Alerta Temprana ────────────────────────────────────────────────────────────
+
+def calcular_alerta_temprana(
+    ofertas: List[LoteOferta],
+    params: Parametros,
+    fecha_referencia: Optional[date] = None,
+) -> dict:
+    """
+    Analiza TODOS los lotes de la oferta y proyecta su peso al momento
+    de faena ideal según su sexo, identificando tempranamente aquellos
+    que no llegarán al rango aceptable de peso.
+
+    Para cada lote calcula:
+    - Peso proyectado a la edad ideal de faena (según sexo)
+    - Ganancia mínima diaria necesaria para alcanzar el peso mínimo
+    - Días restantes hasta la edad ideal
+    - Clasificación semáforo: verde/amarillo/rojo
+
+    Args:
+        ofertas: Lista de lotes de la oferta cargada.
+        params: Parámetros globales de cálculo.
+        fecha_referencia: Fecha de referencia (hoy). Si None, se infiere.
+
+    Returns:
+        dict con lotes analizados, contadores y resúmenes.
+    """
+    if not ofertas:
+        return {
+            "total_lotes": 0, "lotes_ok": 0,
+            "alertas_amarillas": 0, "alertas_rojas": 0,
+            "lotes": [], "granjas": [],
+        }
+
+    # Fecha de referencia: fecha base de la oferta (fecha_peso + dias_proyectados)
+    if fecha_referencia is None:
+        fecha_referencia = ofertas[0].fecha_peso + timedelta(days=ofertas[0].dias_proyectados)
+
+    lotes_resultado = []
+    alertas_rojas = 0
+    alertas_amarillas = 0
+    lotes_ok = 0
+    granjas_stats: dict[str, dict] = {}
+
+    for oferta in ofertas:
+        # Edad actual real del lote en la fecha de referencia
+        fecha_base = oferta.fecha_peso + timedelta(days=oferta.dias_proyectados)
+        edad_actual = oferta.edad_proyectada + (fecha_referencia - fecha_base).days
+
+        # Edad ideal de faena según sexo
+        if oferta.sexo.upper() == "H":
+            edad_ideal = params.edad_ideal_hembra
+            ganancia_esperada = params.ganancia_diaria_hembra
+        elif oferta.sexo.upper() == "M":
+            edad_ideal = params.edad_ideal_macho
+            ganancia_esperada = params.ganancia_diaria_macho
+        else:
+            edad_ideal = params.edad_ideal_sin_sexar
+            ganancia_esperada = params.ganancia_diaria_macho
+
+        # Días restantes hasta la edad ideal
+        dias_restantes = edad_ideal - edad_actual
+
+        # Si el lote ya superó la edad máxima, no es candidato para alerta temprana
+        if edad_actual >= params.edad_max_faena:
+            continue
+
+        # Ganancia diaria del lote (real reportada o default por sexo)
+        ganancia_lote = oferta.ganancia_diaria if oferta.ganancia_diaria > 0 else ganancia_esperada
+
+        # --- Proyección a la edad ideal ---
+        # Usar la misma lógica de peso_vivo_retiro para consistencia
+        fecha_faena_ideal = fecha_referencia + timedelta(days=max(dias_restantes, 0))
+        edad_fin_ideal = calcular_edad_fin_retiro_v2(
+            fecha_faena_ideal, oferta.fecha_peso, oferta.edad_proyectada,
+            dias_proyectados=oferta.dias_proyectados,
+        )
+        peso_en_ideal = peso_vivo_retiro(
+            oferta.sexo, edad_fin_ideal, oferta.edad_proyectada,
+            oferta.peso_muestreo_proy, params,
+            ganancia_diaria_lote=oferta.ganancia_diaria,
+        )
+
+        # --- Proyección a edad mínima y máxima de faena ---
+        dias_a_min = params.edad_min_faena - edad_actual
+        dias_a_max = params.edad_max_faena - edad_actual
+
+        fecha_faena_min = fecha_referencia + timedelta(days=max(dias_a_min, 0))
+        edad_fin_min = calcular_edad_fin_retiro_v2(
+            fecha_faena_min, oferta.fecha_peso, oferta.edad_proyectada,
+            dias_proyectados=oferta.dias_proyectados,
+        )
+        peso_en_min = peso_vivo_retiro(
+            oferta.sexo, edad_fin_min, oferta.edad_proyectada,
+            oferta.peso_muestreo_proy, params,
+            ganancia_diaria_lote=oferta.ganancia_diaria,
+        )
+
+        fecha_faena_max = fecha_referencia + timedelta(days=max(dias_a_max, 0))
+        edad_fin_max = calcular_edad_fin_retiro_v2(
+            fecha_faena_max, oferta.fecha_peso, oferta.edad_proyectada,
+            dias_proyectados=oferta.dias_proyectados,
+        )
+        peso_en_max = peso_vivo_retiro(
+            oferta.sexo, edad_fin_max, oferta.edad_proyectada,
+            oferta.peso_muestreo_proy, params,
+            ganancia_diaria_lote=oferta.ganancia_diaria,
+        )
+
+        # --- Ganancia mínima necesaria para alcanzar peso_min_faena a edad ideal ---
+        # Inversa de la fórmula peso_vivo_retiro
+        dias_extra_ideal = max(edad_fin_ideal - oferta.edad_proyectada - 1, 0)
+        medio_dia = params.ganancia_diaria_macho * params.medio_dia_ganancia
+        if oferta.sexo.upper() != "H":
+            # peso_min = ((dias_extra * gan) + peso_actual + medio_dia) * (1 - desc)
+            # gan_necesaria = (peso_min / (1 - desc) - peso_actual - medio_dia) / dias_extra
+            factor_desc = 1 - params.descuento_sin_sexar
+            peso_target = params.peso_min_faena / factor_desc
+        else:
+            peso_target = params.peso_min_faena
+
+        if dias_extra_ideal > 0:
+            ganancia_necesaria = (peso_target - oferta.peso_muestreo_proy - medio_dia) / dias_extra_ideal
+        else:
+            ganancia_necesaria = 0.0
+
+        ganancia_necesaria = max(ganancia_necesaria, 0.0)
+
+        # --- Clasificación semáforo ---
+        # Rojo: incluso a edad máxima no llega al peso mínimo
+        # Amarillo: llega pero necesita mejorar ganancia (>10% sobre la actual)
+        #           o peso en ideal está muy cerca del mínimo (<100g margen)
+        # Verde: proyección cómoda dentro del rango
+
+        mejor_peso_posible = peso_en_max  # peso máximo que puede alcanzar
+
+        if mejor_peso_posible < params.peso_min_faena:
+            nivel = "rojo"
+            alertas_rojas += 1
+            mensaje = (
+                f"No alcanza peso mínimo ({params.peso_min_faena:.2f} kg) "
+                f"ni a edad máxima ({params.edad_max_faena}d): "
+                f"proyecta {mejor_peso_posible:.3f} kg"
+            )
+        elif peso_en_ideal < params.peso_min_faena:
+            nivel = "amarillo"
+            alertas_amarillas += 1
+            deficit = params.peso_min_faena - peso_en_ideal
+            mensaje = (
+                f"Bajo peso a edad ideal ({edad_ideal}d): {peso_en_ideal:.3f} kg, "
+                f"déficit {deficit*1000:.0f}g. "
+                f"Necesita mejorar a {ganancia_necesaria:.3f} kg/día"
+            )
+        elif peso_en_ideal > params.peso_max_faena:
+            if peso_en_min > params.peso_max_faena:
+                nivel = "rojo"
+                alertas_rojas += 1
+                mensaje = (
+                    f"Sobrepeso incluso a edad mínima ({params.edad_min_faena}d): "
+                    f"{peso_en_min:.3f} kg (máx {params.peso_max_faena:.2f})"
+                )
+            else:
+                nivel = "amarillo"
+                alertas_amarillas += 1
+                mensaje = (
+                    f"Sobrepeso a edad ideal ({edad_ideal}d): {peso_en_ideal:.3f} kg. "
+                    f"Requiere faena anticipada"
+                )
+        elif (peso_en_ideal - params.peso_min_faena) < 0.10:
+            nivel = "amarillo"
+            alertas_amarillas += 1
+            margen = (peso_en_ideal - params.peso_min_faena) * 1000
+            mensaje = (
+                f"En rango pero ajustado: {peso_en_ideal:.3f} kg "
+                f"(solo {margen:.0f}g sobre el mínimo)"
+            )
+        elif ganancia_necesaria > ganancia_lote * 1.1:
+            nivel = "amarillo"
+            alertas_amarillas += 1
+            mensaje = (
+                f"Ganancia actual ({ganancia_lote:.3f}) insuficiente. "
+                f"Necesita {ganancia_necesaria:.3f} kg/día para alcanzar mínimo"
+            )
+        else:
+            nivel = "verde"
+            lotes_ok += 1
+            mensaje = (
+                f"Proyecta {peso_en_ideal:.3f} kg a edad ideal ({edad_ideal}d). "
+                f"Dentro de rango"
+            )
+
+        # Ganancia deficiente flag
+        ganancia_deficiente = (
+            ganancia_lote > 0 and ganancia_esperada > 0
+            and ganancia_lote < ganancia_esperada * 0.9
+        )
+
+        # Stats por granja
+        if oferta.granja not in granjas_stats:
+            granjas_stats[oferta.granja] = {
+                "total": 0, "verde": 0, "amarillo": 0, "rojo": 0,
+                "pollos_total": 0, "suma_peso_ideal": 0.0,
+            }
+        gs = granjas_stats[oferta.granja]
+        gs["total"] += 1
+        gs[nivel] += 1
+        gs["pollos_total"] += oferta.cantidad
+        gs["suma_peso_ideal"] += peso_en_ideal * oferta.cantidad
+
+        lotes_resultado.append({
+            "granja": oferta.granja,
+            "galpon": oferta.galpon,
+            "nucleo": oferta.nucleo,
+            "cantidad": oferta.cantidad,
+            "sexo": oferta.sexo,
+            "edad_actual": edad_actual,
+            "edad_ideal": edad_ideal,
+            "dias_restantes": max(dias_restantes, 0),
+            "peso_actual": oferta.peso_muestreo_proy,
+            "peso_en_edad_ideal": round(peso_en_ideal, 3),
+            "peso_en_edad_min": round(peso_en_min, 3),
+            "peso_en_edad_max": round(peso_en_max, 3),
+            "peso_min_faena": params.peso_min_faena,
+            "peso_max_faena": params.peso_max_faena,
+            "ganancia_diaria_lote": ganancia_lote,
+            "ganancia_esperada": ganancia_esperada,
+            "ganancia_necesaria": round(ganancia_necesaria, 4),
+            "ganancia_deficiente": ganancia_deficiente,
+            "nivel": nivel,
+            "mensaje": mensaje,
+        })
+
+    # Resumen por granja
+    granjas_resumen = []
+    for granja, stats in sorted(granjas_stats.items()):
+        peso_prom = (
+            stats["suma_peso_ideal"] / stats["pollos_total"]
+            if stats["pollos_total"] > 0 else 0
+        )
+        if stats["rojo"] > 0:
+            nivel_granja = "rojo"
+        elif stats["amarillo"] > 0:
+            nivel_granja = "amarillo"
+        else:
+            nivel_granja = "verde"
+        granjas_resumen.append({
+            "granja": granja,
+            "total_lotes": stats["total"],
+            "lotes_verde": stats["verde"],
+            "lotes_amarillo": stats["amarillo"],
+            "lotes_rojo": stats["rojo"],
+            "pollos_total": stats["pollos_total"],
+            "peso_promedio_ideal": round(peso_prom, 3),
+            "nivel": nivel_granja,
+        })
+
+    total_lotes = len(lotes_resultado)
+    return {
+        "total_lotes": total_lotes,
+        "lotes_ok": lotes_ok,
+        "alertas_amarillas": alertas_amarillas,
+        "alertas_rojas": alertas_rojas,
+        "pct_ok": round(lotes_ok / total_lotes * 100, 1) if total_lotes > 0 else 0,
+        "peso_min_faena": params.peso_min_faena,
+        "peso_max_faena": params.peso_max_faena,
+        "edad_min_faena": params.edad_min_faena,
+        "edad_max_faena": params.edad_max_faena,
+        "lotes": lotes_resultado,
+        "granjas": granjas_resumen,
+    }
+
+
 # ─── Ajuste con oferta del martes ──────────────────────────────────────────────
 
 def aplicar_ajuste_martes(

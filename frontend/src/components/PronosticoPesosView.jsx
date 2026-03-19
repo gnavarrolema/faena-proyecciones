@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import {
   Activity, AlertTriangle, CheckCircle2, Loader2, TrendingDown,
-  TrendingUp, Target, Filter, ChevronDown, ChevronUp
+  TrendingUp, Target, Filter, ChevronDown, ChevronUp, ShieldAlert, Clock
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getPronosticoPesos } from '../services/api'
+import { getPronosticoPesos, getAlertaTemprana } from '../services/api'
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -118,9 +118,14 @@ export default function PronosticoPesosView({ proyeccion }) {
   const [filtroDia, setFiltroDia] = useState('todos')
   const [vistaActiva, setVistaActiva] = useState('lotes') // lotes | dias | granjas
   const [expandedGranjas, setExpandedGranjas] = useState({})
+  const [alertaData, setAlertaData] = useState(null)
+  const [alertaLoading, setAlertaLoading] = useState(false)
+  const [alertaFiltroNivel, setAlertaFiltroNivel] = useState('todos')
+  const [alertaExpandedGranjas, setAlertaExpandedGranjas] = useState({})
 
   useEffect(() => {
     cargarPronostico()
+    cargarAlertaTemprana()
   }, [proyeccion])
 
   const cargarPronostico = async () => {
@@ -136,6 +141,20 @@ export default function PronosticoPesosView({ proyeccion }) {
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const cargarAlertaTemprana = async () => {
+    setAlertaLoading(true)
+    try {
+      const result = await getAlertaTemprana()
+      setAlertaData(result)
+    } catch (err) {
+      if (err.response?.status === 404) {
+        setAlertaData(null)
+      }
+    } finally {
+      setAlertaLoading(false)
     }
   }
 
@@ -181,6 +200,10 @@ export default function PronosticoPesosView({ proyeccion }) {
 
   const toggleGranja = (granja) => {
     setExpandedGranjas(prev => ({ ...prev, [granja]: !prev[granja] }))
+  }
+
+  const toggleAlertaGranja = (granja) => {
+    setAlertaExpandedGranjas(prev => ({ ...prev, [granja]: !prev[granja] }))
   }
 
   return (
@@ -282,6 +305,7 @@ export default function PronosticoPesosView({ proyeccion }) {
         display: 'flex', gap: '0.5rem', marginBottom: '0.75rem',
       }}>
         {[
+          { id: 'alerta', label: '⚠ Alerta Temprana' },
           { id: 'lotes', label: 'Por Lote' },
           { id: 'dias', label: 'Por Día' },
           { id: 'granjas', label: 'Por Granja' },
@@ -304,6 +328,345 @@ export default function PronosticoPesosView({ proyeccion }) {
           </button>
         ))}
       </motion.div>
+
+      {/* ─── Vista: Alerta Temprana ─── */}
+      {vistaActiva === 'alerta' && (
+        <motion.div variants={itemVariants}>
+          {alertaLoading ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3rem', gap: 8 }}>
+              <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
+              <span style={{ color: 'var(--text-light)' }}>Analizando lotes...</span>
+            </div>
+          ) : !alertaData ? (
+            <div className="card">
+              <div className="card-body" style={{ textAlign: 'center', padding: '3rem' }}>
+                <p style={{ color: 'var(--text-light)' }}>
+                  <ShieldAlert size={20} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                  No hay ofertas cargadas para analizar. Cargue una oferta primero.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Alerta global temprana */}
+              {alertaData.alertas_rojas > 0 && (
+                <div style={{
+                  padding: '1rem 1.2rem',
+                  background: 'rgba(239, 68, 68, 0.08)',
+                  border: '1px solid #ef4444',
+                  borderRadius: 10,
+                  display: 'flex', alignItems: 'flex-start', gap: 10,
+                  fontSize: '0.9rem', color: '#ef4444', fontWeight: 500,
+                  marginBottom: '0.75rem',
+                }}>
+                  <ShieldAlert size={22} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 2 }}>Alerta Temprana: Lotes en riesgo</div>
+                    <div style={{ fontWeight: 400 }}>
+                      {alertaData.alertas_rojas} lote{alertaData.alertas_rojas !== 1 ? 's' : ''} con riesgo alto de no alcanzar el peso mínimo
+                      {alertaData.alertas_amarillas > 0 && ` y ${alertaData.alertas_amarillas} con riesgo moderado`}.
+                      Se recomienda acción correctiva.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {alertaData.alertas_rojas === 0 && alertaData.alertas_amarillas > 0 && (
+                <div style={{
+                  padding: '1rem 1.2rem',
+                  background: 'rgba(251, 146, 60, 0.08)',
+                  border: '1px solid var(--warning, #fb923c)',
+                  borderRadius: 10,
+                  display: 'flex', alignItems: 'flex-start', gap: 10,
+                  fontSize: '0.9rem', color: 'var(--warning, #fb923c)', fontWeight: 500,
+                  marginBottom: '0.75rem',
+                }}>
+                  <AlertTriangle size={22} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <div style={{ fontWeight: 600, marginBottom: 2 }}>Lotes a monitorear</div>
+                    <div style={{ fontWeight: 400 }}>
+                      {alertaData.alertas_amarillas} lote{alertaData.alertas_amarillas !== 1 ? 's' : ''} con peso ajustado que requieren seguimiento.
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {alertaData.alertas_rojas === 0 && alertaData.alertas_amarillas === 0 && (
+                <div style={{
+                  padding: '1rem 1.2rem',
+                  background: 'rgba(34, 197, 94, 0.08)',
+                  border: '1px solid var(--success, #22c55e)',
+                  borderRadius: 10,
+                  display: 'flex', alignItems: 'flex-start', gap: 10,
+                  fontSize: '0.9rem', color: 'var(--success, #22c55e)', fontWeight: 500,
+                  marginBottom: '0.75rem',
+                }}>
+                  <CheckCircle2 size={22} style={{ flexShrink: 0, marginTop: 1 }} />
+                  <div>
+                    <div style={{ fontWeight: 600 }}>Todos los lotes proyectan peso dentro de rango</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Stats alerta temprana */}
+              <div className="stats-grid" style={{ marginBottom: '0.75rem' }}>
+                <div className="stat-card">
+                  <div className="stat-label">Total Lotes</div>
+                  <div className="stat-value blue">{alertaData.total_lotes}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Proyección OK</div>
+                  <div className="stat-value" style={{ color: 'var(--success, #22c55e)' }}>
+                    {alertaData.lotes_ok} <span style={{ fontSize: '0.75rem', fontWeight: 400 }}>({alertaData.pct_ok}%)</span>
+                  </div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Riesgo Moderado</div>
+                  <div className="stat-value" style={{ color: 'var(--warning, #fb923c)' }}>
+                    {alertaData.alertas_amarillas}
+                  </div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Riesgo Alto</div>
+                  <div className="stat-value" style={{ color: '#ef4444' }}>
+                    {alertaData.alertas_rojas}
+                  </div>
+                </div>
+              </div>
+
+              {/* Tabla de lotes alerta temprana */}
+              <div className="card" style={{ borderLeft: '4px solid var(--warning, #fb923c)', marginBottom: '0.75rem' }}>
+                <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <h2><ShieldAlert size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Proyección Anticipada por Lote</h2>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <Filter size={14} color="var(--text-light)" />
+                    <select
+                      value={alertaFiltroNivel}
+                      onChange={e => setAlertaFiltroNivel(e.target.value)}
+                      style={{
+                        padding: '0.3rem 0.5rem', border: '1px solid var(--border)',
+                        borderRadius: 6, fontSize: '0.8rem', background: 'var(--bg, white)',
+                        color: 'var(--text)',
+                      }}
+                    >
+                      <option value="todos">Todos los niveles</option>
+                      <option value="rojo">Solo Riesgo Alto</option>
+                      <option value="amarillo">Solo Riesgo Moderado</option>
+                      <option value="verde">Solo OK</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="card-body">
+                  <div className="table-container">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Granja</th>
+                          <th className="text-center">G/N</th>
+                          <th className="text-center">Sexo</th>
+                          <th className="text-right">Aves</th>
+                          <th className="text-right">Edad Actual</th>
+                          <th className="text-right">Peso Actual</th>
+                          <th className="text-right">Peso a Edad Ideal</th>
+                          <th style={{ minWidth: 130 }}>Rango</th>
+                          <th className="text-right">Gan. Actual</th>
+                          <th className="text-right">Gan. Necesaria</th>
+                          <th className="text-center">Días Rest.</th>
+                          <th className="text-center">Estado</th>
+                          <th>Detalle</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const filtrados = alertaData.lotes.filter(l =>
+                            alertaFiltroNivel === 'todos' || l.nivel === alertaFiltroNivel
+                          )
+                          if (filtrados.length === 0) return (
+                            <tr><td colSpan={13} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-light)' }}>
+                              No hay lotes con el filtro seleccionado
+                            </td></tr>
+                          )
+                          return filtrados.map((lote, idx) => {
+                            const nivelColor = lote.nivel === 'verde' ? 'var(--success, #22c55e)'
+                              : lote.nivel === 'amarillo' ? 'var(--warning, #fb923c)' : '#ef4444'
+                            const nivelBg = lote.nivel === 'verde' ? 'rgba(34, 197, 94, 0.08)'
+                              : lote.nivel === 'amarillo' ? 'rgba(251, 146, 60, 0.08)'
+                              : lote.nivel === 'rojo' ? 'rgba(239, 68, 68, 0.08)' : 'transparent'
+                            const nivelIconEl = lote.nivel === 'verde'
+                              ? <CheckCircle2 size={16} color="var(--success, #22c55e)" />
+                              : lote.nivel === 'amarillo'
+                              ? <AlertTriangle size={16} color="var(--warning, #fb923c)" />
+                              : <ShieldAlert size={16} color="#ef4444" />
+                            return (
+                              <tr key={idx} style={{ background: nivelBg }}>
+                                <td>{lote.granja}</td>
+                                <td className="text-center">{lote.galpon}/{lote.nucleo}</td>
+                                <td className="text-center">{lote.sexo || '-'}</td>
+                                <td className="text-right">{formatNumber(lote.cantidad)}</td>
+                                <td className="text-right">{lote.edad_actual}d</td>
+                                <td className="text-right">{lote.peso_actual?.toFixed(3)} kg</td>
+                                <td className="text-right" style={{ fontWeight: 600, color: nivelColor }}>
+                                  {lote.peso_en_edad_ideal?.toFixed(3)} kg
+                                </td>
+                                <td>
+                                  <PesoBar
+                                    peso={lote.peso_en_edad_ideal}
+                                    min={lote.peso_min_faena}
+                                    max={lote.peso_max_faena}
+                                    objetivo={2.85}
+                                  />
+                                </td>
+                                <td className="text-right" style={{
+                                  color: lote.ganancia_deficiente ? '#ef4444' : 'inherit',
+                                  fontWeight: lote.ganancia_deficiente ? 600 : 400,
+                                }}>
+                                  {lote.ganancia_diaria_lote?.toFixed(3)}
+                                  {lote.ganancia_deficiente && (
+                                    <TrendingDown size={12} style={{ marginLeft: 3, verticalAlign: 'middle' }} />
+                                  )}
+                                </td>
+                                <td className="text-right" style={{
+                                  fontWeight: 600,
+                                  color: lote.ganancia_necesaria > lote.ganancia_diaria_lote * 1.1
+                                    ? '#ef4444' : 'var(--success, #22c55e)',
+                                }}>
+                                  {lote.ganancia_necesaria?.toFixed(3)}
+                                </td>
+                                <td className="text-center">
+                                  <span style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 3,
+                                    padding: '2px 8px', borderRadius: 12,
+                                    background: lote.dias_restantes <= 3 ? 'rgba(239, 68, 68, 0.1)' :
+                                      lote.dias_restantes <= 7 ? 'rgba(251, 146, 60, 0.1)' : 'rgba(34, 197, 94, 0.1)',
+                                    fontSize: '0.8rem', fontWeight: 600,
+                                    color: lote.dias_restantes <= 3 ? '#ef4444' :
+                                      lote.dias_restantes <= 7 ? 'var(--warning, #fb923c)' : 'var(--success, #22c55e)',
+                                  }}>
+                                    <Clock size={11} />
+                                    {lote.dias_restantes}d
+                                  </span>
+                                </td>
+                                <td className="text-center">{nivelIconEl}</td>
+                                <td style={{ fontSize: '0.8rem', color: nivelColor, maxWidth: 220 }}>
+                                  {lote.mensaje}
+                                </td>
+                              </tr>
+                            )
+                          })
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                  {alertaData.lotes.length > 0 && (
+                    <div style={{ marginTop: '0.75rem', fontSize: '0.8rem', color: 'var(--text-light)' }}>
+                      Mostrando {alertaData.lotes.filter(l => alertaFiltroNivel === 'todos' || l.nivel === alertaFiltroNivel).length} de {alertaData.total_lotes} lotes.
+                      Rango ideal: {alertaData.peso_min_faena}–{alertaData.peso_max_faena} kg.
+                      Ventana faena: {alertaData.edad_min_faena}–{alertaData.edad_max_faena} días.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Resumen por granja - alerta temprana */}
+              <div className="card" style={{ borderLeft: '4px solid var(--warning, #fb923c)' }}>
+                <div className="card-header">
+                  <h2><ShieldAlert size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Resumen por Granja</h2>
+                </div>
+                <div className="card-body">
+                  <div className="table-container">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Granja</th>
+                          <th className="text-right">Lotes</th>
+                          <th className="text-right">Aves</th>
+                          <th className="text-right">Peso Prom. Ideal</th>
+                          <th className="text-center" style={{ color: 'var(--success, #22c55e)' }}>OK</th>
+                          <th className="text-center" style={{ color: 'var(--warning, #fb923c)' }}>Moderado</th>
+                          <th className="text-center" style={{ color: '#ef4444' }}>Alto</th>
+                          <th className="text-center">Estado</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {alertaData.granjas.map((g, idx) => {
+                          const isExp = alertaExpandedGranjas[g.granja]
+                          const lotesGranja = alertaData.lotes.filter(l => l.granja === g.granja)
+                          const gnColor = g.nivel === 'verde' ? 'var(--success, #22c55e)'
+                            : g.nivel === 'amarillo' ? 'var(--warning, #fb923c)' : '#ef4444'
+                          const gnBg = g.nivel === 'verde' ? 'rgba(34, 197, 94, 0.08)'
+                            : g.nivel === 'amarillo' ? 'rgba(251, 146, 60, 0.08)'
+                            : g.nivel === 'rojo' ? 'rgba(239, 68, 68, 0.08)' : 'transparent'
+                          const gnIcon = g.nivel === 'verde'
+                            ? <CheckCircle2 size={16} color="var(--success, #22c55e)" />
+                            : g.nivel === 'amarillo'
+                            ? <AlertTriangle size={16} color="var(--warning, #fb923c)" />
+                            : <ShieldAlert size={16} color="#ef4444" />
+                          return (
+                            <React.Fragment key={idx}>
+                              <tr
+                                style={{ background: gnBg, cursor: 'pointer' }}
+                                onClick={() => toggleAlertaGranja(g.granja)}
+                              >
+                                <td><strong>{g.granja}</strong></td>
+                                <td className="text-right">{g.total_lotes}</td>
+                                <td className="text-right">{formatNumber(g.pollos_total)}</td>
+                                <td className="text-right" style={{ fontWeight: 600 }}>{g.peso_promedio_ideal?.toFixed(3)} kg</td>
+                                <td className="text-center" style={{ color: 'var(--success, #22c55e)', fontWeight: 600 }}>{g.lotes_verde}</td>
+                                <td className="text-center" style={{ color: 'var(--warning, #fb923c)', fontWeight: 600 }}>{g.lotes_amarillo}</td>
+                                <td className="text-center" style={{ color: '#ef4444', fontWeight: 600 }}>{g.lotes_rojo}</td>
+                                <td className="text-center">{gnIcon}</td>
+                                <td className="text-center">
+                                  {isExp ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                </td>
+                              </tr>
+                              {isExp && lotesGranja.map((lote, lidx) => {
+                                const lnColor = lote.nivel === 'verde' ? 'var(--success, #22c55e)'
+                                  : lote.nivel === 'amarillo' ? 'var(--warning, #fb923c)' : '#ef4444'
+                                const lnIcon = lote.nivel === 'verde'
+                                  ? <CheckCircle2 size={14} color="var(--success, #22c55e)" />
+                                  : lote.nivel === 'amarillo'
+                                  ? <AlertTriangle size={14} color="var(--warning, #fb923c)" />
+                                  : <ShieldAlert size={14} color="#ef4444" />
+                                return (
+                                  <tr key={`${idx}-${lidx}`} style={{
+                                    background: lote.nivel === 'verde' ? 'rgba(34, 197, 94, 0.04)'
+                                      : lote.nivel === 'amarillo' ? 'rgba(251, 146, 60, 0.04)'
+                                      : 'rgba(239, 68, 68, 0.04)',
+                                    fontSize: '0.85rem',
+                                  }}>
+                                    <td style={{ paddingLeft: '2rem', color: 'var(--text-light)' }}>
+                                      G{lote.galpon}/N{lote.nucleo}
+                                    </td>
+                                    <td className="text-right" style={{ color: 'var(--text-light)' }}>{lote.sexo || '-'}</td>
+                                    <td className="text-right">{formatNumber(lote.cantidad)}</td>
+                                    <td className="text-right" style={{ fontWeight: 600, color: lnColor }}>
+                                      {lote.peso_en_edad_ideal?.toFixed(3)} kg
+                                    </td>
+                                    <td colSpan={3} style={{ fontSize: '0.8rem', color: lnColor }}>
+                                      {lote.mensaje}
+                                    </td>
+                                    <td className="text-center">{lnIcon}</td>
+                                    <td>
+                                      <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>
+                                        {lote.dias_restantes}d rest.
+                                      </span>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </React.Fragment>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </motion.div>
+      )}
 
       {/* ─── Vista: Por Lote ─── */}
       {vistaActiva === 'lotes' && (

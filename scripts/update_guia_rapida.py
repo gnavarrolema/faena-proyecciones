@@ -221,6 +221,63 @@ def main():
         "(4.5% – 6.5%) según las tasas configuradas en el sistema.",
     )
 
+    # SECCIÓN 14 — Semana 2 / Diferir Lotes
+    add_section_title(doc, "14. Semana 2 — Proyección Tentativa y Diferir Lotes")
+    add_normal(
+        doc,
+        "Cuando un feriado u otras razones comprimen la semana de faena, puede diferir "
+        "lotes a la semana siguiente para visualizar cómo quedaría la planificación.",
+    )
+    add_subtitle(doc, "Diferir un lote")
+    add_bullet(
+        doc,
+        "En la tarjeta del lote (Vista por Día), haga clic en el botón «S2» (ícono →).",
+    )
+    add_bullet(
+        doc,
+        "El lote se retira de Semana 1 y sus totales se recalculan al instante.",
+    )
+    add_bullet(
+        doc,
+        "Los lotes diferidos aparecen en la sección «Semana 2 — Proyección Tentativa» "
+        "al pie de la pestaña Proyección.",
+    )
+    add_subtitle(doc, "Sección Semana 2")
+    add_bullet(
+        doc,
+        "Badge TENTATIVA: indica que la Semana 2 es solo orientativa y de solo lectura.",
+    )
+    add_bullet(
+        doc,
+        "KPIs de S2: total pollos, promedio de edad, cajas y días de faena proyectados.",
+    )
+    add_bullet(
+        doc,
+        "Tabla de diferidos: muestra los lotes diferidos con su granja, "
+        "día de origen en S1 y motivo. Incluye el botón «Restaurar» (ícono ↩).",
+    )
+    add_bullet(
+        doc,
+        "Grilla de días S2: vista Kanban de cómo quedarían los días de la semana "
+        "siguiente (solo lectura, sin botones de Mover o Eliminar).",
+    )
+    add_bullet(
+        doc,
+        "Lotes fuera de rango en S2: pollos que no alcanzarán el peso/edad "
+        "mínimo para la semana siguiente.",
+    )
+    add_subtitle(doc, "Restaurar y limpiar diferidos")
+    add_bullet(
+        doc,
+        "Para devolver un lote a S1: clic en «Restaurar» en la tabla de diferidos. "
+        "El lote se reincorpora al día con mayor déficit.",
+    )
+    add_bullet(
+        doc,
+        "Al cargar la nueva oferta la semana siguiente, use «Limpiar diferidos» "
+        "para reiniciar la lista de lotes diferidos.",
+    )
+
     # ── Guardar ──
     out_path = DOCX_PATH.replace(".docx", "_v2.docx")
     doc.save(out_path)

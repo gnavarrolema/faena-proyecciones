@@ -37,6 +37,7 @@
    - 7.10 [Agregar compra a terceros](#710-agregar-compra-a-terceros)
    - 7.11 [Configurar gallinas](#711-configurar-gallinas)
    - 7.12 [Déficit entre semanas](#712-déficit-entre-semanas)
+   - 7.13 [Diferir lotes a Semana 2](#713-diferir-lotes-a-semana-2)
 8. [Resumen Semanal (Pestaña "Resumen")](#8-resumen-semanal)
    - 8.1 [Resumen Diario](#81-resumen-diario)
    - 8.2 [Distribución por Granja](#82-distribución-por-granja)
@@ -362,6 +363,38 @@ Si se cargaron datos de producción (Cargas Pollitos BB) y se generó un escenar
 - Se indica cuántos pollos faltan o sobran por semana.
 - Si hay déficit, el sistema sugiere cubrir la diferencia con compra a terceros o redistribución.
 - Este panel se actualiza automáticamente al cambiar la proyección.
+
+### 7.13 Diferir lotes a Semana 2
+
+Cuando existen motivos para no faenar un lote en la semana actual (feriados, sobrecarga en días específicos, decisión operativa), puede **diferirlo a Semana 2** para visualizar cómo quedaría la planificación de la semana siguiente.
+
+**¿Cuándo usarlo?**
+- Un feriado reduce los días hábiles y algunos lotes quedan sobrecargados.
+- Un día supera la capacidad máxima y se quiere adelantar el problema.
+- Se quiere ver, en forma tentativa, qué lotes pasarían a la semana siguiente.
+
+**Cómo diferir un lote:**
+1. En la tarjeta del lote (Vista por Día), haga clic en el botón **"S2"** (ícono →).
+2. El lote se retira inmediatamente de Semana 1 y se almacena como "diferido".
+3. Los totales de Semana 1 se recalculan al instante.
+
+**Sección "Semana 2 — Proyección Tentativa":**
+
+Al pie de la pestaña Proyección aparece una sección colapsable con la proyección tentativa de la semana siguiente:
+
+| Elemento | Descripción |
+|---|---|
+| **Badge TENTATIVA** | Indica que la Semana 2 es solo orientativa (solo lectura) |
+| **KPIs de S2** | Total pollos, promedio de edad, cajas y días de faena proyectados |
+| **Tabla de diferidos** | Lotes diferidos con su granja, origen en S1 y motivo |
+| **Grilla de días S2** | Vista tipo Kanban de cómo quedarían los días de la semana siguiente |
+| **Lotes fuera de rango en S2** | Pollos que no alcanzarán edad/peso para la semana siguiente |
+
+**Restaurar un lote diferido:**
+1. En la tabla de diferidos (dentro de la sección Semana 2), haga clic en **"Restaurar"** (ícono ↩).
+2. El lote vuelve a Semana 1, asignado automáticamente al día con mayor déficit (o al día que elija).
+
+> **Importante:** La Semana 2 es orientativa. La oferta del jueves raramente cubre con precisión la semana siguiente. Al cargar la nueva oferta la semana siguiente, los lotes diferidos se pueden limpiar con el botón **"Limpiar diferidos"**. Los lotes diferidos no poseen botones de Mover o Eliminar.
 
 ---
 
@@ -720,6 +753,16 @@ A continuación se describe el flujo semanal típico de uso de la aplicación:
 13. Exportar a PDF para compartir con el equipo
 ```
 
+### Si hay feriados u sobrecarga — Diferir a Semana 2
+
+```
+1. Identificar el día sobrecargado o el feriado que comprime la semana
+2. En la columna del día afectado, hacer clic en "S2" en los lotes que se quieren diferir
+3. Verificar en la sección "Semana 2" cómo quedan distribuidos
+4. Si cambia de decisión, clic en "Restaurar" para devolver el lote a la Semana 1
+5. Limpiar diferidos al iniciar la planificación de la semana siguiente
+```
+
 ### Martes — Ajuste con datos actualizados
 
 ```
@@ -780,6 +823,9 @@ A continuación se describe el flujo semanal típico de uso de la aplicación:
 | **Mortalidad** | Porcentaje de pollitos que no sobreviven hasta la edad de faena |
 | **Terceros** | Pollos comprados a proveedores externos para complementar la oferta propia |
 | **Gallinas** | Gallinas de descarte (livianas o pesadas) incorporadas a la planificación de faena |
+| **Diferir** | Trasladar un lote de Semana 1 a la proyección tentativa de Semana 2 |
+| **Lote diferido** | Lote retirado de la Semana 1 y reservado para la semana siguiente |
+| **Semana 2** | Proyección tentativa de la semana siguiente, basada en lotes diferidos y no asignados |
 | **Pronóstico de peso** | Estimación del peso al momento de faena basada en ganancia diaria proyectada |
 
 ---
@@ -812,6 +858,12 @@ Es una vista que analiza cada lote de la proyección y estima si llegará al pes
 
 ### ¿Cómo funciona la simulación de mortalidad?
 Al cargar los datos de "Cargas Pollitos BB", el sistema calcula la disponibilidad estimada de pollos restando diferentes tasas de mortalidad (4.5% a 6.5%). La fecha de faena estimada es 42 días después de la carga.
+
+### ¿Qué significa el botón "S2" en un lote?
+El botón **S2** difiere ese lote a la proyección tentativa de Semana 2. El lote se retira de la semana actual y aparece en la sección "Semana 2 — Proyección Tentativa" al final de la pestaña Proyección. Puede revertir esta acción con el botón "Restaurar" dentro de esa sección.
+
+### ¿La Semana 2 es definitiva?
+No. La Semana 2 es **orientativa / tentativa**. Muestra cómo podrían quedar los dias de la semana siguiente con los lotes que se difirieron o que no pudieron asignarse. No es editable (sin botones de Mover o Eliminar). Al cargar la nueva oferta la semana siguiente, conviene limpiar los diferidos.
 
 ### ¿Puedo redistribuir un día completo?
 Sí. Use el botón **"Redistribuir"** en la columna del día en la pestaña Proyección. Los lotes se moverán automáticamente a los días con más capacidad disponible.

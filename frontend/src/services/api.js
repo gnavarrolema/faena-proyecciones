@@ -172,10 +172,30 @@ export const getDeficitGuardado = () =>
 export const clearDeficitGuardado = () =>
   api.delete('/proyeccion/deficit-guardado').then(r => r.data);
 
+// ─── Semana 2 (Horizonte extendido) ────────────────────────────────────────────
+
+export const diferirLote = (diaIndex, loteIndex, motivo = '') =>
+  api.post('/proyeccion/diferir-lote', { dia_index: diaIndex, lote_index: loteIndex, motivo }).then(r => r.data);
+
+export const restaurarLoteSemana1 = (diferidoIndex, diaDestino = null) =>
+  api.post('/proyeccion/restaurar-lote-semana1', { diferido_index: diferidoIndex, dia_destino: diaDestino }).then(r => r.data);
+
+export const getSemana2 = () =>
+  api.get('/proyeccion/semana2').then(r => r.data);
+
+export const getLotesDiferidos = () =>
+  api.get('/proyeccion/lotes-diferidos').then(r => r.data);
+
+export const clearLotesDiferidos = () =>
+  api.delete('/proyeccion/lotes-diferidos').then(r => r.data);
+
 // ─── Pronóstico de Pesos ───────────────────────────────────────────────────────
 
 export const getPronosticoPesos = () =>
   api.get('/pronostico/pesos').then(r => r.data);
+
+export const getAlertaTemprana = () =>
+  api.get('/pronostico/alerta-temprana').then(r => r.data);
 
 export default api;
 

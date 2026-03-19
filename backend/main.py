@@ -32,6 +32,7 @@ from .calculo import (
     calcular_edad_fin_retiro_v2, diferencia_edad_ideal,
     peso_vivo_retiro, peso_faenado, calibre_promedio, cajas_lote,
     evaluar_elegibilidad_lote,
+    calcular_alerta_temprana,
 )
 from .parser_excel import leer_oferta_excel
 from .parser_produccion import (
@@ -227,6 +228,19 @@ class CargarDeficitResponse(BaseModel):
     lotes_trasladados: int
     pollos_trasladados: int
     mensaje: str
+
+
+class DiferirLoteRequest(BaseModel):
+    """Para diferir un lote de semana 1 a semana 2."""
+    dia_index: int
+    lote_index: int
+    motivo: str = ""
+
+
+class RestaurarLoteRequest(BaseModel):
+    """Para restaurar un lote diferido de vuelta a semana 1."""
+    diferido_index: int
+    dia_destino: Optional[int] = None  # si None, auto-asigna al día con más déficit
 
 
 # ─── Helpers: factibilidad producción ─────────────────────────────────────────
@@ -2075,6 +2089,267 @@ def clear_deficit_guardado(current_user: TokenData = Depends(get_current_user)):
     return {"message": "Déficit limpiado."}
 
 
+# ─── Semana 2: Diferir lotes y proyección tentativa ─────────────────────────────
+
+@app.post("/proyeccion/diferir-lote")
+def diferir_lote_semana2(req: DiferirLoteRequest, current_user: TokenData = Depends(get_current_user)):
+    """
+    Difiere un lote de semana 1 a semana 2.
+    Lo remueve de la proyección actual y lo guarda como lote diferido.
+    """
+    semana = _get_proyeccion()
+    if semana is None:
+        raise HTTPException(404, "No hay proyección generada aún.")
+
+    if req.dia_index < 0 or req.dia_index >= len(semana.dias):
+        raise HTTPException(400, "Índice de día inválido")
+
+    dia = semana.dias[req.dia_index]
+    if req.lote_index < 0 or req.lote_index >= len(dia.lotes):
+        raise HTTPException(400, "Índice de lote inválido")
+
+    lote = dia.lotes.pop(req.lote_index)
+
+    # Guardar como lote diferido (preservar datos originales para recálculo)
+    diferido = {
+        "granja": lote.granja,
+        "galpon": lote.galpon,
+        "nucleo": lote.nucleo,
+        "cantidad": lote.cantidad,
+        "sexo": lote.sexo,
+        "edad_actual": lote.edad_actual,
+        "peso_actual": lote.peso_actual,
+        "fecha_peso_original": lote.fecha_peso_original.isoformat() if lote.fecha_peso_original else None,
+        "ganancia_diaria_original": lote.ganancia_diaria_original,
+        "fecha_ingreso_original": lote.fecha_ingreso_original.isoformat() if lote.fecha_ingreso_original else None,
+        "dia_origen_fecha": dia.fecha.isoformat(),
+        "dia_origen_index": req.dia_index,
+        "motivo": req.motivo,
+    }
+
+    diferidos = storage.load_lotes_diferidos() or []
+    diferidos.append(diferido)
+    storage.save_lotes_diferidos(diferidos)
+
+    # Recalcular semana 1
+    params = _get_parametros()
+    semana.dias[req.dia_index] = calcular_dia_faena(
+        dia.fecha, dia.lotes, params=params,
+        gallinas_cantidad=dia.gallinas_cantidad,
+        gallinas_livianas=dia.gallinas_livianas_cantidad,
+        gallinas_pesadas=dia.gallinas_pesadas_cantidad,
+    )
+    resultado = calcular_semana_faena(
+        semana.fecha_inicio, semana.dias, params,
+        lotes_no_asignados=semana.lotes_no_asignados,
+        lotes_fuera_rango=semana.lotes_fuera_rango,
+    )
+    resultado.feriados_aplicados = semana.feriados_aplicados
+    resultado.eventos_gallinas = semana.eventos_gallinas
+    storage.save_proyeccion(resultado.model_dump())
+
+    return {
+        "proyeccion": resultado.model_dump(),
+        "lote_diferido": diferido,
+        "total_diferidos": len(diferidos),
+    }
+
+
+@app.post("/proyeccion/restaurar-lote-semana1")
+def restaurar_lote_semana1(req: RestaurarLoteRequest, current_user: TokenData = Depends(get_current_user)):
+    """
+    Restaura un lote diferido de vuelta a semana 1.
+    Lo remueve de lotes diferidos y lo agrega al día indicado (o al de mayor déficit).
+    """
+    semana = _get_proyeccion()
+    if semana is None:
+        raise HTTPException(404, "No hay proyección generada aún.")
+
+    diferidos = storage.load_lotes_diferidos() or []
+    if req.diferido_index < 0 or req.diferido_index >= len(diferidos):
+        raise HTTPException(400, "Índice de lote diferido inválido")
+
+    diferido = diferidos.pop(req.diferido_index)
+    storage.save_lotes_diferidos(diferidos)
+
+    params = _get_parametros()
+
+    # Reconstruir LoteOferta desde datos diferidos
+    fecha_peso = date.fromisoformat(diferido["fecha_peso_original"]) if diferido.get("fecha_peso_original") else semana.fecha_inicio
+    ganancia = diferido.get("ganancia_diaria_original") or params.ganancia_diaria_macho
+    fecha_ingreso = date.fromisoformat(diferido["fecha_ingreso_original"]) if diferido.get("fecha_ingreso_original") else fecha_peso
+
+    oferta_equiv = LoteOferta(
+        fecha_peso=fecha_peso,
+        granja=diferido["granja"],
+        galpon=diferido["galpon"],
+        nucleo=diferido["nucleo"],
+        cantidad=diferido["cantidad"],
+        sexo=diferido["sexo"],
+        edad_proyectada=diferido["edad_actual"],
+        peso_muestreo_proy=diferido["peso_actual"],
+        ganancia_diaria=ganancia,
+        dias_proyectados=0,
+        edad_real=diferido["edad_actual"],
+        peso_muestreo_real=diferido["peso_actual"],
+        fecha_ingreso=fecha_ingreso,
+    )
+
+    # Determinar día destino
+    if req.dia_destino is not None:
+        if req.dia_destino < 0 or req.dia_destino >= len(semana.dias):
+            raise HTTPException(400, "Índice de día destino inválido")
+        dia_destino_idx = req.dia_destino
+    else:
+        # Auto-asignar al día con mayor déficit vs objetivo
+        objetivo = params.pollos_diarios_objetivo_max
+        mejor_idx = 0
+        mayor_deficit = -1
+        for idx, d in enumerate(semana.dias):
+            deficit = objetivo - d.total_pollos
+            if deficit > mayor_deficit:
+                mayor_deficit = deficit
+                mejor_idx = idx
+        dia_destino_idx = mejor_idx
+
+    dia_destino = semana.dias[dia_destino_idx]
+    nuevo_lote = calcular_lote_proyectado(oferta_equiv, dia_destino.fecha, params)
+    dia_destino.lotes.append(nuevo_lote)
+
+    # Recalcular
+    semana.dias[dia_destino_idx] = calcular_dia_faena(
+        dia_destino.fecha, dia_destino.lotes, params=params,
+        gallinas_cantidad=dia_destino.gallinas_cantidad,
+        gallinas_livianas=dia_destino.gallinas_livianas_cantidad,
+        gallinas_pesadas=dia_destino.gallinas_pesadas_cantidad,
+    )
+    resultado = calcular_semana_faena(
+        semana.fecha_inicio, semana.dias, params,
+        lotes_no_asignados=semana.lotes_no_asignados,
+        lotes_fuera_rango=semana.lotes_fuera_rango,
+    )
+    resultado.feriados_aplicados = semana.feriados_aplicados
+    resultado.eventos_gallinas = semana.eventos_gallinas
+    storage.save_proyeccion(resultado.model_dump())
+
+    return {
+        "proyeccion": resultado.model_dump(),
+        "dia_destino": dia_destino_idx,
+        "total_diferidos": len(diferidos),
+    }
+
+
+@app.get("/proyeccion/semana2")
+def get_semana2(current_user: TokenData = Depends(get_current_user)):
+    """
+    Genera la proyección tentativa de semana 2 usando:
+    - Lotes diferidos por el usuario
+    - Lotes no asignados de semana 1 (si son elegibles en semana 2)
+
+    Retorna la proyección como solo lectura (tentativa).
+    """
+    semana = _get_proyeccion()
+    if semana is None:
+        raise HTTPException(404, "No hay proyección generada aún.")
+
+    diferidos = storage.load_lotes_diferidos() or []
+
+    # Reunir lotes para semana 2 como LoteOferta
+    ofertas_s2: list[LoteOferta] = []
+    params = _get_parametros()
+
+    # 1) Lotes diferidos → LoteOferta
+    for d in diferidos:
+        fecha_peso = date.fromisoformat(d["fecha_peso_original"]) if d.get("fecha_peso_original") else semana.fecha_inicio
+        ganancia = d.get("ganancia_diaria_original") or params.ganancia_diaria_macho
+        fecha_ingreso = date.fromisoformat(d["fecha_ingreso_original"]) if d.get("fecha_ingreso_original") else fecha_peso
+        ofertas_s2.append(LoteOferta(
+            fecha_peso=fecha_peso,
+            granja=d["granja"],
+            galpon=d["galpon"],
+            nucleo=d["nucleo"],
+            cantidad=d["cantidad"],
+            sexo=d["sexo"],
+            edad_proyectada=d["edad_actual"],
+            peso_muestreo_proy=d["peso_actual"],
+            ganancia_diaria=ganancia,
+            dias_proyectados=0,
+            edad_real=d["edad_actual"],
+            peso_muestreo_real=d["peso_actual"],
+            fecha_ingreso=fecha_ingreso,
+        ))
+
+    # 2) Lotes no asignados de semana 1 → buscar en ofertas originales
+    ofertas_originales = _get_ofertas()
+    if semana.lotes_no_asignados and ofertas_originales:
+        ofertas_index: dict[tuple, LoteOferta] = {}
+        for o in ofertas_originales:
+            key = (o.granja, o.galpon, o.nucleo, o.sexo,
+                   o.fecha_ingreso.isoformat() if o.fecha_ingreso else "")
+            ofertas_index[key] = o
+        for lote_na in semana.lotes_no_asignados:
+            key = (lote_na.granja, lote_na.galpon, lote_na.nucleo, lote_na.sexo,
+                   lote_na.fecha_ingreso.isoformat() if lote_na.fecha_ingreso else "")
+            oferta_orig = ofertas_index.get(key)
+            if oferta_orig:
+                ofertas_s2.append(oferta_orig)
+
+    if not ofertas_s2:
+        return {
+            "tiene_datos": False,
+            "proyeccion": None,
+            "lotes_diferidos": diferidos,
+            "total_diferidos": len(diferidos),
+            "mensaje": "No hay lotes diferidos ni no asignados para proyectar en semana 2.",
+        }
+
+    # Fecha inicio semana 2: siguiente lunes después de semana 1
+    fecha_inicio_s2 = semana.fecha_inicio + timedelta(days=7)
+
+    # Obtener feriados para el rango de semana 2
+    fecha_fin_s2 = fecha_inicio_s2 + timedelta(days=13)
+    feriados_custom = storage.load_feriados_custom() or []
+    feriados = obtener_feriados_rango(
+        fecha_inicio_s2, fecha_fin_s2,
+        feriados_custom=feriados_custom if feriados_custom else None,
+    )
+
+    semana2 = generar_proyeccion(
+        ofertas=ofertas_s2,
+        fecha_inicio_semana=fecha_inicio_s2,
+        dias_faena=5,
+        pollos_por_dia=params.pollos_diarios_objetivo_max,
+        params=params,
+        feriados=feriados if feriados else None,
+    )
+
+    return {
+        "tiene_datos": True,
+        "proyeccion": semana2.model_dump(),
+        "lotes_diferidos": diferidos,
+        "total_diferidos": len(diferidos),
+        "lotes_no_asignados_s1": len(semana.lotes_no_asignados),
+    }
+
+
+@app.get("/proyeccion/lotes-diferidos")
+def get_lotes_diferidos(current_user: TokenData = Depends(get_current_user)):
+    """Retorna la lista de lotes diferidos a semana 2."""
+    diferidos = storage.load_lotes_diferidos() or []
+    return {
+        "lotes_diferidos": diferidos,
+        "total_diferidos": len(diferidos),
+        "total_pollos": sum(d.get("cantidad", 0) for d in diferidos),
+    }
+
+
+@app.delete("/proyeccion/lotes-diferidos")
+def clear_lotes_diferidos(current_user: TokenData = Depends(get_current_user)):
+    """Limpia todos los lotes diferidos."""
+    storage.delete_lotes_diferidos()
+    return {"message": "Lotes diferidos limpiados."}
+
+
 # ─── Pronóstico de Pesos ────────────────────────────────────────────────────────
 
 @app.get("/pronostico/pesos")
@@ -2273,3 +2548,21 @@ def get_pronostico_pesos(current_user: TokenData = Depends(get_current_user)):
         "dias": dias_resumen,
         "granjas": granjas_resumen,
     }
+
+
+# ─── Alerta Temprana ────────────────────────────────────────────────────────────
+
+@app.get("/pronostico/alerta-temprana")
+def get_alerta_temprana(current_user: TokenData = Depends(get_current_user)):
+    """
+    Analiza todos los lotes de la oferta y proyecta anticipadamente
+    cuáles llegarán al rango de peso ideal para faena y cuáles no.
+    Permite detectar problemas de peso días antes de la semana de faena.
+    """
+    params = _get_parametros()
+    ofertas = _get_ofertas()
+
+    if not ofertas:
+        raise HTTPException(404, "No hay ofertas cargadas.")
+
+    return calcular_alerta_temprana(ofertas, params)

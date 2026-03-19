@@ -397,3 +397,20 @@ def load_deficit() -> Optional[dict]:
 
 def delete_deficit() -> None:
     get_storage().delete(DEFICIT_KEY)
+
+
+# ─── Lotes Diferidos (semana 1 → semana 2) ──────────────────────────────────────
+
+LOTES_DIFERIDOS_KEY = "lotes_diferidos"
+
+
+def save_lotes_diferidos(data: list[dict]) -> None:
+    get_storage().save(LOTES_DIFERIDOS_KEY, data)
+
+
+def load_lotes_diferidos() -> Optional[list[dict]]:
+    return get_storage().load(LOTES_DIFERIDOS_KEY)
+
+
+def delete_lotes_diferidos() -> None:
+    get_storage().delete(LOTES_DIFERIDOS_KEY)

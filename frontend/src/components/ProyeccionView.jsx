@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2, Factory } from 'lucide-react'
+import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2, Factory, ArrowRight, Undo2, Clock } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia, agregarLote, getAnalisisTerceros, cargarDeficit, getParametros } from '../services/api'
+import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia, agregarLote, getAnalisisTerceros, cargarDeficit, getParametros, diferirLote, restaurarLoteSemana1, getSemana2, clearLotesDiferidos } from '../services/api'
 import { exportProyeccionPDF } from '../utils/pdfExport'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
@@ -92,7 +92,62 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
     capacidad_con_horas_extras: 45000,
     limite_sabado: 20000,
   })
+  const [semana2Data, setSemana2Data] = useState(null)
+  const [semana2Loading, setSemana2Loading] = useState(false)
+  const [semana2Open, setSemana2Open] = useState(false)
+  const [diferirLoading, setDiferirLoading] = useState(null) // 'diaIdx-loteIdx'
   const ajusteInputRef = React.useRef(null)
+
+  // Cargar semana 2 cuando cambia la proyección
+  const cargarSemana2 = async () => {
+    setSemana2Loading(true)
+    try {
+      const data = await getSemana2()
+      setSemana2Data(data)
+    } catch {
+      setSemana2Data(null)
+    } finally {
+      setSemana2Loading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (proyeccion?.dias?.length) cargarSemana2()
+  }, [proyeccion?.total_pollos_semana])
+
+  const handleDiferir = async (diaIdx, loteIdx, motivo = '') => {
+    setDiferirLoading(`${diaIdx}-${loteIdx}`)
+    try {
+      const data = await diferirLote(diaIdx, loteIdx, motivo)
+      setProyeccion(data.proyeccion)
+      toast.success(`Lote diferido a Semana 2 (${data.total_diferidos} diferidos)`)
+    } catch (err) {
+      toast.error('Error al diferir: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setDiferirLoading(null)
+    }
+  }
+
+  const handleRestaurar = async (diferidoIndex, diaDestino = null) => {
+    try {
+      const data = await restaurarLoteSemana1(diferidoIndex, diaDestino)
+      setProyeccion(data.proyeccion)
+      toast.success(`Lote restaurado a Semana 1 (${getDiaNombre(proyeccion.dias[data.dia_destino]?.fecha)})`)
+    } catch (err) {
+      toast.error('Error al restaurar: ' + (err.response?.data?.detail || err.message))
+    }
+  }
+
+  const handleLimpiarDiferidos = async () => {
+    if (!window.confirm('¿Limpiar todos los lotes diferidos a Semana 2?')) return
+    try {
+      await clearLotesDiferidos()
+      setSemana2Data(null)
+      toast.success('Lotes diferidos limpiados')
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error al limpiar diferidos')
+    }
+  }
 
   // Cargar parámetros y análisis de déficit al montar o cuando cambia la proyección
   useEffect(() => {
@@ -1432,6 +1487,18 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                           <ArrowLeftRight size={12} style={{ marginRight: 2 }} /> Mover
                         </button>
                         <button
+                          className="btn btn-sm btn-outline"
+                          style={{ borderColor: '#6366f1', color: '#6366f1' }}
+                          onClick={() => handleDiferir(diaIdx, loteIdx)}
+                          disabled={diferirLoading === `${diaIdx}-${loteIdx}`}
+                          title="Diferir este lote a Semana 2"
+                        >
+                          {diferirLoading === `${diaIdx}-${loteIdx}`
+                            ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                            : <><ArrowRight size={12} style={{ marginRight: 2 }} /> S2</>
+                          }
+                        </button>
+                        <button
                           className="btn btn-sm btn-danger"
                           onClick={() => handleDelete(diaIdx, loteIdx)}
                         >
@@ -1548,6 +1615,253 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
           </div>
         </motion.div>
       )}
+
+      {/* ═══ Semana 2 — Proyección Tentativa ═══ */}
+      <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid #6366f1', marginTop: '1.5rem' }}>
+        <div
+          className="card-header"
+          style={{ cursor: 'pointer', userSelect: 'none', background: 'rgba(99, 102, 241, 0.04)' }}
+          onClick={() => { setSemana2Open(!semana2Open); if (!semana2Open && !semana2Data) cargarSemana2() }}
+        >
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Clock size={18} color="#6366f1" />
+            Semana 2 — Proyección Tentativa
+            <span style={{
+              padding: '0.15rem 0.5rem',
+              background: 'rgba(99, 102, 241, 0.12)',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              borderRadius: 12,
+              fontSize: '0.7rem',
+              color: '#6366f1',
+              fontWeight: 600,
+            }}>
+              TENTATIVA
+            </span>
+            {semana2Data?.total_diferidos > 0 && (
+              <span style={{
+                padding: '0.15rem 0.5rem',
+                background: 'rgba(99, 102, 241, 0.08)',
+                borderRadius: 12,
+                fontSize: '0.72rem',
+                color: '#6366f1',
+              }}>
+                {semana2Data.total_diferidos} lote{semana2Data.total_diferidos > 1 ? 's' : ''} diferido{semana2Data.total_diferidos > 1 ? 's' : ''}
+              </span>
+            )}
+          </h2>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
+            {semana2Open ? '▲ Cerrar' : '▼ Abrir'}
+          </span>
+        </div>
+        <AnimatePresence>
+          {semana2Open && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              style={{ overflow: 'hidden' }}
+            >
+              <div className="card-body">
+                {semana2Loading ? (
+                  <div style={{ textAlign: 'center', padding: '2rem' }}>
+                    <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#6366f1' }} />
+                    <p style={{ marginTop: '0.5rem', color: 'var(--text-light)', fontSize: '0.9rem' }}>Generando proyección tentativa...</p>
+                  </div>
+                ) : !semana2Data?.tiene_datos ? (
+                  <div style={{ textAlign: 'center', padding: '2rem' }}>
+                    <p style={{ color: 'var(--text-light)', fontSize: '0.9rem' }}>
+                      No hay lotes diferidos ni no asignados para proyectar en Semana 2.
+                    </p>
+                    <p style={{ color: 'var(--text-light)', fontSize: '0.82rem', marginTop: '0.5rem' }}>
+                      Use el botón <strong style={{ color: '#6366f1' }}>S2</strong> en cualquier lote para diferirlo a la semana siguiente.
+                    </p>
+                  </div>
+                ) : (() => {
+                  const s2 = semana2Data.proyeccion
+                  const diferidos = semana2Data.lotes_diferidos || []
+                  return (
+                    <>
+                      {/* Info banner */}
+                      <div style={{
+                        padding: '0.7rem 1rem',
+                        background: 'rgba(99, 102, 241, 0.06)',
+                        border: '1px solid rgba(99, 102, 241, 0.2)',
+                        borderRadius: 8,
+                        marginBottom: '1rem',
+                        fontSize: '0.85rem',
+                        color: '#4f46e5',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        flexWrap: 'wrap',
+                        gap: 8,
+                      }}>
+                        <span>
+                          Proyección indicativa para la semana del <strong>{formatDate(s2.fecha_inicio)}</strong> al <strong>{formatDate(s2.fecha_fin)}</strong>.
+                          {semana2Data.lotes_no_asignados_s1 > 0 && (
+                            <> Incluye {semana2Data.lotes_no_asignados_s1} lote{semana2Data.lotes_no_asignados_s1 > 1 ? 's' : ''} no asignados de S1.</>
+                          )}
+                        </span>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            className="btn btn-sm btn-outline"
+                            style={{ borderColor: '#6366f1', color: '#6366f1', fontSize: '0.78rem' }}
+                            onClick={cargarSemana2}
+                            disabled={semana2Loading}
+                          >
+                            <RefreshCw size={12} /> Actualizar
+                          </button>
+                          {diferidos.length > 0 && (
+                            <button
+                              className="btn btn-sm btn-outline"
+                              style={{ borderColor: '#ef4444', color: '#ef4444', fontSize: '0.78rem' }}
+                              onClick={handleLimpiarDiferidos}
+                            >
+                              <X size={12} /> Limpiar diferidos
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* KPIs Semana 2 */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
+                        <div className="stat-card" style={{ borderLeft: '3px solid #6366f1' }}>
+                          <div className="stat-label">Total Pollos S2</div>
+                          <div className="stat-value" style={{ color: '#6366f1' }}>{formatNumber(s2.total_pollos_semana)}</div>
+                        </div>
+                        <div className="stat-card" style={{ borderLeft: '3px solid #6366f1' }}>
+                          <div className="stat-label">Prom. Edad S2</div>
+                          <div className="stat-value" style={{ color: '#6366f1' }}>{s2.promedio_edad_semana?.toFixed(1)}</div>
+                        </div>
+                        <div className="stat-card" style={{ borderLeft: '3px solid #6366f1' }}>
+                          <div className="stat-label">Cajas S2</div>
+                          <div className="stat-value" style={{ color: '#6366f1' }}>{formatNumber(s2.produccion_cajas_semanales)}</div>
+                        </div>
+                        <div className="stat-card" style={{ borderLeft: '3px solid #6366f1' }}>
+                          <div className="stat-label">Días de Faena</div>
+                          <div className="stat-value" style={{ color: '#6366f1' }}>{s2.dias?.length || 0}</div>
+                        </div>
+                      </div>
+
+                      {/* Lotes diferidos — con botón restaurar */}
+                      {diferidos.length > 0 && (
+                        <div style={{ marginBottom: '1rem' }}>
+                          <h3 style={{ fontSize: '0.9rem', fontWeight: 600, color: '#6366f1', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <ArrowRight size={14} /> Lotes diferidos de Semana 1
+                          </h3>
+                          <div className="table-container" style={{ maxHeight: 200, overflowY: 'auto' }}>
+                            <table>
+                              <thead>
+                                <tr>
+                                  <th>Granja</th>
+                                  <th>Galpón</th>
+                                  <th>Núcleo</th>
+                                  <th className="text-right">Cantidad</th>
+                                  <th>Sexo</th>
+                                  <th>Origen S1</th>
+                                  <th>Motivo</th>
+                                  <th>Acción</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {diferidos.map((d, idx) => (
+                                  <tr key={idx}>
+                                    <td><strong>{d.granja}</strong></td>
+                                    <td className="text-center">{d.galpon}</td>
+                                    <td className="text-center">{d.nucleo}</td>
+                                    <td className="text-right">{formatNumber(d.cantidad)}</td>
+                                    <td className="text-center">{d.sexo}</td>
+                                    <td>{getDiaNombre(d.dia_origen_fecha)}</td>
+                                    <td style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>{d.motivo || '-'}</td>
+                                    <td>
+                                      <button
+                                        className="btn btn-sm btn-outline"
+                                        style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', borderColor: '#6366f1', color: '#6366f1' }}
+                                        onClick={() => handleRestaurar(idx)}
+                                        title="Restaurar este lote a Semana 1"
+                                      >
+                                        <Undo2 size={11} style={{ marginRight: 2 }} /> Restaurar
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Grilla de días Semana 2 (solo lectura) */}
+                      {s2.dias && s2.dias.length > 0 && (
+                        <div className="proyeccion-grid">
+                          {s2.dias.map((dia, diaIdx) => (
+                            <div className="day-column" key={diaIdx} style={{ opacity: 0.88, borderColor: '#6366f180' }}>
+                              <div className="day-header" style={{ background: 'rgba(99, 102, 241, 0.06)' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                  <span>{getDiaNombre(dia.fecha)}</span>
+                                  <span style={{ fontSize: '0.7rem', color: '#6366f1' }}>S2</span>
+                                </div>
+                                <span className="day-total" style={{ color: '#6366f1' }}>{formatNumber(dia.total_pollos)}</span>
+                              </div>
+                              <div className="day-body">
+                                {dia.lotes.length === 0 ? (
+                                  <p style={{ textAlign: 'center', color: 'var(--text-light)', padding: '0.75rem', fontSize: '0.78rem' }}>
+                                    Sin lotes
+                                  </p>
+                                ) : (
+                                  dia.lotes.map((lote, loteIdx) => (
+                                    <div
+                                      key={loteIdx}
+                                      className="lote-card"
+                                      style={{ borderLeft: '3px solid #6366f1', background: 'rgba(99, 102, 241, 0.02)' }}
+                                    >
+                                      <div className="lote-header">
+                                        <span>{lote.granja} G{lote.galpon}</span>
+                                        <span className={`badge badge-${lote.sexo === 'M' ? 'info' : lote.sexo === 'H' ? 'warning' : 'success'}`}>
+                                          {lote.sexo || '-'}
+                                        </span>
+                                      </div>
+                                      <div className="lote-detail">
+                                        <span>Pollos: {formatNumber(lote.cantidad)}</span>
+                                        <span>Edad: {lote.edad_fin_retiro}</span>
+                                      </div>
+                                      <div className="lote-detail">
+                                        <span>Peso: {lote.peso_vivo_retiro?.toFixed(2)} kg</span>
+                                        <span>Cajas: {formatNumber(lote.cajas)}</span>
+                                      </div>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                              <div className="day-summary">
+                                <span className="label">Peso prom.</span>
+                                <span className="value">{dia.peso_promedio_ponderado?.toFixed(2)} kg</span>
+                                <span className="label">Cajas</span>
+                                <span className="value">{formatNumber(dia.cajas_totales)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Lotes fuera de rango en S2 */}
+                      {s2.lotes_fuera_rango?.length > 0 && (
+                        <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.8rem', background: 'rgba(239, 68, 68, 0.06)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: 8, fontSize: '0.82rem' }}>
+                          <strong style={{ color: '#ef4444' }}>{s2.lotes_fuera_rango.length} lotes fuera de rango en S2</strong>
+                          <span style={{ color: 'var(--text-light)', marginLeft: 8 }}>
+                            ({formatNumber(s2.total_pollos_fuera_rango)} pollos) — No alcanzan edad/peso para la semana 2.
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+
     </motion.div>
   )
 }
