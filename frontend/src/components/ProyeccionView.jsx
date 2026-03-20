@@ -1619,11 +1619,16 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ delay: loteIdx * 0.05 }}
                       className="lote-card"
-                      style={lote.es_compra_terceros ? { borderLeft: '3px solid #7c3aed', background: 'rgba(168,85,247,0.03)' } : undefined}
+                      style={lote.sobreedad ? { borderLeft: '3px solid #f59e0b', background: 'rgba(245,158,11,0.04)' } : lote.es_compra_terceros ? { borderLeft: '3px solid #7c3aed', background: 'rgba(168,85,247,0.03)' } : undefined}
                     >
                       <div className="lote-header">
                         <span>{lote.granja} G{lote.galpon}</span>
                         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          {lote.sobreedad && (
+                            <span title="Lote sobreedad/sobrepeso — asignado con prioridad" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '0.1rem 0.4rem', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 12, fontSize: '0.65rem', color: '#d97706', fontWeight: 600 }}>
+                              <AlertTriangle size={10} /> Sobreedad
+                            </span>
+                          )}
                           {lote.es_compra_terceros && (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '0.1rem 0.4rem', background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: 12, fontSize: '0.65rem', color: '#7c3aed', fontWeight: 600 }}>
                               <ShoppingCart size={10} /> Terceros
@@ -1731,7 +1736,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                   {dias.map((dia, diaIdx) => (
                     <React.Fragment key={`day-${diaIdx}`}>
                       {dia.lotes.map((lote, loteIdx) => (
-                        <tr key={`${diaIdx}-${loteIdx}`} style={lote.es_compra_terceros ? { background: 'rgba(168,85,247,0.04)' } : undefined}>
+                        <tr key={`${diaIdx}-${loteIdx}`} style={lote.sobreedad ? { background: 'rgba(245,158,11,0.06)' } : lote.es_compra_terceros ? { background: 'rgba(168,85,247,0.04)' } : undefined}>
                           {loteIdx === 0 && (
                             <td rowSpan={dia.lotes.length + 1} style={{ verticalAlign: 'top', fontWeight: 600 }}>
                               {getDiaNombre(dia.fecha)}
@@ -1740,6 +1745,11 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                           <td>{formatDate(dia.fecha)}</td>
                           <td>
                             <strong>{lote.granja}</strong>
+                            {lote.sobreedad && (
+                              <span title="Lote sobreedad/sobrepeso — asignado con prioridad" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 6, padding: '0.1rem 0.4rem', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 12, fontSize: '0.6rem', color: '#d97706', fontWeight: 600 }}>
+                                <AlertTriangle size={9} /> Sobreedad
+                              </span>
+                            )}
                             {lote.es_compra_terceros && (
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 6, padding: '0.1rem 0.4rem', background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: 12, fontSize: '0.6rem', color: '#7c3aed', fontWeight: 600 }}>
                                 <ShoppingCart size={9} /> Terceros

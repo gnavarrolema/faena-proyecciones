@@ -39,6 +39,7 @@ def test_respeta_tope_diario_maximo_y_reporta_no_asignados():
         pollos_diarios_objetivo_min=25000,
         pollos_diarios_objetivo_max=35000,
         capacidad_maxima_planta=35000,
+        capacidad_con_horas_extras=35000,  # sin horas extras disponibles
         edad_min_faena=38,
         edad_max_faena=43,
         peso_min_faena=2.8,

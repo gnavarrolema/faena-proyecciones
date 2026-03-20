@@ -73,6 +73,7 @@ class LoteProyectado(BaseModel):
     calibre_promedio_diario: Optional[float] = None
     pollos_dia: Optional[int] = None
     produccion_cajas_semanales: Optional[float] = None
+    sobreedad: bool = False  # True si supera edad_max o peso_max (urgente)
     # Datos originales de la oferta para recálculo (mover lote, etc.)
     fecha_peso_original: Optional[date] = None
     ganancia_diaria_original: Optional[float] = None
@@ -545,12 +546,8 @@ def _detalle_rechazo_dia(
     razones = []
     if edad_fin < params.edad_min_faena:
         razones.append(f"Edad {edad_fin} < mín {params.edad_min_faena}")
-    if edad_fin > params.edad_max_faena:
-        razones.append(f"Edad {edad_fin} > máx {params.edad_max_faena}")
     if peso_proy < params.peso_min_faena:
         razones.append(f"Peso {peso_proy:.2f} < mín {params.peso_min_faena:.2f}")
-    if peso_proy > params.peso_max_faena:
-        razones.append(f"Peso {peso_proy:.2f} > máx {params.peso_max_faena:.2f}")
     return {
         "fecha": fecha_dia.isoformat(),
         "edad_proyectada": edad_fin,
@@ -564,7 +561,12 @@ def _construir_motivo_fuera_rango(
     fechas_dias: List[date],
     params: Parametros,
 ) -> str:
-    """Construye un motivo resumido de por qué el lote está fuera de rango."""
+    """Construye un motivo resumido de por qué el lote está fuera de rango.
+
+    Solo se llama para lotes que no cumplen los límites DUROS (edad_min,
+    peso_min). Lotes que superan edad_max/peso_max son elegibles y urgentes,
+    no llegan aquí.
+    """
     edad_primer = calcular_edad_fin_retiro_v2(
         fechas_dias[0], oferta.fecha_peso, oferta.edad_proyectada,
         dias_proyectados=oferta.dias_proyectados,
@@ -579,13 +581,9 @@ def _construir_motivo_fuera_rango(
     razones = []
     if edad_ultimo < params.edad_min_faena:
         razones.append(f"Edad: {edad_primer}–{edad_ultimo} días (mín. {params.edad_min_faena})")
-    elif edad_primer > params.edad_max_faena:
-        razones.append(f"Edad: {edad_primer}–{edad_ultimo} días (máx. {params.edad_max_faena})")
 
     if peso_ultimo < params.peso_min_faena:
         razones.append(f"Peso: {peso_primer:.2f}–{peso_ultimo:.2f} kg (mín. {params.peso_min_faena:.2f})")
-    elif peso_primer > params.peso_max_faena:
-        razones.append(f"Peso: {peso_primer:.2f}–{peso_ultimo:.2f} kg (máx. {params.peso_max_faena:.2f})")
 
     return "; ".join(razones) if razones else "Fuera de rango edad/peso en todos los días"
 
@@ -597,22 +595,34 @@ def evaluar_elegibilidad_lote(
 ) -> Optional[tuple]:
     """
     Evalúa si un lote es elegible para un día de faena específico.
-    Retorna (peso_proy, edad_fin) si es elegible, None si no.
+    Retorna (peso_proy, edad_fin, sobreedad) si es elegible, None si no.
+
+    Límites duros (rechazan): edad_min, peso_min — no se puede faenar
+    un pollo inmaduro o demasiado liviano.
+
+    Límites blandos (elegible pero urgente): edad_max, peso_max — un
+    lote que supera la edad o peso máximo DEBE faenarse, no puede
+    ignorarse.
     """
     edad_fin = calcular_edad_fin_retiro_v2(
         fecha_dia, oferta.fecha_peso, oferta.edad_proyectada,
         dias_proyectados=oferta.dias_proyectados,
     )
 
-    if edad_fin < params.edad_min_faena or edad_fin > params.edad_max_faena:
+    # Límite duro: edad mínima (no se puede faenar pollo inmaduro)
+    if edad_fin < params.edad_min_faena:
         return None
 
     peso_proy = _peso_proyectado_en_fecha(oferta, fecha_dia, params)
 
-    if peso_proy < params.peso_min_faena or peso_proy > params.peso_max_faena:
+    # Límite duro: peso mínimo (no se puede faenar pollo muy liviano)
+    if peso_proy < params.peso_min_faena:
         return None
 
-    return (peso_proy, edad_fin)
+    # Límites blandos: edad/peso máximo → lote elegible pero urgente
+    sobreedad = edad_fin > params.edad_max_faena or peso_proy > params.peso_max_faena
+
+    return (peso_proy, edad_fin, sobreedad)
 
 
 def generar_proyeccion(
@@ -724,8 +734,8 @@ def generar_proyeccion(
         for d_idx, fecha_dia in enumerate(fechas_dias):
             resultado = evaluar_elegibilidad_lote(oferta, fecha_dia, params)
             if resultado:
-                peso_proy, edad_fin = resultado
-                dias_elegibles.append((d_idx, peso_proy, edad_fin))
+                peso_proy, edad_fin, sobreedad = resultado
+                dias_elegibles.append((d_idx, peso_proy, edad_fin, sobreedad))
             else:
                 detalle_rechazo.append(
                     _detalle_rechazo_dia(oferta, fecha_dia, params)
@@ -760,7 +770,7 @@ def generar_proyeccion(
         for i in list(elegibilidad.keys()):
             if i in asignados or i in no_asignados:
                 continue
-            dias_eleg = [d for d, _, _ in elegibilidad[i]]
+            dias_eleg = [d for d, _, _, _ in elegibilidad[i]]
             if len(dias_eleg) == 1:
                 dia_unico = dias_eleg[0]
                 if _puede_asignarse(i, dia_unico):
@@ -780,7 +790,7 @@ def generar_proyeccion(
                 i for i, dias_eleg in elegibilidad.items()
                 if i not in asignados
                 and i not in no_asignados
-                and any(d == d_idx for d, _, _ in dias_eleg)
+                and any(d == d_idx for d, _, _, _ in dias_eleg)
             ]
             if len(candidatos_dia) == 1:
                 lote_idx = candidatos_dia[0]
@@ -794,37 +804,82 @@ def generar_proyeccion(
                     )
                 cambio = True
 
+    # ── Fase 2.5: Asignación prioritaria de lotes sobreedad ─────────────
+    # Solo lotes que son sobreedad en TODOS sus días elegibles (realmente
+    # urgentes — no tienen ningún día dentro del rango normal). Lotes que
+    # son sobreedad solo en algunos días se asignan en Fase 3, que los
+    # ubicará en un día no-sobreedad con mejor edad ideal.
+    sobreedad_restantes = [
+        i for i in elegibilidad
+        if i not in asignados and i not in no_asignados
+        and all(s for _, _, _, s in elegibilidad[i])
+    ]
+    # Los más viejos/pesados primero
+    sobreedad_restantes.sort(key=lambda i: (
+        -max(e for _, _, e, _ in elegibilidad[i]),
+        -ofertas[i].cantidad,
+    ))
+    for i in sobreedad_restantes:
+        dias_eleg = elegibilidad[i]
+        # Asignar al día elegible con mayor capacidad remanente
+        mejor_dia = None
+        mayor_margen = -1
+        for d_idx, peso_proy, edad_fin, _ in dias_eleg:
+            if _puede_asignarse(i, d_idx):
+                margen = _capacidad_dia(d_idx) - pollos_dia[d_idx]
+                if margen > mayor_margen:
+                    mayor_margen = margen
+                    mejor_dia = d_idx
+        if mejor_dia is not None:
+            _asignar(i, mejor_dia)
+        else:
+            no_asignados[i] = (
+                "Lote sobreedad/sobrepeso urgente: excede tope diario máximo en todos los días"
+            )
+
     # ── Fase 3: Asignación flexible (lotes restantes, bajo objetivo) ───────
+    # Optimiza por edad ideal según sexo: machos (ideal 40) a días tempranos,
+    # hembras (ideal 44) a días tardíos. Ordena lotes por restricción
+    # (menos días elegibles primero) y luego por peso descendente.
     restantes = [
         i for i in elegibilidad if i not in asignados and i not in no_asignados
     ]
-    # Ordenar por peso descendente (faenar los más pesados primero)
-    restantes_con_peso = []
+    restantes_con_info = []
     for i in restantes:
-        peso_max = max(p for _, p, _ in elegibilidad[i])
-        restantes_con_peso.append((i, peso_max))
-    restantes_con_peso.sort(key=lambda x: (-x[1], -ofertas[x[0]].cantidad))
+        peso_max = max(p for _, p, _, _ in elegibilidad[i])
+        n_dias = len(elegibilidad[i])
+        restantes_con_info.append((i, peso_max, n_dias))
+    # Más restringidos primero (menos días elegibles), luego más pesados
+    restantes_con_info.sort(key=lambda x: (x[2], -x[1], -ofertas[x[0]].cantidad))
 
     pendientes = []
 
-    for i, _ in restantes_con_peso:
+    for i, _, _ in restantes_con_info:
         dias_eleg = elegibilidad[i]
+        sexo = ofertas[i].sexo
 
-        # Buscar día elegible con mayor déficit respecto al objetivo.
-        # A igual déficit, preferir el día más temprano (los pollos pesados
-        # deben faenarse cuanto antes para evitar exceder peso máximo).
+        # Para cada día elegible con capacidad, calcular score combinado:
+        #   1) Minimizar |diferencia_edad_ideal| (prioridad principal)
+        #   2) Mayor déficit respecto al objetivo (desempate)
+        #   3) Día más temprano (último desempate)
         mejor_dia = None
-        mayor_deficit = -1
+        mejor_score = None
 
-        for d_idx, peso_proy, edad_fin in dias_eleg:
+        for d_idx, peso_proy, edad_fin, _ in dias_eleg:
             if not _puede_asignarse(i, d_idx):
                 continue
             obj = _objetivo_dia(d_idx)
             deficit = obj - pollos_dia[d_idx]
-            if deficit > 0 and (deficit > mayor_deficit or
-                                (deficit == mayor_deficit and
-                                 (mejor_dia is None or d_idx < mejor_dia))):
-                mayor_deficit = deficit
+            if deficit <= 0:
+                continue
+
+            dif_edad = abs(diferencia_edad_ideal(sexo, edad_fin, params))
+            # Tupla de score: menor dif_edad es mejor (negamos),
+            # mayor deficit es mejor, día más temprano es mejor (negamos)
+            score = (-dif_edad, deficit, -d_idx)
+
+            if mejor_score is None or score > mejor_score:
+                mejor_score = score
                 mejor_dia = d_idx
 
         if mejor_dia is not None:
@@ -839,7 +894,7 @@ def generar_proyeccion(
         mejor_dia = None
         mejor_pollos = float("inf")
 
-        for d_idx, peso_proy, edad_fin in dias_eleg:
+        for d_idx, peso_proy, edad_fin, _ in dias_eleg:
             pollos_actuales = pollos_dia[d_idx]
             if _puede_asignarse(i, d_idx) and pollos_actuales < mejor_pollos:
                 mejor_pollos = pollos_actuales
@@ -852,6 +907,34 @@ def generar_proyeccion(
                 "Excede tope diario máximo en todos los días elegibles"
             )
 
+    # ── Fase 5: Horas extras — segunda oportunidad con capacidad extendida ─
+    # Lotes que no cupieron bajo capacidad normal pueden asignarse con horas
+    # extras (capacidad_con_horas_extras). Se prefiere el día menos cargado.
+    def _capacidad_dia_extras(d_idx: int) -> int:
+        fecha = fechas_dias[d_idx]
+        es_sabado = fecha.weekday() == 5
+        # Sábados no tienen horas extras: mantienen limite_sabado
+        cap_base = params.limite_sabado if es_sabado else params.capacidad_con_horas_extras
+        gall = _gallinas_total(fecha.isoformat())
+        return max(0, cap_base - gall)
+
+    def _puede_asignarse_extras(lote_idx: int, dia_idx: int) -> bool:
+        return pollos_dia[dia_idx] + ofertas[lote_idx].cantidad <= _capacidad_dia_extras(dia_idx)
+
+    lotes_aun_no_asignados = [i for i in no_asignados if i in elegibilidad]
+    for i in lotes_aun_no_asignados:
+        dias_eleg = elegibilidad[i]
+        mejor_dia = None
+        mejor_pollos = float("inf")
+        for d_idx, _, _, _ in dias_eleg:
+            pollos_actuales = pollos_dia[d_idx]
+            if _puede_asignarse_extras(i, d_idx) and pollos_actuales < mejor_pollos:
+                mejor_pollos = pollos_actuales
+                mejor_dia = d_idx
+        if mejor_dia is not None:
+            _asignar(i, mejor_dia)
+            del no_asignados[i]
+
     # ── Construir DiaFaena con lotes proyectados ────────────────────────────
     dias_resultado: List[DiaFaena] = []
 
@@ -862,16 +945,19 @@ def generar_proyeccion(
         lotes_con_peso = []
         for i in lotes_indices:
             peso_dia = 0.0
-            for d, p, e in elegibilidad[i]:
+            sobreedad_en_dia = False
+            for d, p, e, s in elegibilidad[i]:
                 if d == d_idx:
                     peso_dia = p
+                    sobreedad_en_dia = s
                     break
-            lotes_con_peso.append((i, peso_dia))
+            lotes_con_peso.append((i, peso_dia, sobreedad_en_dia))
 
         lotes_con_peso.sort(key=lambda x: -x[1])
 
-        for i, _ in lotes_con_peso:
+        for i, _, es_sobreedad in lotes_con_peso:
             lote = calcular_lote_proyectado(ofertas[i], fecha_dia, params)
+            lote.sobreedad = es_sobreedad
             lotes_dia.append(lote)
 
         gall_total = _gallinas_total(fecha_dia.isoformat())
@@ -885,7 +971,7 @@ def generar_proyeccion(
     lotes_no_asignados_resultado: List[LoteNoAsignado] = []
     for i, motivo in no_asignados.items():
         oferta = ofertas[i]
-        dias = [fechas_dias[d] for d, _, _ in elegibilidad.get(i, [])]
+        dias = [fechas_dias[d] for d, _, _, _ in elegibilidad.get(i, [])]
         lotes_no_asignados_resultado.append(
             LoteNoAsignado(
                 granja=oferta.granja,
@@ -982,7 +1068,7 @@ def _intentar_asignar_lotes_nuevos(
         for d_idx, dia in enumerate(dias):
             resultado = evaluar_elegibilidad_lote(oferta, dia.fecha, params)
             if resultado:
-                peso_proy, edad_fin = resultado
+                peso_proy, edad_fin, _sobreedad = resultado
                 dias_elegibles.append((d_idx, peso_proy, edad_fin))
             else:
                 detalle_rechazo.append(
@@ -1049,7 +1135,7 @@ def _intentar_asignar_lotes_nuevos(
                 "dia": dia_nombre,
             })
         else:
-            dias_eleg_fechas = [dias[d].fecha for d, _, _ in dias_elegibles]
+            dias_eleg_fechas = [dias[d].fecha for d, _, _s in dias_elegibles]
             no_asignados_resultado.append(
                 LoteNoAsignado(
                     granja=oferta.granja,
