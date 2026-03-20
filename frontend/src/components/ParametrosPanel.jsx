@@ -4,7 +4,7 @@ import { Settings2, Save, CheckCircle2, AlertCircle, Download } from 'lucide-rea
 import { getParametros, updateParametros } from '../services/api'
 import { exportParametrosPDF } from '../utils/pdfExport'
 
-export default function ParametrosPanel() {
+export default function ParametrosPanel({ onParametrosUpdated } = {}) {
   const [params, setParams] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -31,7 +31,10 @@ export default function ParametrosPanel() {
     try {
       const data = await updateParametros(params)
       setParams(data)
-      setMessage({ type: 'success', text: 'Parámetros guardados correctamente' })
+      if (data.proyeccion_recalculada && onParametrosUpdated) {
+        onParametrosUpdated()
+      }
+      setMessage({ type: 'success', text: data.proyeccion_recalculada ? 'Parámetros guardados y proyección recalculada' : 'Parámetros guardados correctamente' })
       setTimeout(() => setMessage(null), 3000)
     } catch {
       setMessage({ type: 'error', text: 'Error al guardar' })

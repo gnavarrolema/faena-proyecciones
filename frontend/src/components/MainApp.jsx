@@ -183,7 +183,14 @@ const MainApp = () => {
                             )}
 
                             {activeTab === 'parametros' && (
-                                <ParametrosPanel />
+                                <ParametrosPanel
+                                    onParametrosUpdated={async () => {
+                                        try {
+                                            const proy = await getProyeccion()
+                                            if (proy?.dias) setProyeccion(proy)
+                                        } catch { /* no projection */ }
+                                    }}
+                                />
                             )}
                         </motion.div>
                     </AnimatePresence>

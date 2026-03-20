@@ -399,6 +399,19 @@ def delete_deficit() -> None:
     get_storage().delete(DEFICIT_KEY)
 
 
+# ─── Configuración de generación de proyección ──────────────────────────────────
+
+PROYECCION_CONFIG_KEY = "proyeccion_config"
+
+
+def save_proyeccion_config(config: dict) -> None:
+    get_storage().save(PROYECCION_CONFIG_KEY, config)
+
+
+def load_proyeccion_config() -> Optional[dict]:
+    return get_storage().load(PROYECCION_CONFIG_KEY)
+
+
 # ─── Lotes Diferidos (semana 1 → semana 2) ──────────────────────────────────────
 
 LOTES_DIFERIDOS_KEY = "lotes_diferidos"

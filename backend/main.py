@@ -436,13 +436,57 @@ def get_parametros(current_user: TokenData = Depends(get_current_user)):
 
 @app.put("/parametros")
 def update_parametros(update: ParametrosUpdate, current_user: TokenData = Depends(get_current_user)):
-    """Actualizar parámetros de cálculo."""
+    """Actualizar parámetros de cálculo y recalcular proyección si existe."""
     current = _get_parametros().model_dump()
     for key, value in update.model_dump(exclude_none=True).items():
         current[key] = value
     params = Parametros(**current)
     storage.save_parametros(params.model_dump())
-    return params
+
+    # Recalcular proyección existente con los nuevos parámetros
+    proyeccion_recalculada = False
+    proyeccion = _get_proyeccion()
+    if proyeccion is not None:
+        ofertas = _get_ofertas()
+        if ofertas:
+            try:
+                config = storage.load_proyeccion_config() or {}
+                fecha_inicio = proyeccion.fecha_inicio
+                dias_faena = config.get("dias_faena", len(proyeccion.dias))
+                pollos_por_dia = config.get("pollos_por_dia", params.pollos_diarios_objetivo_max)
+
+                # Reconstruir feriados desde la proyección guardada
+                feriados = None
+                if proyeccion.feriados_aplicados:
+                    feriados = {f.fecha: f.nombre for f in proyeccion.feriados_aplicados}
+
+                # Reconstruir gallinas desde la proyección guardada
+                gallinas = config.get("gallinas")
+                if gallinas is None and proyeccion.eventos_gallinas:
+                    gallinas = {}
+                    for e in proyeccion.eventos_gallinas:
+                        gallinas[e.fecha.isoformat()] = {
+                            "livianas": e.cantidad,
+                            "tipo": e.tipo,
+                        }
+
+                semana = generar_proyeccion(
+                    ofertas=ofertas,
+                    fecha_inicio_semana=fecha_inicio,
+                    dias_faena=dias_faena,
+                    pollos_por_dia=pollos_por_dia,
+                    params=params,
+                    feriados=feriados,
+                    gallinas=gallinas,
+                )
+                storage.save_proyeccion(semana.model_dump())
+                proyeccion_recalculada = True
+            except Exception as e:
+                logger.warning(f"Error recalculando proyección tras cambio de parámetros: {e}")
+
+    result = params.model_dump()
+    result["proyeccion_recalculada"] = proyeccion_recalculada
+    return result
 
 
 @app.post("/oferta/upload")
@@ -621,6 +665,17 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
     # Persistir proyección y parámetros usados
     storage.save_proyeccion(semana.model_dump())
     storage.save_parametros(params.model_dump())
+
+    # Guardar configuración de generación para poder recalcular al cambiar parámetros
+    storage.save_proyeccion_config({
+        "fecha_inicio_semana": req.fecha_inicio_semana.isoformat(),
+        "dias_faena": dias_faena,
+        "pollos_por_dia": req.pollos_por_dia,
+        "habilitar_sabado": req.habilitar_sabado,
+        "incluir_deficit": req.incluir_deficit,
+        "gallinas": req.gallinas,
+        "feriados_custom": [f.isoformat() for f in req.feriados_custom] if req.feriados_custom else None,
+    })
 
     # ── Factibilidad: cruzar oferta vs producción propia ──
     factibilidad = _calcular_factibilidad(
