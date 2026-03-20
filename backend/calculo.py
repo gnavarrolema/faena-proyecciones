@@ -78,6 +78,7 @@ class LoteProyectado(BaseModel):
     fecha_peso_original: Optional[date] = None
     ganancia_diaria_original: Optional[float] = None
     fecha_ingreso_original: Optional[date] = None
+    dias_proyectados_original: int = 0
     # Compra a terceros
     es_compra_terceros: bool = False
     motivo_compra: Optional[str] = None
@@ -396,6 +397,7 @@ def calcular_lote_proyectado(
         fecha_peso_original=oferta.fecha_peso,
         ganancia_diaria_original=oferta.ganancia_diaria,
         fecha_ingreso_original=oferta.fecha_ingreso,
+        dias_proyectados_original=oferta.dias_proyectados,
     )
 
 
