@@ -69,6 +69,30 @@ export default function ProduccionView() {
       setProduccion(data)
       setFile(null)
       toast.success(`${data.total_semanas} semanas de producción cargadas`)
+      // Mostrar alertas de validación cruzada con oferta
+      if (data.validacion_cruzada) {
+        const vc = data.validacion_cruzada
+        if (vc.factibilidad?.encontrada) {
+          const f = vc.factibilidad
+          if (f.deficit_peor) {
+            toast(
+              `Déficit detectado: la oferta actual (${formatNumber(f.total_oferta)}) supera la producción al 6.5% mort. (${formatNumber(f.disponibles_peor)}) en ${formatNumber(f.deficit_peor)} aves.`,
+              { icon: '🔴', duration: 12000, style: { background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', fontSize: '0.85rem' } }
+            )
+          } else {
+            toast.success(
+              `Producción cubre la oferta actual (${formatNumber(f.total_oferta)} aves, cobertura: ${f.cobertura_pct_peor}%)`,
+              { duration: 6000, style: { fontSize: '0.85rem' } }
+            )
+          }
+        }
+        if (vc.mortalidad_cohortes?.alertas > 0) {
+          toast(
+            `${vc.mortalidad_cohortes.alertas} cohorte${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''} con mortalidad elevada/crítica. Revise Pronóstico de Pesos.`,
+            { icon: '⚠️', duration: 10000, style: { background: '#fffbeb', border: '1px solid #f59e0b', color: '#92400e', fontSize: '0.85rem' } }
+          )
+        }
+      }
       // Recargar simulación
       try {
         const sim = await getSimulacionMortalidad()

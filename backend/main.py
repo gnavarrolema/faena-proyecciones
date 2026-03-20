@@ -325,6 +325,86 @@ def _calcular_deficit_produccion(proyeccion: SemanaFaena) -> Optional[dict]:
     }
 
 
+# ─── Helpers: validación cruzada en carga ─────────────────────────────────────
+
+def _validar_cruce_oferta(ofertas: list[LoteOferta]) -> Optional[dict]:
+    """Valida oferta contra producción existente al momento de la carga."""
+    produccion_data = storage.load_produccion()
+    if not produccion_data or not ofertas:
+        return None
+
+    result: dict = {}
+
+    # 1. Factibilidad: cobertura oferta vs producción
+    from collections import Counter
+    fechas_peso = [o.fecha_peso for o in ofertas if o.fecha_peso]
+    if fechas_peso:
+        fecha_mas_comun = Counter(fechas_peso).most_common(1)[0][0]
+        lunes = fecha_mas_comun - timedelta(days=fecha_mas_comun.weekday())
+        total_oferta = sum(o.cantidad for o in ofertas)
+        fact = _calcular_factibilidad(lunes, total_oferta)
+        if fact:
+            result["factibilidad"] = fact.model_dump()
+
+    # 2. Mortalidad implícita por cohorte
+    mortalidad = validar_mortalidad_oferta(ofertas, produccion_data)
+    if mortalidad and mortalidad.get("cohortes"):
+        result["mortalidad_cohortes"] = mortalidad
+
+    # 3. Consistencia de edad: edad_real vs (fecha_peso − fecha_ingreso)
+    alertas_edad: list[dict] = []
+    for i, o in enumerate(ofertas):
+        if o.fecha_peso and o.fecha_ingreso and o.edad_real:
+            dias_calculados = (o.fecha_peso - o.fecha_ingreso).days
+            diferencia = abs(dias_calculados - o.edad_real)
+            if diferencia > 3:
+                alertas_edad.append({
+                    "lote": i + 1,
+                    "granja": o.granja,
+                    "galpon": o.galpon,
+                    "edad_real": o.edad_real,
+                    "dias_calculados": dias_calculados,
+                    "diferencia": diferencia,
+                })
+    if alertas_edad:
+        result["consistencia_edad"] = {
+            "alertas": alertas_edad,
+            "total": len(alertas_edad),
+        }
+
+    return result if result else None
+
+
+def _validar_cruce_produccion() -> Optional[dict]:
+    """Valida producción recién cargada contra oferta existente."""
+    ofertas = _get_ofertas()
+    if not ofertas:
+        return None
+    produccion_data = storage.load_produccion()
+    if not produccion_data:
+        return None
+
+    result: dict = {}
+
+    # 1. Factibilidad
+    from collections import Counter
+    fechas_peso = [o.fecha_peso for o in ofertas if o.fecha_peso]
+    if fechas_peso:
+        fecha_mas_comun = Counter(fechas_peso).most_common(1)[0][0]
+        lunes = fecha_mas_comun - timedelta(days=fecha_mas_comun.weekday())
+        total_oferta = sum(o.cantidad for o in ofertas)
+        fact = _calcular_factibilidad(lunes, total_oferta)
+        if fact:
+            result["factibilidad"] = fact.model_dump()
+
+    # 2. Mortalidad implícita por cohorte
+    mortalidad = validar_mortalidad_oferta(ofertas, produccion_data)
+    if mortalidad and mortalidad.get("cohortes"):
+        result["mortalidad_cohortes"] = mortalidad
+
+    return result if result else None
+
+
 # ─── Endpoints ──────────────────────────────────────────────────────────────────
 
 @app.get("/")
@@ -401,6 +481,15 @@ async def upload_oferta(file: UploadFile = File(...), sheet_name: Optional[str] 
     if filas_descartadas:
         resultado["filas_descartadas"] = filas_descartadas
         resultado["total_descartadas"] = len(filas_descartadas)
+
+    # Validación cruzada contra producción (si existe)
+    try:
+        validacion = _validar_cruce_oferta(ofertas)
+        if validacion:
+            resultado["validacion_cruzada"] = validacion
+    except Exception as e:
+        logger.warning(f"Error en validación cruzada oferta: {e}")
+
     return resultado
 
 
@@ -1108,11 +1197,21 @@ async def upload_produccion(
     storage.save_produccion([s.model_dump() for s in semanas])
     storage.save_upload(file.filename, content)
 
-    return {
+    resultado = {
         "total_semanas": len(semanas),
         "total_pollitos": sum(s.pollitos_cargados for s in semanas),
         "semanas": [s.model_dump() for s in semanas],
     }
+
+    # Validación cruzada contra oferta (si existe)
+    try:
+        validacion = _validar_cruce_produccion()
+        if validacion:
+            resultado["validacion_cruzada"] = validacion
+    except Exception as e:
+        logger.warning(f"Error en validación cruzada producción: {e}")
+
+    return resultado
 
 
 @app.get("/produccion")

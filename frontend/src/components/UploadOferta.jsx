@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { UploadCloud, CheckCircle2, FileSpreadsheet, AlertCircle, Trash2, FolderUp, TriangleAlert } from 'lucide-react'
+import { UploadCloud, CheckCircle2, FileSpreadsheet, AlertCircle, Trash2, FolderUp, TriangleAlert, ShieldCheck, ShieldAlert } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { uploadOferta } from '../services/api'
 
@@ -40,6 +40,36 @@ export default function UploadOferta({ onUpload, hayDatosExistentes, deficitGuar
           `${data.total_descartadas} lote${data.total_descartadas !== 1 ? 's' : ''} sin fecha de peso fueron descartados (${granjas}, ${formatNumber(aves)} aves). Estos lotes no tienen datos suficientes para proyectar.`,
           { icon: '⚠️', duration: 8000, style: { background: '#fffbeb', border: '1px solid #f59e0b', color: '#92400e', fontSize: '0.85rem' } }
         )
+      }
+      // Mostrar alertas de validación cruzada con producción
+      if (data.validacion_cruzada) {
+        const vc = data.validacion_cruzada
+        if (vc.factibilidad?.encontrada) {
+          const f = vc.factibilidad
+          if (f.deficit_peor) {
+            toast(
+              `Déficit de producción: la oferta (${formatNumber(f.total_oferta)}) supera la disponibilidad al 6.5% mort. (${formatNumber(f.disponibles_peor)}) en ${formatNumber(f.deficit_peor)} aves. Cobertura: ${f.cobertura_pct_peor}%`,
+              { icon: '🔴', duration: 12000, style: { background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', fontSize: '0.85rem' } }
+            )
+          } else {
+            toast.success(
+              `Producción OK: la oferta (${formatNumber(f.total_oferta)}) está cubierta por producción propia (${formatNumber(f.disponibles_peor)} al 6.5% mort.)`,
+              { duration: 6000, style: { fontSize: '0.85rem' } }
+            )
+          }
+        }
+        if (vc.mortalidad_cohortes?.alertas > 0) {
+          toast(
+            `${vc.mortalidad_cohortes.alertas} cohorte${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''} con mortalidad elevada/crítica detectada${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''}. Revise la vista Pronóstico de Pesos para más detalle.`,
+            { icon: '⚠️', duration: 10000, style: { background: '#fffbeb', border: '1px solid #f59e0b', color: '#92400e', fontSize: '0.85rem' } }
+          )
+        }
+        if (vc.consistencia_edad?.total > 0) {
+          toast(
+            `${vc.consistencia_edad.total} lote${vc.consistencia_edad.total !== 1 ? 's' : ''} con inconsistencia de edad (edad real ≠ fecha peso − fecha ingreso). Verifique los datos en la oferta.`,
+            { icon: '🔍', duration: 10000, style: { background: '#f0f9ff', border: '1px solid #93c5fd', color: '#1e40af', fontSize: '0.85rem' } }
+          )
+        }
       }
       onUpload(data)
     } catch (err) {

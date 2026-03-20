@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { TrendingUp, Calendar, Home, Download, PieChart, Factory, ShoppingCart, AlertTriangle } from 'lucide-react'
+import { TrendingUp, Calendar, Home, Download, PieChart, Factory, ShoppingCart, AlertTriangle, Clock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { exportResumenPDF } from '../utils/pdfExport'
-import { getReferenciaProduccion, cargarDeficit, getAnalisisTerceros } from '../services/api'
+import { getReferenciaProduccion, cargarDeficit, getAnalisisTerceros, getSemana2 } from '../services/api'
 
 function formatNumber(n) {
   if (n == null) return '-'
@@ -36,6 +36,7 @@ export default function ResumenSemanal({ proyeccion }) {
   const [refProduccion, setRefProduccion] = useState(null)
   const [deficitLoading, setDeficitLoading] = useState(false)
   const [analisisTerceros, setAnalisisTerceros] = useState(null)
+  const [semana2, setSemana2] = useState(null)
 
   useEffect(() => {
     if (!proyeccion?.fecha_inicio) { setRefProduccion(null); return }
@@ -49,6 +50,16 @@ export default function ResumenSemanal({ proyeccion }) {
     getAnalisisTerceros()
       .then(data => setAnalisisTerceros(data))
       .catch(() => setAnalisisTerceros(null))
+  }, [proyeccion?.total_pollos_semana])
+
+  useEffect(() => {
+    if (!proyeccion?.dias?.length) { setSemana2(null); return }
+    getSemana2()
+      .then(data => {
+        if (data.tiene_datos && data.proyeccion) setSemana2(data)
+        else setSemana2(null)
+      })
+      .catch(() => setSemana2(null))
   }, [proyeccion?.total_pollos_semana])
 
   const handleCargarDeficit = async () => {
@@ -530,7 +541,7 @@ export default function ResumenSemanal({ proyeccion }) {
               </div>
             )}
 
-            {/* Sugerencia de compra a terceros por déficit de producción */}
+            {/* Sugerencia de compra a terceros por déficit de producción (analisisTerceros) */}
             {analisisTerceros?.deficit_produccion?.hay_deficit && (() => {
               const dp = analisisTerceros.deficit_produccion
               return (
@@ -575,6 +586,183 @@ export default function ResumenSemanal({ proyeccion }) {
           </div>
         </motion.div>
       )}
+
+      {/* ── Semana 2 — Proyección Tentativa ──────────────────────────────── */}
+      {semana2?.tiene_datos && semana2.proyeccion && (() => {
+        const s2 = semana2.proyeccion
+        const diasS2 = s2.dias || []
+        const totalPollosS2 = s2.total_pollos_semana || diasS2.reduce((s, d) => s + d.total_pollos, 0)
+        const cajasS2 = s2.produccion_cajas_semanales || diasS2.reduce((s, d) => s + (d.cajas_totales || 0), 0)
+        const edadPromS2 = s2.promedio_edad_semana
+        const sofiaS2 = s2.sofia
+
+        // Datos por granja S2
+        const porGranjaS2 = {}
+        diasS2.forEach((dia, diaIdx) => {
+          dia.lotes.forEach(lote => {
+            if (!porGranjaS2[lote.granja]) {
+              porGranjaS2[lote.granja] = { dias: new Array(diasS2.length).fill(0), total: 0, cajas: 0 }
+            }
+            porGranjaS2[lote.granja].dias[diaIdx] += lote.cantidad
+            porGranjaS2[lote.granja].total += lote.cantidad
+            porGranjaS2[lote.granja].cajas += lote.cajas
+          })
+        })
+
+        // Totales combinados S1+S2
+        const totalPollosGlobal = (proyeccion.total_pollos_semana || 0) + totalPollosS2
+        const cajasGlobal = (proyeccion.produccion_cajas_semanales || 0) + cajasS2
+
+        return (
+          <>
+            {/* Encabezado Semana 2 */}
+            <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid #8b5cf6', marginTop: '1.5rem' }}>
+              <div className="card-header">
+                <h2><Clock size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Semana 2 — Proyección Tentativa</h2>
+                <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: '#f3e8ff', color: '#7c3aed', borderRadius: 12, fontWeight: 600 }}>TENTATIVA</span>
+              </div>
+              <div className="card-body">
+                {/* KPIs Semana 2 */}
+                <div className="stats-grid" style={{ marginBottom: '1.2rem' }}>
+                  <div className="stat-card">
+                    <div className="stat-label">Total Pollos S2</div>
+                    <div className="stat-value" style={{ color: '#7c3aed' }}>{formatNumber(totalPollosS2)}</div>
+                  </div>
+                  {sofiaS2 != null && (
+                    <div className="stat-card">
+                      <div className="stat-label">Sofía S2</div>
+                      <div className="stat-value blue">{formatNumber(sofiaS2)}</div>
+                    </div>
+                  )}
+                  <div className="stat-card">
+                    <div className="stat-label">Edad Prom. S2</div>
+                    <div className="stat-value orange">{edadPromS2?.toFixed(1) || '-'} días</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Cajas S2</div>
+                    <div className="stat-value">{formatNumber(cajasS2)}</div>
+                  </div>
+                </div>
+
+                {/* Info diferidos */}
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-light)', marginBottom: '1rem' }}>
+                  {semana2.total_diferidos} lote{semana2.total_diferidos !== 1 ? 's' : ''} diferido{semana2.total_diferidos !== 1 ? 's' : ''}
+                  {semana2.lotes_no_asignados_s1 > 0 && <> + {semana2.lotes_no_asignados_s1} no asignado{semana2.lotes_no_asignados_s1 !== 1 ? 's' : ''} de S1</>}
+                </p>
+
+                {/* Tabla resumen diario S2 */}
+                <div className="table-container">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Día</th>
+                        <th>Fecha</th>
+                        <th className="text-right">Pollos</th>
+                        <th className="text-right">Lotes</th>
+                        <th className="text-right">Peso Prom.</th>
+                        <th className="text-right">Dif. Edad Prom.</th>
+                        <th className="text-right">Cajas</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {diasS2.map((dia, idx) => (
+                        <tr key={idx} style={{ opacity: 0.92 }}>
+                          <td><strong>{getDiaNombre(dia.fecha)}</strong></td>
+                          <td>{dia.fecha}</td>
+                          <td className="text-right">{formatNumber(dia.total_pollos)}</td>
+                          <td className="text-right">{dia.lotes.filter(l => l.cantidad > 0).length}</td>
+                          <td className="text-right">{dia.peso_promedio_ponderado?.toFixed(2)} kg</td>
+                          <td className="text-right">{dia.diferencia_edad_promedio?.toFixed(1)}</td>
+                          <td className="text-right">{formatNumber(dia.cajas_totales)}</td>
+                        </tr>
+                      ))}
+                      <tr className="row-subtotal">
+                        <td colSpan={2}><strong>TOTAL S2</strong></td>
+                        <td className="text-right"><strong>{formatNumber(totalPollosS2)}</strong></td>
+                        <td className="text-right"><strong>{diasS2.reduce((sum, d) => sum + d.lotes.filter(l => l.cantidad > 0).length, 0)}</strong></td>
+                        <td colSpan={2}></td>
+                        <td className="text-right"><strong>{formatNumber(cajasS2)}</strong></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Distribución por granja S2 */}
+                {Object.keys(porGranjaS2).length > 0 && (
+                  <div style={{ marginTop: '1.2rem' }}>
+                    <h3 style={{ fontSize: '0.9rem', marginBottom: '0.6rem', color: 'var(--text)' }}>
+                      <Home size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} /> Distribución por Granja — S2
+                    </h3>
+                    <div className="table-container">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Granja</th>
+                            {diasS2.map((_, idx) => (
+                              <th key={idx} className="text-right">{getDiaNombre(diasS2[idx]?.fecha)}</th>
+                            ))}
+                            <th className="text-right">Total</th>
+                            <th className="text-right">Cajas</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(porGranjaS2)
+                            .sort((a, b) => b[1].total - a[1].total)
+                            .map(([granja, info]) => (
+                              <tr key={granja}>
+                                <td><strong>{granja}</strong></td>
+                                {info.dias.map((cant, idx) => (
+                                  <td key={idx} className="text-right">{cant > 0 ? formatNumber(cant) : '-'}</td>
+                                ))}
+                                <td className="text-right"><strong>{formatNumber(info.total)}</strong></td>
+                                <td className="text-right">{formatNumber(Math.round(info.cajas))}</td>
+                              </tr>
+                            ))}
+                          <tr className="row-subtotal">
+                            <td><strong>TOTAL</strong></td>
+                            {diasS2.map((dia, idx) => (
+                              <td key={idx} className="text-right"><strong>{formatNumber(dia.total_pollos)}</strong></td>
+                            ))}
+                            <td className="text-right"><strong>{formatNumber(totalPollosS2)}</strong></td>
+                            <td className="text-right"><strong>{formatNumber(cajasS2)}</strong></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+
+            {/* Resumen Global S1 + S2 */}
+            <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid #059669', marginTop: '1rem' }}>
+              <div className="card-header">
+                <h2><TrendingUp size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Resumen Global — Semana 1 + Semana 2</h2>
+              </div>
+              <div className="card-body">
+                <div className="stats-grid">
+                  <div className="stat-card">
+                    <div className="stat-label">Total Pollos S1</div>
+                    <div className="stat-value green">{formatNumber(proyeccion.total_pollos_semana)}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Total Pollos S2</div>
+                    <div className="stat-value" style={{ color: '#7c3aed' }}>{formatNumber(totalPollosS2)}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Total Global (S1+S2)</div>
+                    <div className="stat-value" style={{ color: '#059669', fontSize: '1.6rem' }}>{formatNumber(totalPollosGlobal)}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Cajas Global (S1+S2)</div>
+                    <div className="stat-value" style={{ color: '#059669' }}>{formatNumber(cajasGlobal)}</div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )
+      })()}
     </motion.div>
   )
 }
