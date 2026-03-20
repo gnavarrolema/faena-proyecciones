@@ -86,13 +86,22 @@ def test_generar_dias_habiles_sin_feriados():
 
 
 def test_generar_dias_habiles_salta_feriado():
-    """Si el martes es feriado, genera lun, mié, jue, vie, sáb, lun."""
+    """Si el martes es feriado, genera lun, mié, jue, vie, sáb (5 días dentro de la semana)."""
+    feriados = {date(2026, 3, 24): "Día de la Memoria"}
+    dias = generar_dias_habiles(date(2026, 3, 23), 6, feriados,
+                                fecha_limite=date(2026, 3, 28))
+    assert len(dias) == 5  # 6 - 1 feriado = 5 días hábiles
+    assert date(2026, 3, 24) not in dias
+    assert dias[0] == date(2026, 3, 23)  # lunes
+    assert dias[1] == date(2026, 3, 25)  # miércoles (saltó martes)
+
+
+def test_generar_dias_habiles_salta_feriado_sin_limite():
+    """Sin fecha_limite, el comportamiento legacy sigue generando dias_faena días."""
     feriados = {date(2026, 3, 24): "Día de la Memoria"}
     dias = generar_dias_habiles(date(2026, 3, 23), 6, feriados)
     assert len(dias) == 6
     assert date(2026, 3, 24) not in dias
-    assert dias[0] == date(2026, 3, 23)  # lunes
-    assert dias[1] == date(2026, 3, 25)  # miércoles (saltó martes)
 
 
 def test_generar_dias_habiles_salta_domingo():
@@ -133,8 +142,8 @@ def _lote(cantidad: int, galpon: int, edad_proyectada: int = 40,
 
 def test_generar_proyeccion_salta_feriado():
     """
-    Si el martes 24/03 es feriado, la proyección debe generar 6 días
-    pero ninguno debe ser el 24 de marzo.
+    Si el martes 24/03 es feriado, la proyección para 6 días (L-S)
+    debe generar 5 días (el feriado reduce la semana).
     """
     params = Parametros(
         pollos_diarios_objetivo_min=5000,
@@ -159,8 +168,10 @@ def test_generar_proyeccion_salta_feriado():
     )
 
     fechas_generadas = [d.fecha for d in semana.dias]
-    assert len(fechas_generadas) == 6
+    assert len(fechas_generadas) == 5  # 6 - 1 feriado
     assert date(2026, 3, 24) not in fechas_generadas, "El feriado no debería estar en los días de faena"
+    # No debería extenderse a la semana siguiente
+    assert all(f <= date(2026, 3, 28) for f in fechas_generadas), "No debe extenderse a la próxima semana"
     assert semana.feriados_aplicados is not None
     assert len(semana.feriados_aplicados) == 1
     assert semana.feriados_aplicados[0].nombre == "Día de la Memoria"
@@ -169,7 +180,7 @@ def test_generar_proyeccion_salta_feriado():
 def test_generar_proyeccion_multiples_feriados():
     """
     Semana con 2 feriados: debe generar solo 4 días hábiles
-    cuando se piden 6 días de faena.
+    cuando se piden 6 días de faena (L-S con 2 feriados = 4 días).
     """
     params = Parametros(
         pollos_diarios_objetivo_min=5000,
@@ -197,9 +208,11 @@ def test_generar_proyeccion_multiples_feriados():
     )
 
     fechas_generadas = [d.fecha for d in semana.dias]
-    assert len(fechas_generadas) == 6
+    assert len(fechas_generadas) == 4  # 6 - 2 feriados
     assert date(2026, 3, 24) not in fechas_generadas
     assert date(2026, 3, 26) not in fechas_generadas
+    # No debería extenderse a la semana siguiente
+    assert all(f <= date(2026, 3, 28) for f in fechas_generadas)
 
 
 def test_generar_proyeccion_sin_feriados_backward_compatible():

@@ -665,17 +665,22 @@ def generar_proyeccion(
     )
 
     # Generar días hábiles saltando feriados y domingos
+    incluir_sabado = dias_faena >= 6
+    # Limitar al viernes o sábado de la semana para no extenderse a la siguiente
+    fecha_limite = fecha_inicio_semana + timedelta(days=5 if incluir_sabado else 4)
     if feriados:
         from .feriados import generar_dias_habiles
-        incluir_sabado = dias_faena >= 6
         fechas_dias = generar_dias_habiles(
             fecha_inicio_semana, dias_faena, feriados,
             incluir_sabado=incluir_sabado,
+            fecha_limite=fecha_limite,
         )
     else:
         fechas_dias = [
             fecha_inicio_semana + timedelta(days=i) for i in range(dias_faena)
         ]
+
+    num_dias = len(fechas_dias)
 
     # Normalizar gallinas: acepta {fecha: int} o {fecha: {livianas: int, pesadas: int}}
     def _gallinas_total(fecha_iso: str) -> int:
@@ -731,8 +736,8 @@ def generar_proyeccion(
             fuera_rango_data[i] = detalle_rechazo
 
     # Estructuras de asignación
-    asignaciones: dict[int, list[int]] = {d: [] for d in range(dias_faena)}
-    pollos_dia: dict[int, int] = {d: 0 for d in range(dias_faena)}
+    asignaciones: dict[int, list[int]] = {d: [] for d in range(num_dias)}
+    pollos_dia: dict[int, int] = {d: 0 for d in range(num_dias)}
     asignados: set[int] = set()
     no_asignados: dict[int, str] = {}
 
@@ -770,7 +775,7 @@ def generar_proyeccion(
                     cambio = True
 
         # 2b: Días con un solo lote elegible no asignado → reservar
-        for d_idx in range(dias_faena):
+        for d_idx in range(num_dias):
             candidatos_dia = [
                 i for i, dias_eleg in elegibilidad.items()
                 if i not in asignados
@@ -912,12 +917,11 @@ def generar_proyeccion(
             )
         )
 
-    # Construir lista de feriados aplicados (saltados)
+    # Construir lista de feriados aplicados (saltados) — solo dentro de la semana
     feriados_aplicados_lista: List[FeriadoAplicado] = []
     if feriados:
-        fecha_fin_rango = fecha_inicio_semana + timedelta(days=13)
         for f_fecha, f_nombre in sorted(feriados.items()):
-            if fecha_inicio_semana <= f_fecha <= fecha_fin_rango and f_fecha not in fechas_dias:
+            if fecha_inicio_semana <= f_fecha <= fecha_limite and f_fecha not in fechas_dias:
                 feriados_aplicados_lista.append(
                     FeriadoAplicado(fecha=f_fecha, nombre=f_nombre)
                 )

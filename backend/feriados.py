@@ -155,6 +155,7 @@ def generar_dias_habiles(
     cantidad_dias: int,
     feriados: Optional[dict[date, str]] = None,
     incluir_sabado: bool = True,
+    fecha_limite: Optional[date] = None,
 ) -> list[date]:
     """
     Genera una lista de días hábiles consecutivos a partir de fecha_inicio,
@@ -162,12 +163,15 @@ def generar_dias_habiles(
 
     Args:
         fecha_inicio: primer día candidato (típicamente un lunes)
-        cantidad_dias: cuántos días hábiles generar
+        cantidad_dias: cuántos días hábiles generar (máximo)
         feriados: dict de feriados a saltar (fecha → nombre)
         incluir_sabado: si True, el sábado cuenta como día hábil
+        fecha_limite: si se proporciona, no genera días más allá de esta fecha.
+                      Esto evita que la semana se extienda a la siguiente.
 
     Returns:
-        Lista de fechas hábiles
+        Lista de fechas hábiles (puede ser menor que cantidad_dias si hay
+        feriados dentro de la semana y se usa fecha_limite)
     """
     if feriados is None:
         feriados = {}
@@ -180,6 +184,10 @@ def generar_dias_habiles(
 
     for _ in range(max_iteraciones):
         if len(dias_habiles) >= cantidad_dias:
+            break
+
+        # No superar el límite de la semana
+        if fecha_limite and dia_actual > fecha_limite:
             break
 
         dow = dia_actual.weekday()  # 0=lun, 6=dom

@@ -596,8 +596,8 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
         for fc in req.feriados_custom:
             feriados_custom_list.append({"fecha": fc.isoformat(), "descripcion": "Feriado personalizado"})
 
-    # Obtener feriados del rango de la semana
-    fecha_fin = req.fecha_inicio_semana + timedelta(days=13)  # rango amplio
+    # Obtener feriados del rango de la semana (L-S inclusive)
+    fecha_fin = req.fecha_inicio_semana + timedelta(days=5)  # lunes a sábado
     feriados = obtener_feriados_rango(
         req.fecha_inicio_semana, fecha_fin,
         feriados_custom=feriados_custom_list if feriados_custom_list else None,
@@ -2491,8 +2491,8 @@ def get_semana2(current_user: TokenData = Depends(get_current_user)):
     # Fecha inicio semana 2: siguiente lunes después de semana 1
     fecha_inicio_s2 = semana.fecha_inicio + timedelta(days=7)
 
-    # Obtener feriados para el rango de semana 2
-    fecha_fin_s2 = fecha_inicio_s2 + timedelta(days=13)
+    # Obtener feriados para el rango de semana 2 (L-S)
+    fecha_fin_s2 = fecha_inicio_s2 + timedelta(days=5)
     feriados_custom = storage.load_feriados_custom() or []
     feriados = obtener_feriados_rango(
         fecha_inicio_s2, fecha_fin_s2,
