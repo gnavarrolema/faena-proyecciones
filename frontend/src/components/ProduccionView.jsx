@@ -69,7 +69,7 @@ export default function ProduccionView() {
       setProduccion(data)
       setFile(null)
       toast.success(`${data.total_semanas} semanas de producción cargadas`)
-      // Mostrar alertas de validación cruzada con oferta
+      // Mostrar alertas de sincronización operativa con oferta
       if (data.validacion_cruzada) {
         const vc = data.validacion_cruzada
         if (vc.factibilidad?.encontrada) {
@@ -88,7 +88,7 @@ export default function ProduccionView() {
         }
         if (vc.mortalidad_cohortes?.alertas > 0) {
           toast(
-            `${vc.mortalidad_cohortes.alertas} cohorte${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''} con fechas o cantidades fuera de lo esperado. Revise la Validación Cruzada.`,
+            `${vc.mortalidad_cohortes.alertas} cohorte${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''} con fechas o cantidades fuera de lo esperado. Revise la Sincronización Operativa.`,
             { icon: '⚠️', duration: 10000, style: { background: '#fffbeb', border: '1px solid #f59e0b', color: '#92400e', fontSize: '0.85rem' } }
           )
         }

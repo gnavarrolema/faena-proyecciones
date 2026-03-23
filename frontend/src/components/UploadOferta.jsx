@@ -41,7 +41,7 @@ export default function UploadOferta({ onUpload, hayDatosExistentes, deficitGuar
           { icon: '⚠️', duration: 8000, style: { background: '#fffbeb', border: '1px solid #f59e0b', color: '#92400e', fontSize: '0.85rem' } }
         )
       }
-      // Mostrar alertas de validación cruzada con producción
+      // Mostrar alertas de sincronización operativa con producción
       if (data.validacion_cruzada) {
         const vc = data.validacion_cruzada
         if (vc.factibilidad?.encontrada) {
@@ -60,7 +60,7 @@ export default function UploadOferta({ onUpload, hayDatosExistentes, deficitGuar
         }
         if (vc.mortalidad_cohortes?.alertas > 0) {
           toast(
-            `${vc.mortalidad_cohortes.alertas} cohorte${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''} con fechas o cantidades fuera de lo esperado detectada${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''}. Revise la Validación Cruzada para más detalle.`,
+            `${vc.mortalidad_cohortes.alertas} cohorte${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''} con fechas o cantidades fuera de lo esperado detectada${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''}. Revise la Sincronización Operativa para más detalle.`,
             { icon: '⚠️', duration: 10000, style: { background: '#fffbeb', border: '1px solid #f59e0b', color: '#92400e', fontSize: '0.85rem' } }
           )
         }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FolderUp, List, KanbanSquare, TrendingUp, Settings2, Bird, LogOut, Loader2, Factory, Scale, Layers, Activity, ShieldCheck } from 'lucide-react'
+import { FolderUp, List, KanbanSquare, TrendingUp, Settings2, Bird, LogOut, Loader2, Factory, Scale, Layers, Activity, GitMerge } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getOferta, getProyeccion, getDeficitGuardado, clearDeficitGuardado } from '../services/api'
@@ -21,7 +21,7 @@ const TABS = [
     { id: 'proyeccion', label: 'Planificación', icon: <KanbanSquare size={16} /> },
     { id: 'resumen', label: 'Resumen', icon: <TrendingUp size={16} /> },
     { id: 'produccion', label: 'Cargas Pollitos BB', icon: <Factory size={16} /> },
-    { id: 'validacion', label: 'Validación Cruzada', icon: <ShieldCheck size={16} /> },
+    { id: 'validacion', label: 'Sinc. Operativa', icon: <GitMerge size={16} /> },
     { id: 'desvios', label: 'Desvíos', icon: <Scale size={16} /> },
     { id: 'pronostico', label: 'Pronóstico Pesos', icon: <Activity size={16} /> },
     { id: 'escenarios', label: 'Escenarios', icon: <Layers size={16} /> },
