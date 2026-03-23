@@ -90,20 +90,41 @@ const MainApp = () => {
     return (
         <>
             <header className="app-header">
-                <h1><Bird size={28} style={{ marginRight: 8 }} /> Proyección de Faena</h1>
+                <motion.div 
+                    className="app-header-logo"
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.5 }}
+                >
+                    <Bird size={28} className="logo-icon" /> 
+                    <h1>Proyección de Faena</h1>
+                </motion.div>
+
                 <nav className="app-nav">
-                    {TABS.map(tab => (
-                        <button
-                            key={tab.id}
-                            className={activeTab === tab.id ? 'active' : ''}
-                            onClick={() => setActiveTab(tab.id)}
-                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                        >
-                            {tab.icon} {tab.label}
-                        </button>
-                    ))}
-                    <button onClick={handleLogout} className="logout-btn" style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', padding: '6px 12px', borderRadius: '6px', color: '#f87171', cursor: 'pointer' }}>
-                        <LogOut size={16} /> Salir
+                    {TABS.map(tab => {
+                        const isActive = activeTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                className={`nav-btn ${isActive ? 'active' : ''}`}
+                                onClick={() => setActiveTab(tab.id)}
+                            >
+                                {isActive && (
+                                    <motion.div
+                                        layoutId="active-nav-indicator"
+                                        className="nav-btn-indicator"
+                                        initial={false}
+                                        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                                    />
+                                )}
+                                <span className="nav-btn-content">
+                                    {tab.icon} {tab.label}
+                                </span>
+                            </button>
+                        );
+                    })}
+                    <button onClick={handleLogout} className="logout-btn">
+                        <LogOut size={16} /> <span>Salir</span>
                     </button>
                 </nav>
             </header>
