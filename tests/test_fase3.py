@@ -117,20 +117,20 @@ def test_guardar_escenario_con_mortalidad(client, auth_headers):
     storage.save_parametros(Parametros().model_dump())
 
     r = client.post("/escenarios/guardar", json={
-        "nombre": "Con mortalidad 6.5%",
-        "tasa_mortalidad": 0.065,
+        "nombre": "Con mortalidad 7.5%",
+        "tasa_mortalidad": 0.075,
     }, headers=auth_headers)
     assert r.status_code == 200
     esc_id = r.json()["id"]
 
     r2 = client.get(f"/escenarios/{esc_id}", headers=auth_headers)
     data = r2.json()
-    assert data["tasa_mortalidad"] == 0.065
+    assert data["tasa_mortalidad"] == 0.075
     assert data["produccion_analisis"] is not None
-    assert data["produccion_analisis"]["tasa_mortalidad"] == 0.065
+    assert data["produccion_analisis"]["tasa_mortalidad"] == 0.075
     assert data["produccion_analisis"]["pollitos_cargados"] == 200000
-    # 200000 * (1 - 0.065) = 187000
-    assert data["produccion_analisis"]["disponibles"] == 187000
+    # 200000 * (1 - 0.075) = 185000
+    assert data["produccion_analisis"]["disponibles"] == 185000
 
 
 def test_listar_escenarios_incluye_mortalidad(client, auth_headers):
@@ -168,7 +168,7 @@ def test_comparar_escenarios_incluye_mortalidad(client, auth_headers):
 
     r2 = client.post("/escenarios/guardar", json={
         "nombre": "Peor caso",
-        "tasa_mortalidad": 0.065,
+        "tasa_mortalidad": 0.075,
     }, headers=auth_headers)
     id2 = r2.json()["id"]
 
@@ -179,7 +179,7 @@ def test_comparar_escenarios_incluye_mortalidad(client, auth_headers):
     # Both should have distinct produccion_analisis
     disp1 = escs[0]["produccion_analisis"]["disponibles"]
     disp2 = escs[1]["produccion_analisis"]["disponibles"]
-    # 200000*(1-0.045)=191000 vs 200000*(1-0.065)=187000
+    # 200000*(1-0.045)=191000 vs 200000*(1-0.075)=185000
     assert disp1 != disp2
 
 
