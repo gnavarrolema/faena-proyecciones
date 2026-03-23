@@ -1980,7 +1980,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                         <div className="proyeccion-grid">
                           {s2.dias.map((dia, diaIdx) => (
                             <div className="day-column" key={diaIdx} style={{ opacity: 0.88, borderColor: '#6366f180' }}>
-                              <div className="day-header" style={{ background: 'rgba(99, 102, 241, 0.06)' }}>
+                              <div className="day-header" style={{ background: 'rgba(99, 102, 241, 0.06)', color: '#4338ca', borderBottomColor: '#818cf8' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                   <span>{getDiaNombre(dia.fecha)}</span>
                                   <span style={{ fontSize: '0.7rem', color: '#6366f1' }}>S2</span>
