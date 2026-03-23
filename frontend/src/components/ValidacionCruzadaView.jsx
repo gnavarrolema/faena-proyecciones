@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ShieldCheck, AlertTriangle, AlertCircle, Info, TrendingUp, Loader2, RefreshCw, CheckCircle2, XCircle, Search, GitMerge, Activity, BarChart3, Clock, Database, Target } from 'lucide-react'
+import { ShieldCheck, AlertTriangle, AlertCircle, Info, TrendingUp, Loader2, RefreshCw, CheckCircle2, XCircle, Search, GitMerge, Activity, BarChart3, Clock, Database, Target, Box } from 'lucide-react'
 import { getValidacionCruzada } from '../services/api'
 
 // --- Sophisticated Animation Variants ---
