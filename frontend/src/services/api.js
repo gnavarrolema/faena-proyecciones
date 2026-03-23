@@ -115,6 +115,10 @@ export const deleteProduccion = () => api.delete('/produccion').then(r => r.data
 export const getForecastProduccion = (semanas = 4) =>
   api.get(`/produccion/forecast?semanas=${semanas}`).then(r => r.data);
 
+// ─── Validación Cruzada ────────────────────────────────────────────────────────
+
+export const getValidacionCruzada = () => api.get('/validacion-cruzada').then(r => r.data);
+
 // ─── Desvío de Peso ────────────────────────────────────────────────────────────
 
 export const cargarPesosReales = (pesos) =>

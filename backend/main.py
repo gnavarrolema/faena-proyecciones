@@ -1371,6 +1371,256 @@ def get_referencia_produccion(
     )
 
 
+def _generar_insights_validacion(validacion: dict) -> list[dict]:
+    """Genera insights accionables a partir de los datos de validación cruzada."""
+    insights = []
+
+    # ── Insights de factibilidad ──
+    fact = validacion.get("factibilidad")
+    if fact and fact.get("encontrada"):
+        total_oferta = fact.get("total_oferta", 0)
+        disponibles_peor = fact.get("disponibles_peor", 0)
+        disponibles_mejor = fact.get("disponibles_mejor", 0)
+        deficit = fact.get("deficit_peor")
+        cobertura = fact.get("cobertura_pct_peor")
+
+        if deficit and deficit > 0:
+            pct_exceso = round(deficit / disponibles_peor * 100, 1) if disponibles_peor else 0
+            insights.append({
+                "tipo": "critico",
+                "categoria": "factibilidad",
+                "titulo": "Déficit de producción propia",
+                "detalle": (
+                    f"La oferta actual ({total_oferta:,} aves) supera en {deficit:,} aves "
+                    f"({pct_exceso}%) la producción disponible al 6.5% de mortalidad "
+                    f"({disponibles_peor:,} aves)."
+                ),
+                "accion": (
+                    f"Considerar la compra de ~{deficit:,} pollos a terceros "
+                    f"o reducir la oferta de la semana."
+                ),
+            })
+        elif cobertura and cobertura > 85:
+            insights.append({
+                "tipo": "advertencia",
+                "categoria": "factibilidad",
+                "titulo": "Cobertura ajustada",
+                "detalle": (
+                    f"La producción cubre la oferta pero con margen bajo "
+                    f"(la oferta consume {cobertura}% de la producción al 6.5% mort.)."
+                ),
+                "accion": "Monitorear mortalidad real; si sube, podría generarse déficit.",
+            })
+        else:
+            margen = disponibles_peor - total_oferta if disponibles_peor else 0
+            insights.append({
+                "tipo": "positivo",
+                "categoria": "factibilidad",
+                "titulo": "Producción suficiente",
+                "detalle": (
+                    f"La producción propia ({disponibles_peor:,} al 6.5% mort.) "
+                    f"cubre la oferta ({total_oferta:,}) con un superávit de {margen:,} aves."
+                ),
+                "accion": "",
+            })
+
+        # Sensibilidad: diferencia entre mejor y peor caso
+        if disponibles_mejor and disponibles_peor:
+            rango = disponibles_mejor - disponibles_peor
+            if rango > 0:
+                insights.append({
+                    "tipo": "info",
+                    "categoria": "sensibilidad",
+                    "titulo": "Rango de sensibilidad por mortalidad",
+                    "detalle": (
+                        f"Entre el mejor (4.5% mort. → {disponibles_mejor:,}) "
+                        f"y peor escenario (6.5% mort. → {disponibles_peor:,}) "
+                        f"hay una variación de {rango:,} aves."
+                    ),
+                    "accion": "",
+                })
+
+    # ── Insights de mortalidad por cohortes ──
+    mort = validacion.get("mortalidad_cohortes")
+    if mort and mort.get("cohortes"):
+        cohortes = mort["cohortes"]
+        total_cohortes = len(cohortes)
+        criticas = [c for c in cohortes if c.get("nivel") == "critica"]
+        elevadas = [c for c in cohortes if c.get("nivel") == "elevada"]
+        excelentes = [c for c in cohortes if c.get("nivel") == "excelente"]
+        inconsistentes = [c for c in cohortes if c.get("nivel") == "inconsistente"]
+
+        if criticas:
+            granjas_afectadas = set()
+            for c in criticas:
+                granjas_afectadas.update(c.get("granjas", []))
+            mort_promedio = round(
+                sum(c["mortalidad_pct"] for c in criticas) / len(criticas), 1
+            )
+            insights.append({
+                "tipo": "critico",
+                "categoria": "mortalidad",
+                "titulo": f"{len(criticas)} cohorte(s) con mortalidad crítica (>{10}%)",
+                "detalle": (
+                    f"Mortalidad implícita promedio: {mort_promedio}%. "
+                    f"Granjas afectadas: {', '.join(sorted(granjas_afectadas))}."
+                ),
+                "accion": (
+                    "Investigar causas de mortalidad elevada en estas granjas. "
+                    "Revisar condiciones sanitarias y ambientales."
+                ),
+            })
+
+        if elevadas:
+            mort_promedio = round(
+                sum(c["mortalidad_pct"] for c in elevadas) / len(elevadas), 1
+            )
+            insights.append({
+                "tipo": "advertencia",
+                "categoria": "mortalidad",
+                "titulo": f"{len(elevadas)} cohorte(s) con mortalidad elevada (6.5%–10%)",
+                "detalle": (
+                    f"Mortalidad implícita promedio: {mort_promedio}%. "
+                    f"Están por encima del rango normal pero debajo del umbral crítico."
+                ),
+                "accion": "Seguimiento cercano. Podría escalar a crítica.",
+            })
+
+        if excelentes and not criticas and not elevadas:
+            insights.append({
+                "tipo": "positivo",
+                "categoria": "mortalidad",
+                "titulo": "Mortalidad en rango excelente",
+                "detalle": (
+                    f"{len(excelentes)} de {total_cohortes} cohortes con mortalidad ≤4.5%."
+                ),
+                "accion": "",
+            })
+
+        if inconsistentes:
+            insights.append({
+                "tipo": "critico",
+                "categoria": "datos",
+                "titulo": f"{len(inconsistentes)} cohorte(s) con datos inconsistentes",
+                "detalle": (
+                    "Se detectaron más aves en oferta que pollitos cargados en producción. "
+                    "Esto puede indicar un error en los datos o un matcheo incorrecto."
+                ),
+                "accion": "Verificar los datos del Excel de producción y de la oferta.",
+            })
+
+        # Tendencia de mortalidad
+        cohortes_con_mort = [c for c in cohortes if c.get("mortalidad_pct") is not None
+                            and c.get("nivel") not in ("inconsistente", "cobertura_parcial")]
+        if len(cohortes_con_mort) >= 3:
+            morts = [c["mortalidad_pct"] for c in cohortes_con_mort]
+            mitad = len(morts) // 2
+            prom_primera = sum(morts[:mitad]) / mitad if mitad > 0 else 0
+            prom_segunda = sum(morts[mitad:]) / (len(morts) - mitad) if (len(morts) - mitad) > 0 else 0
+            delta = round(prom_segunda - prom_primera, 2)
+            if abs(delta) > 0.5:
+                tendencia = "al alza ↑" if delta > 0 else "a la baja ↓"
+                insights.append({
+                    "tipo": "advertencia" if delta > 0 else "positivo",
+                    "categoria": "tendencia",
+                    "titulo": f"Tendencia de mortalidad {tendencia}",
+                    "detalle": (
+                        f"Promedio primera mitad: {round(prom_primera, 1)}% → "
+                        f"segunda mitad: {round(prom_segunda, 1)}% "
+                        f"(delta: {'+' if delta > 0 else ''}{delta}pp)."
+                    ),
+                    "accion": (
+                        "La mortalidad está aumentando. Investigar causas."
+                        if delta > 0 else
+                        "Buena tendencia. La mortalidad está mejorando."
+                    ),
+                })
+
+    # ── Insights de consistencia de edad ──
+    consist = validacion.get("consistencia_edad")
+    if consist and consist.get("total", 0) > 0:
+        total = consist["total"]
+        insights.append({
+            "tipo": "info",
+            "categoria": "consistencia",
+            "titulo": f"{total} lote(s) con inconsistencia de edad",
+            "detalle": (
+                f"La edad declarada difiere en más de 3 días de la edad calculada "
+                f"(fecha_peso − fecha_ingreso) en {total} lotes."
+            ),
+            "accion": "Verificar fechas de ingreso y edades declaradas en la oferta.",
+        })
+
+    return insights
+
+
+@app.get("/validacion-cruzada")
+def get_validacion_cruzada(current_user: TokenData = Depends(get_current_user)):
+    """
+    Reporte persistente de validación cruzada oferta ↔ producción.
+    Incluye factibilidad, mortalidad por cohortes, consistencia de edad e insights.
+    """
+    ofertas = _get_ofertas()
+    produccion_data = storage.load_produccion()
+
+    if not ofertas and not produccion_data:
+        raise HTTPException(404, "No hay datos de oferta ni de producción cargados.")
+
+    validacion: dict = {}
+
+    if ofertas and produccion_data:
+        # Factibilidad
+        from collections import Counter
+        fechas_peso = [o.fecha_peso for o in ofertas if o.fecha_peso]
+        if fechas_peso:
+            fecha_mas_comun = Counter(fechas_peso).most_common(1)[0][0]
+            lunes = fecha_mas_comun - timedelta(days=fecha_mas_comun.weekday())
+            total_oferta = sum(o.cantidad for o in ofertas)
+            fact = _calcular_factibilidad(lunes, total_oferta)
+            if fact:
+                validacion["factibilidad"] = fact.model_dump()
+
+        # Mortalidad por cohortes
+        mortalidad = validar_mortalidad_oferta(ofertas, produccion_data)
+        if mortalidad and mortalidad.get("cohortes"):
+            validacion["mortalidad_cohortes"] = mortalidad
+
+        # Consistencia de edad
+        alertas_edad: list[dict] = []
+        for i, o in enumerate(ofertas):
+            if o.fecha_peso and o.fecha_ingreso and o.edad_real:
+                dias_calculados = (o.fecha_peso - o.fecha_ingreso).days
+                diferencia = abs(dias_calculados - o.edad_real)
+                if diferencia > 3:
+                    alertas_edad.append({
+                        "lote": i + 1,
+                        "granja": o.granja,
+                        "galpon": o.galpon,
+                        "edad_real": o.edad_real,
+                        "dias_calculados": dias_calculados,
+                        "diferencia": diferencia,
+                    })
+        if alertas_edad:
+            validacion["consistencia_edad"] = {
+                "alertas": alertas_edad,
+                "total": len(alertas_edad),
+            }
+
+    tiene_oferta = len(ofertas) > 0
+    tiene_produccion = produccion_data is not None and len(produccion_data) > 0
+
+    insights = _generar_insights_validacion(validacion) if validacion else []
+
+    return {
+        "tiene_oferta": tiene_oferta,
+        "tiene_produccion": tiene_produccion,
+        "total_ofertas": len(ofertas),
+        "total_semanas_produccion": len(produccion_data) if produccion_data else 0,
+        "validacion": validacion,
+        "insights": insights,
+    }
+
+
 @app.delete("/produccion")
 def clear_produccion(current_user: TokenData = Depends(get_current_user)):
     """Limpiar datos de producción."""
