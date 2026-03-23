@@ -541,9 +541,17 @@ async def upload_oferta(file: UploadFile = File(...), sheet_name: Optional[str] 
 def get_oferta(current_user: TokenData = Depends(get_current_user)):
     """Obtener oferta cargada."""
     ofertas = _get_ofertas()
+    # Agrupar por granja para el resumen del frontend
+    granjas: dict[str, dict] = {}
+    for o in ofertas:
+        if o.granja not in granjas:
+            granjas[o.granja] = {"lotes": 0, "pollos": 0}
+        granjas[o.granja]["lotes"] += 1
+        granjas[o.granja]["pollos"] += o.cantidad
     return {
         "total_lotes": len(ofertas),
         "total_pollos": sum(o.cantidad for o in ofertas),
+        "granjas": granjas,
         "ofertas": [o.model_dump() for o in ofertas],
     }
 
