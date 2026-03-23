@@ -51,6 +51,11 @@ function getDiaNombre(fechaStr) {
   return DIAS_SEMANA[idx]
 }
 
+function formatDiasElegibles(dias) {
+  if (!dias || dias.length === 0) return '-'
+  return dias.map((dia) => getDiaNombre(dia)).join(', ')
+}
+
 export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuardado, onDeficitUsado }) {
   const [fechaInicio, setFechaInicio] = useState('')
   const [pollosPorDia, setPollosPorDia] = useState(35000)
@@ -699,6 +704,10 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
             Si existe archivo del martes, se indica si el lote fue confirmado o ajustado con esos datos.
           </p>
 
+          <div style={{ marginBottom: '1rem', padding: '0.85rem 1rem', borderRadius: 8, background: '#f8fafc', border: '1px solid var(--border)', fontSize: '0.84rem', color: 'var(--text-light)', lineHeight: 1.55 }}>
+            <strong style={{ color: 'var(--text)' }}>Cómo leer esta vista:</strong> “Tomado en planificación” significa que el lote ya quedó asignado a un día. “Sin capacidad” significa que el lote <strong>sí fue evaluado</strong> para uno o más días elegibles, pero no cupo sin superar el tope diario. “Fuera de rango” significa que, recalculando edad y peso para cada día de la semana, no alcanzó los mínimos para entrar a faena.
+          </div>
+
           {trazabilidad && (
             <div className="stats-grid" style={{ marginBottom: '1rem' }}>
               <div className="stat-card">
@@ -804,6 +813,16 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                         )}
                         {registro.estado_planificacion !== 'planificado' && registro.detalle_planificacion?.motivo && (
                           <div>{registro.detalle_planificacion.motivo}</div>
+                        )}
+                        {registro.estado_planificacion === 'no_asignado' && registro.detalle_planificacion?.dias_elegibles?.length > 0 && (
+                          <div style={{ color: 'var(--text-light)', marginTop: 4 }}>
+                            Días elegibles evaluados: {formatDiasElegibles(registro.detalle_planificacion.dias_elegibles)}
+                          </div>
+                        )}
+                        {registro.estado_planificacion === 'fuera_rango' && registro.detalle_planificacion?.detalle_por_dia?.length > 0 && (
+                          <div style={{ color: 'var(--text-light)', marginTop: 4 }}>
+                            El lote se revisó contra todos los días de la semana y no alcanzó mínimos de edad/peso.
+                          </div>
                         )}
                         {registro.ajuste_martes?.estado === 'actualizado' && registro.ajuste_martes?.oferta && (
                           <div style={{ color: 'var(--text-light)', marginTop: 4 }}>
