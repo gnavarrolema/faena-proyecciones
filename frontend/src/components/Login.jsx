@@ -36,7 +36,7 @@ const Login = () => {
                 style={styles.card}
             >
                 <h2 style={styles.title}>Iniciar Sesión</h2>
-                <p style={styles.subtitle}>Proyección de Faena Avícola</p>
+                <p style={styles.subtitle}>Planificación de Faena Avícola</p>
 
                 <form onSubmit={handleSubmit} style={styles.form}>
                     <div style={styles.inputGroup}>

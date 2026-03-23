@@ -240,7 +240,7 @@ export default function ProduccionView() {
           </div>
           <div className="card-body">
             <p style={{ marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-light)' }}>
-              Proyección de pollitos disponibles para faena (+42 días) descontando diferentes tasas de mortalidad.
+              Planificación estimada de pollitos disponibles para faena (+42 días) descontando diferentes tasas de mortalidad.
               La fecha de faena es <strong>fecha de carga + 42 días</strong>.
             </p>
             <div className="table-container" style={{ overflowX: 'auto' }}>
@@ -296,7 +296,7 @@ export default function ProduccionView() {
           <div className="card-body">
             <h2><TrendingUp size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Forecast de Producción ({forecast.semanas.length} semanas)</h2>
             <p style={{ color: 'var(--text-light)', fontSize: '0.85rem', marginBottom: '1rem' }}>
-              Proyección de pollitos disponibles para faena según las cargas registradas y distintos escenarios de mortalidad.
+              Planificación estimada de pollitos disponibles para faena según las cargas registradas y distintos escenarios de mortalidad.
             </p>
             <div className="table-responsive">
               <table className="data-table">

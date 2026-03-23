@@ -163,7 +163,7 @@ export default function PronosticoPesosView({ proyeccion }) {
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="card">
         <div className="card-body" style={{ textAlign: 'center', padding: '3rem' }}>
           <p style={{ fontSize: '1.1rem', color: 'var(--text-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <Activity size={20} /> No hay proyección generada. Genérela primero para ver el pronóstico de pesos.
+            <Activity size={20} /> No hay planificación generada. Genérela primero para ver el pronóstico de pesos.
           </p>
         </div>
       </motion.div>
@@ -184,7 +184,7 @@ export default function PronosticoPesosView({ proyeccion }) {
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="card">
         <div className="card-body" style={{ textAlign: 'center', padding: '3rem' }}>
           <p style={{ fontSize: '1.1rem', color: 'var(--text-light)' }}>
-            No se pudo generar el pronóstico. Verifique que exista una proyección y ofertas cargadas.
+            No se pudo generar el pronóstico. Verifique que exista una planificación y ofertas cargadas.
           </p>
         </div>
       </motion.div>
@@ -364,7 +364,7 @@ export default function PronosticoPesosView({ proyeccion }) {
                     <div style={{ fontWeight: 600, marginBottom: 2 }}>Datos con {alertaData.dias_antiguedad} días de antigüedad</div>
                     <div style={{ fontWeight: 400 }}>
                       Oferta del {new Date(alertaData.fecha_oferta + 'T12:00:00').toLocaleDateString('es-AR')}.
-                      Las edades y proyecciones se calculan a la fecha de hoy ({new Date(alertaData.fecha_referencia + 'T12:00:00').toLocaleDateString('es-AR')}).
+                      Las edades y planificaciones se calculan a la fecha de hoy ({new Date(alertaData.fecha_referencia + 'T12:00:00').toLocaleDateString('es-AR')}).
                       Se recomienda cargar una oferta actualizada para mayor precisión.
                     </div>
                   </div>
@@ -438,7 +438,7 @@ export default function PronosticoPesosView({ proyeccion }) {
                   <div className="stat-value blue">{alertaData.total_lotes}</div>
                 </div>
                 <div className="stat-card">
-                  <div className="stat-label">Proyección OK</div>
+                  <div className="stat-label">Planificación OK</div>
                   <div className="stat-value" style={{ color: 'var(--success, #22c55e)' }}>
                     {alertaData.lotes_ok} <span style={{ fontSize: '0.75rem', fontWeight: 400 }}>({alertaData.pct_ok}%)</span>
                   </div>
@@ -460,7 +460,7 @@ export default function PronosticoPesosView({ proyeccion }) {
               {/* Tabla de lotes alerta temprana */}
               <div className="card" style={{ borderLeft: '4px solid var(--warning, #fb923c)', marginBottom: '0.75rem' }}>
                 <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  <h2><ShieldAlert size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Proyección Anticipada por Lote</h2>
+                  <h2><ShieldAlert size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Planificación Anticipada por Lote</h2>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     <Filter size={14} color="var(--text-light)" />
                     <select

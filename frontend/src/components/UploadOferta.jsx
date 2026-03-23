@@ -125,11 +125,11 @@ export default function UploadOferta({ onUpload, hayDatosExistentes, deficitGuar
           <p style={{ marginBottom: '1rem', color: 'var(--text-light)', fontSize: '0.9rem' }}>
             Suba el archivo Excel con la <strong>oferta del jueves</strong> de granjas (formato OFERTA JUEV).
             Esta es la oferta base para armar la programación de faena de la próxima semana.
-            Luego podrá ajustarla con la <strong>oferta del martes</strong> desde la pestaña Proyección.
+            Luego podrá ajustarla con la <strong>oferta del martes</strong> desde la pestaña Planificación.
           </p>
           <div style={{ marginBottom: '1rem', padding: '0.6rem 0.9rem', background: 'var(--info-light, #e0f2fe)', borderRadius: 8, fontSize: '0.85rem', color: 'var(--info, #0284c7)', display: 'flex', alignItems: 'center', gap: 8 }}>
             <AlertCircle size={16} />
-            <span><strong>Flujo:</strong> Jueves → cargar oferta y generar proyección → Martes → ajustar con nueva oferta para mayor precisión.</span>
+            <span><strong>Flujo:</strong> Jueves → cargar oferta y generar planificación → Martes → ajustar con nueva oferta para mayor precisión.</span>
           </div>
 
           {/* Advertencia de sobreescritura */}
@@ -153,9 +153,9 @@ export default function UploadOferta({ onUpload, hayDatosExistentes, deficitGuar
                   <span>¡Atención! Ya existen datos cargados en el sistema</span>
                 </div>
                 <p style={{ margin: 0, marginBottom: '0.75rem', lineHeight: 1.5 }}>
-                  Cargar un nuevo archivo <strong>reemplazará completamente</strong> la oferta actual y la proyección/planificación generada.
+                  Cargar un nuevo archivo <strong>reemplazará completamente</strong> la oferta actual y la planificación generada.
                   Si solo desea actualizar datos manteniendo la planificación, use la opción{' '}
-                  <strong>«Ajuste Martes»</strong> en la pestaña Proyección.
+                  <strong>«Ajuste Martes»</strong> en la pestaña Planificación.
                 </p>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 500, userSelect: 'none' }}>
                   <input

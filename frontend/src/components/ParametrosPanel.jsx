@@ -34,7 +34,7 @@ export default function ParametrosPanel({ onParametrosUpdated } = {}) {
       if (data.proyeccion_recalculada && onParametrosUpdated) {
         onParametrosUpdated()
       }
-      setMessage({ type: 'success', text: data.proyeccion_recalculada ? 'Parámetros guardados y proyección recalculada' : 'Parámetros guardados correctamente' })
+      setMessage({ type: 'success', text: data.proyeccion_recalculada ? 'Parámetros guardados y planificación recalculada' : 'Parámetros guardados correctamente' })
       setTimeout(() => setMessage(null), 3000)
     } catch {
       setMessage({ type: 'error', text: 'Error al guardar' })

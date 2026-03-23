@@ -72,6 +72,17 @@ def _get_ofertas() -> list[LoteOferta]:
     return []
 
 
+def _get_ofertas_martes() -> list[LoteOferta]:
+    """Lee la oferta del martes desde storage. Devuelve lista vacía si no existe."""
+    data = storage.load_ofertas_martes()
+    if data:
+        try:
+            return [LoteOferta(**o) for o in data]
+        except Exception as e:
+            logger.warning(f"Error leyendo ofertas del martes de storage: {e}")
+    return []
+
+
 def _get_proyeccion() -> Optional[SemanaFaena]:
     """Lee proyección desde storage. Devuelve None si no existe."""
     data = storage.load_proyeccion()
@@ -81,6 +92,158 @@ def _get_proyeccion() -> Optional[SemanaFaena]:
         except Exception as e:
             logger.warning(f"Error leyendo proyección de storage: {e}")
     return None
+
+
+def _oferta_key(granja: str, galpon: int, nucleo: int, sexo: str, fecha_ingreso: Optional[date]) -> tuple:
+    return (
+        granja,
+        galpon,
+        nucleo,
+        sexo,
+        fecha_ingreso.isoformat() if fecha_ingreso else "",
+    )
+
+
+def _estado_ajuste_martes(oferta_jueves: LoteOferta, oferta_martes: Optional[LoteOferta]) -> str:
+    if oferta_martes is None:
+        return "sin_ajuste"
+
+    campos = (
+        "cantidad",
+        "edad_proyectada",
+        "peso_muestreo_proy",
+        "ganancia_diaria",
+        "edad_real",
+        "peso_muestreo_real",
+    )
+    for campo in campos:
+        if getattr(oferta_jueves, campo) != getattr(oferta_martes, campo):
+            return "actualizado"
+    return "confirmado"
+
+
+def _build_oferta_trace() -> dict:
+    ofertas_jueves = _get_ofertas()
+    ofertas_martes = _get_ofertas_martes()
+    planificacion = _get_proyeccion()
+
+    martes_index = {
+        _oferta_key(o.granja, o.galpon, o.nucleo, o.sexo, o.fecha_ingreso): o
+        for o in ofertas_martes
+    }
+
+    planificados: dict[tuple, dict] = {}
+    no_asignados: dict[tuple, dict] = {}
+    fuera_rango: dict[tuple, dict] = {}
+
+    if planificacion:
+        dias_semana = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+        for dia in planificacion.dias:
+            dia_nombre = dias_semana[dia.fecha.weekday()]
+            for lote in dia.lotes:
+                fecha_ingreso = lote.fecha_ingreso_original
+                if isinstance(fecha_ingreso, str):
+                    fecha_ingreso = date.fromisoformat(fecha_ingreso)
+                key = _oferta_key(lote.granja, lote.galpon, lote.nucleo, lote.sexo, fecha_ingreso)
+                planificados[key] = {
+                    "dia": dia_nombre,
+                    "fecha": dia.fecha.isoformat(),
+                    "cantidad_planificada": lote.cantidad,
+                    "es_compra_terceros": lote.es_compra_terceros,
+                }
+
+        for lote in planificacion.lotes_no_asignados or []:
+            key = _oferta_key(lote.granja, lote.galpon, lote.nucleo, lote.sexo, lote.fecha_ingreso)
+            no_asignados[key] = {
+                "motivo": lote.motivo,
+                "dias_elegibles": [d.isoformat() if isinstance(d, date) else d for d in lote.dias_elegibles],
+            }
+
+        for lote in planificacion.lotes_fuera_rango or []:
+            key = _oferta_key(lote.granja, lote.galpon, lote.nucleo, lote.sexo, lote.fecha_ingreso)
+            fuera_rango[key] = {
+                "motivo": lote.motivo,
+                "detalle_por_dia": lote.detalle_por_dia,
+            }
+
+    registros = []
+    resumen = {
+        "total_jueves": len(ofertas_jueves),
+        "planificados": 0,
+        "no_asignados": 0,
+        "fuera_rango": 0,
+        "pendientes": 0,
+        "ajustados_martes": 0,
+        "confirmados_martes": 0,
+        "sin_ajuste_martes": 0,
+    }
+
+    for idx, oferta in enumerate(ofertas_jueves):
+        key = _oferta_key(oferta.granja, oferta.galpon, oferta.nucleo, oferta.sexo, oferta.fecha_ingreso)
+        oferta_martes = martes_index.get(key)
+        ajuste_estado = _estado_ajuste_martes(oferta, oferta_martes)
+
+        if key in planificados:
+            estado_planificacion = "planificado"
+            detalle = planificados[key]
+            resumen["planificados"] += 1
+        elif key in no_asignados:
+            estado_planificacion = "no_asignado"
+            detalle = no_asignados[key]
+            resumen["no_asignados"] += 1
+        elif key in fuera_rango:
+            estado_planificacion = "fuera_rango"
+            detalle = fuera_rango[key]
+            resumen["fuera_rango"] += 1
+        else:
+            estado_planificacion = "pendiente"
+            detalle = None
+            resumen["pendientes"] += 1
+
+        if ajuste_estado == "actualizado":
+            resumen["ajustados_martes"] += 1
+        elif ajuste_estado == "confirmado":
+            resumen["confirmados_martes"] += 1
+        else:
+            resumen["sin_ajuste_martes"] += 1
+
+        registros.append({
+            "id": idx + 1,
+            "clave": {
+                "granja": oferta.granja,
+                "galpon": oferta.galpon,
+                "nucleo": oferta.nucleo,
+                "sexo": oferta.sexo,
+                "fecha_ingreso": oferta.fecha_ingreso.isoformat() if oferta.fecha_ingreso else None,
+            },
+            "oferta_jueves": oferta.model_dump(),
+            "estado_planificacion": estado_planificacion,
+            "tomado_en_planificacion": estado_planificacion == "planificado",
+            "detalle_planificacion": detalle,
+            "ajuste_martes": {
+                "disponible": oferta_martes is not None,
+                "estado": ajuste_estado,
+                "oferta": oferta_martes.model_dump() if oferta_martes else None,
+            },
+        })
+
+    claves_jueves = {
+        _oferta_key(o.granja, o.galpon, o.nucleo, o.sexo, o.fecha_ingreso)
+        for o in ofertas_jueves
+    }
+    nuevos_martes = []
+    for oferta in ofertas_martes:
+        key = _oferta_key(oferta.granja, oferta.galpon, oferta.nucleo, oferta.sexo, oferta.fecha_ingreso)
+        if key not in claves_jueves:
+            nuevos_martes.append(oferta.model_dump())
+
+    return {
+        "resumen": resumen,
+        "registros": registros,
+        "ajuste_martes_cargado": len(ofertas_martes) > 0,
+        "nuevos_martes": nuevos_martes,
+        "planificacion_disponible": planificacion is not None,
+    }
 
 
 app = FastAPI(
@@ -588,6 +751,15 @@ def get_oferta(current_user: TokenData = Depends(get_current_user)):
         "granjas": granjas,
         "ofertas": [o.model_dump() for o in ofertas],
     }
+
+
+@app.get("/oferta/trazabilidad")
+def get_oferta_trazabilidad(current_user: TokenData = Depends(get_current_user)):
+    """Retorna la oferta del jueves anotada con su estado dentro de la planificación actual."""
+    ofertas = _get_ofertas()
+    if not ofertas:
+        raise HTTPException(404, "No hay oferta cargada.")
+    return _build_oferta_trace()
 
 
 @app.delete("/oferta")
@@ -2754,6 +2926,7 @@ def get_semana2(current_user: TokenData = Depends(get_current_user)):
     Genera la proyección tentativa de semana 2 usando:
     - Lotes diferidos por el usuario
     - Lotes no asignados de semana 1 (si son elegibles en semana 2)
+    - Lotes fuera de rango de semana 1 que sí podrían entrar en semana 2
 
     Retorna la proyección como solo lectura (tentativa).
     """
@@ -2766,13 +2939,37 @@ def get_semana2(current_user: TokenData = Depends(get_current_user)):
     # Reunir lotes para semana 2 como LoteOferta
     ofertas_s2: list[LoteOferta] = []
     params = _get_parametros()
+    config_s1 = storage.load_proyeccion_config() or {}
+    dias_faena_s2 = config_s1.get("dias_faena", 5)
+    pollos_por_dia_s2 = config_s1.get("pollos_por_dia", params.pollos_diarios_objetivo_max)
+    if config_s1.get("habilitar_sabado") and dias_faena_s2 < 6:
+        dias_faena_s2 = 6
+
+    def _lote_key(granja: str, galpon: int, nucleo: int, sexo: str, fecha_ingreso: Optional[date]) -> tuple:
+        return (
+            granja,
+            galpon,
+            nucleo,
+            sexo,
+            fecha_ingreso.isoformat() if fecha_ingreso else "",
+        )
+
+    claves_agregadas: set[tuple] = set()
+
+    def _agregar_oferta_si_no_existe(oferta: LoteOferta) -> bool:
+        key = _lote_key(oferta.granja, oferta.galpon, oferta.nucleo, oferta.sexo, oferta.fecha_ingreso)
+        if key in claves_agregadas:
+            return False
+        ofertas_s2.append(oferta)
+        claves_agregadas.add(key)
+        return True
 
     # 1) Lotes diferidos → LoteOferta
     for d in diferidos:
         fecha_peso = date.fromisoformat(d["fecha_peso_original"]) if d.get("fecha_peso_original") else semana.fecha_inicio
         ganancia = d.get("ganancia_diaria_original") or params.ganancia_diaria_macho
         fecha_ingreso = date.fromisoformat(d["fecha_ingreso_original"]) if d.get("fecha_ingreso_original") else fecha_peso
-        ofertas_s2.append(LoteOferta(
+        _agregar_oferta_si_no_existe(LoteOferta(
             fecha_peso=fecha_peso,
             granja=d["granja"],
             galpon=d["galpon"],
@@ -2788,20 +2985,33 @@ def get_semana2(current_user: TokenData = Depends(get_current_user)):
             fecha_ingreso=fecha_ingreso,
         ))
 
-    # 2) Lotes no asignados de semana 1 → buscar en ofertas originales
     ofertas_originales = _get_ofertas()
-    if semana.lotes_no_asignados and ofertas_originales:
-        ofertas_index: dict[tuple, LoteOferta] = {}
+    ofertas_index: dict[tuple, LoteOferta] = {}
+    if ofertas_originales:
         for o in ofertas_originales:
-            key = (o.granja, o.galpon, o.nucleo, o.sexo,
-                   o.fecha_ingreso.isoformat() if o.fecha_ingreso else "")
-            ofertas_index[key] = o
+            key = _lote_key(o.granja, o.galpon, o.nucleo, o.sexo, o.fecha_ingreso)
+            if key not in ofertas_index:
+                ofertas_index[key] = o
+
+    # 2) Lotes no asignados de semana 1 → buscar en ofertas originales
+    if semana.lotes_no_asignados and ofertas_index:
         for lote_na in semana.lotes_no_asignados:
-            key = (lote_na.granja, lote_na.galpon, lote_na.nucleo, lote_na.sexo,
-                   lote_na.fecha_ingreso.isoformat() if lote_na.fecha_ingreso else "")
+            key = _lote_key(lote_na.granja, lote_na.galpon, lote_na.nucleo, lote_na.sexo, lote_na.fecha_ingreso)
             oferta_orig = ofertas_index.get(key)
             if oferta_orig:
-                ofertas_s2.append(oferta_orig)
+                _agregar_oferta_si_no_existe(oferta_orig)
+
+    # 3) Lotes fuera de rango de semana 1 → reintentar en semana 2 usando la oferta original.
+    # Esto permite continuar la planificación con lotes jóvenes que aún no estaban listos en S1.
+    lotes_recuperados_fuera_rango_s1 = 0
+    pollos_recuperados_fuera_rango_s1 = 0
+    if semana.lotes_fuera_rango and ofertas_index:
+        for lote_fr in semana.lotes_fuera_rango:
+            key = _lote_key(lote_fr.granja, lote_fr.galpon, lote_fr.nucleo, lote_fr.sexo, lote_fr.fecha_ingreso)
+            oferta_orig = ofertas_index.get(key)
+            if oferta_orig and _agregar_oferta_si_no_existe(oferta_orig):
+                lotes_recuperados_fuera_rango_s1 += 1
+                pollos_recuperados_fuera_rango_s1 += oferta_orig.cantidad
 
     if not ofertas_s2:
         return {
@@ -2809,7 +3019,11 @@ def get_semana2(current_user: TokenData = Depends(get_current_user)):
             "proyeccion": None,
             "lotes_diferidos": diferidos,
             "total_diferidos": len(diferidos),
-            "mensaje": "No hay lotes diferidos ni no asignados para proyectar en semana 2.",
+            "lotes_no_asignados_s1": len(semana.lotes_no_asignados),
+            "lotes_fuera_rango_s1": len(semana.lotes_fuera_rango),
+            "lotes_recuperados_fuera_rango_s1": lotes_recuperados_fuera_rango_s1,
+            "pollos_recuperados_fuera_rango_s1": pollos_recuperados_fuera_rango_s1,
+            "mensaje": "No hay lotes diferidos, no asignados ni fuera de rango recuperables para proyectar en semana 2.",
         }
 
     # Fecha inicio semana 2: siguiente lunes después de semana 1
@@ -2826,8 +3040,8 @@ def get_semana2(current_user: TokenData = Depends(get_current_user)):
     semana2 = generar_proyeccion(
         ofertas=ofertas_s2,
         fecha_inicio_semana=fecha_inicio_s2,
-        dias_faena=5,
-        pollos_por_dia=params.pollos_diarios_objetivo_max,
+        dias_faena=dias_faena_s2,
+        pollos_por_dia=pollos_por_dia_s2,
         params=params,
         feriados=feriados if feriados else None,
     )
@@ -2838,6 +3052,9 @@ def get_semana2(current_user: TokenData = Depends(get_current_user)):
         "lotes_diferidos": diferidos,
         "total_diferidos": len(diferidos),
         "lotes_no_asignados_s1": len(semana.lotes_no_asignados),
+        "lotes_fuera_rango_s1": len(semana.lotes_fuera_rango),
+        "lotes_recuperados_fuera_rango_s1": lotes_recuperados_fuera_rango_s1,
+        "pollos_recuperados_fuera_rango_s1": pollos_recuperados_fuera_rango_s1,
     }
 
 

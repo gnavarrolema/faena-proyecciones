@@ -160,7 +160,7 @@ export default function DesvioView({ proyeccion }) {
       <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="card">
         <div className="card-body" style={{ textAlign: 'center', padding: '3rem' }}>
           <p style={{ fontSize: '1.1rem', color: 'var(--text-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <Scale size={20} /> No hay proyección generada. Genérela primero para cargar desvíos.
+            <Scale size={20} /> No hay planificación generada. Genérela primero para cargar desvíos.
           </p>
         </div>
       </motion.div>

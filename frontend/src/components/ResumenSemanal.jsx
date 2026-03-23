@@ -83,7 +83,7 @@ export default function ResumenSemanal({ proyeccion }) {
       >
         <div className="card-body" style={{ textAlign: 'center', padding: '3rem' }}>
           <p style={{ fontSize: '1.1rem', color: 'var(--text-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <TrendingUp size={20} /> No hay proyección generada aún.
+            <TrendingUp size={20} /> No hay planificación generada aún.
           </p>
         </div>
       </motion.div>
@@ -302,7 +302,7 @@ export default function ResumenSemanal({ proyeccion }) {
                   </thead>
                   <tbody>
                     <tr>
-                      <td style={{ color: 'var(--success)' }}><strong>Asignados a proyección</strong></td>
+                      <td style={{ color: 'var(--success)' }}><strong>Asignados a planificación</strong></td>
                       <td className="text-right">{lotesAsignados}</td>
                       <td className="text-right">{formatNumber(pollosAsignados)}</td>
                     </tr>
@@ -587,7 +587,7 @@ export default function ResumenSemanal({ proyeccion }) {
         </motion.div>
       )}
 
-      {/* ── Semana 2 — Proyección Tentativa ──────────────────────────────── */}
+      {/* ── Semana 2 — Planificación Tentativa ───────────────────────────── */}
       {semana2?.tiene_datos && semana2.proyeccion && (() => {
         const s2 = semana2.proyeccion
         const diasS2 = s2.dias || []
@@ -618,7 +618,7 @@ export default function ResumenSemanal({ proyeccion }) {
             {/* Encabezado Semana 2 */}
             <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid #8b5cf6', marginTop: '1.5rem' }}>
               <div className="card-header">
-                <h2><Clock size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Semana 2 — Proyección Tentativa</h2>
+                <h2><Clock size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Semana 2 — Planificación Tentativa</h2>
                 <span style={{ fontSize: '0.75rem', padding: '2px 8px', background: '#f3e8ff', color: '#7c3aed', borderRadius: 12, fontWeight: 600 }}>TENTATIVA</span>
               </div>
               <div className="card-body">
@@ -648,6 +648,7 @@ export default function ResumenSemanal({ proyeccion }) {
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-light)', marginBottom: '1rem' }}>
                   {semana2.total_diferidos} lote{semana2.total_diferidos !== 1 ? 's' : ''} diferido{semana2.total_diferidos !== 1 ? 's' : ''}
                   {semana2.lotes_no_asignados_s1 > 0 && <> + {semana2.lotes_no_asignados_s1} no asignado{semana2.lotes_no_asignados_s1 !== 1 ? 's' : ''} de S1</>}
+                  {semana2.lotes_recuperados_fuera_rango_s1 > 0 && <> + {semana2.lotes_recuperados_fuera_rango_s1} fuera de rango recuperado{semana2.lotes_recuperados_fuera_rango_s1 !== 1 ? 's' : ''} de S1</>}
                 </p>
 
                 {/* Tabla resumen diario S2 */}

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { BarChart2, Activity, Home, List, AlertCircle, Download, CalendarOff, Plus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { generarProyeccion, generarEscenarios, getFeriados, addFeriadoCustom, deleteFeriadoCustom, getParametros } from '../services/api'
+import { generarProyeccion, generarEscenarios, getFeriados, addFeriadoCustom, deleteFeriadoCustom, getParametros, getOfertaTrazabilidad } from '../services/api'
 import { exportOfertaPDF } from '../utils/pdfExport'
 import VariantesPicker from './VariantesPicker'
 
@@ -32,6 +32,19 @@ const itemVariants = {
   show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } }
 }
 
+const PLAN_BADGES = {
+  planificado: { label: 'Tomado en planificación', color: '#166534', bg: '#f0fdf4' },
+  no_asignado: { label: 'Sin capacidad', color: '#92400e', bg: '#fffbeb' },
+  fuera_rango: { label: 'Fuera de rango', color: '#991b1b', bg: '#fef2f2' },
+  pendiente: { label: 'Pendiente', color: '#475569', bg: '#f8fafc' },
+}
+
+const MARTES_BADGES = {
+  actualizado: { label: 'Ajustado con martes', color: '#1d4ed8', bg: '#eff6ff' },
+  confirmado: { label: 'Confirmado con martes', color: '#0369a1', bg: '#f0f9ff' },
+  sin_ajuste: { label: 'Sin archivo martes', color: '#64748b', bg: '#f8fafc' },
+}
+
 function getDiaNombre(fechaStr) {
   const dt = new Date(fechaStr + 'T12:00:00')
   const idx = dt.getDay() === 0 ? 6 : dt.getDay() - 1
@@ -42,6 +55,8 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
   const [fechaInicio, setFechaInicio] = useState('')
   const [pollosPorDia, setPollosPorDia] = useState(35000)
   const [diasFaena, setDiasFaena] = useState(5)
+  const [trazabilidad, setTrazabilidad] = useState(null)
+  const [trazabilidadLoading, setTrazabilidadLoading] = useState(false)
 
   useEffect(() => {
     getParametros().then(params => {
@@ -50,6 +65,27 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
       }
     }).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    let active = true
+    const cargarTrazabilidad = async () => {
+      setTrazabilidadLoading(true)
+      try {
+        const data = await getOfertaTrazabilidad()
+        if (active) setTrazabilidad(data)
+      } catch {
+        if (active) setTrazabilidad(null)
+      } finally {
+        if (active) setTrazabilidadLoading(false)
+      }
+    }
+
+    if (oferta?.ofertas?.length > 0) {
+      cargarTrazabilidad()
+    }
+
+    return () => { active = false }
+  }, [oferta?.total_lotes, oferta?.total_pollos])
   const [habilitarSabado, setHabilitarSabado] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -173,9 +209,13 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
         incluir_deficit: incluirDeficit,
       })
       if (incluirDeficit && onDeficitUsado) onDeficitUsado()
+      try {
+        const trazData = await getOfertaTrazabilidad()
+        setTrazabilidad(trazData)
+      } catch {}
       onGenerarProyeccion(data)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Error al generar proyección')
+      setError(err.response?.data?.detail || 'Error al generar la planificación')
     } finally {
       setLoading(false)
     }
@@ -207,10 +247,10 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
         </div>
       </motion.div>
 
-      {/* Generar proyección */}
+      {/* Generar planificación */}
       <motion.div variants={itemVariants} className="card">
         <div className="card-header">
-          <h2><Activity size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Generar Proyección de Faena</h2>
+          <h2><Activity size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Generar Planificación de Faena</h2>
         </div>
         <div className="card-body">
           <div className="form-row">
@@ -561,7 +601,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
               {loading ? (
                 <><span className="spinner" style={{ width: 16, height: 16, marginRight: 6 }}></span> Generando...</>
               ) : (
-                <><BarChart2 size={16} /> Generar Proyección{feriadosSemana.length > 0 ? ` (${diasHabiles} días hábiles)` : ''}{habilitarSabado ? ' + Sábado' : ''}</>
+                <><BarChart2 size={16} /> Generar Planificación{feriadosSemana.length > 0 ? ` (${diasHabiles} días hábiles)` : ''}{habilitarSabado ? ' + Sábado' : ''}</>
               )}
             </button>
             <button
@@ -604,7 +644,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
             {variantesData && (
               <VariantesPicker
                 data={variantesData}
-                onSelect={(proyeccion) => {
+                  onSelect={(proyeccion) => {
                   setVariantesData(null)
                   if (incluirDeficit && onDeficitUsado) onDeficitUsado()
                   onGenerarProyeccion(proyeccion)
@@ -651,9 +691,35 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
       {/* Tabla de oferta completa */}
       <motion.div variants={itemVariants} className="card">
         <div className="card-header">
-          <h2><List size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Oferta Completa ({oferta.ofertas.length} lotes)</h2>
+          <h2><List size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Oferta del Jueves y Trazabilidad ({oferta.ofertas.length} lotes)</h2>
         </div>
         <div className="card-body">
+          <p style={{ marginBottom: '1rem', fontSize: '0.9rem', color: 'var(--text-light)' }}>
+            Esta vista muestra la oferta base del jueves. Los registros <strong>tachados</strong> ya fueron tomados en la planificación actual.
+            Si existe archivo del martes, se indica si el lote fue confirmado o ajustado con esos datos.
+          </p>
+
+          {trazabilidad && (
+            <div className="stats-grid" style={{ marginBottom: '1rem' }}>
+              <div className="stat-card">
+                <div className="stat-label">Tomados en planificación</div>
+                <div className="stat-value green">{trazabilidad.resumen.planificados}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Sin capacidad</div>
+                <div className="stat-value orange">{trazabilidad.resumen.no_asignados}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Fuera de rango</div>
+                <div className="stat-value" style={{ color: '#dc2626' }}>{trazabilidad.resumen.fuera_rango}</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Ajustados con martes</div>
+                <div className="stat-value blue">{trazabilidad.resumen.ajustados_martes}</div>
+              </div>
+            </div>
+          )}
+
           <div className="table-container" style={{ maxHeight: '500px', overflowY: 'auto' }}>
             <table>
               <thead>
@@ -672,30 +738,104 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                   <th className="text-right">Edad Real</th>
                   <th className="text-right">Peso Real</th>
                   <th>F. Ingreso</th>
+                  <th>Estado planificación</th>
+                  <th>Martes</th>
+                  <th>Detalle</th>
                 </tr>
               </thead>
               <tbody>
-                {oferta.ofertas.map((o, i) => (
-                  <tr key={i}>
-                    <td>{i + 1}</td>
-                    <td>{o.fecha_peso}</td>
-                    <td><strong>{o.granja}</strong></td>
-                    <td className="text-center">{o.galpon}</td>
-                    <td className="text-center">{o.nucleo}</td>
-                    <td className="text-right">{formatNumber(o.cantidad)}</td>
-                    <td className="text-center">{getSexoBadge(o.sexo)}</td>
-                    <td className="text-right">{o.edad_proyectada}</td>
-                    <td className="text-right">{o.peso_muestreo_proy?.toFixed(2)}</td>
-                    <td className="text-right">{o.ganancia_diaria?.toFixed(3)}</td>
-                    <td className="text-right">{o.dias_proyectados}</td>
-                    <td className="text-right">{o.edad_real}</td>
-                    <td className="text-right">{o.peso_muestreo_real?.toFixed(2)}</td>
-                    <td>{o.fecha_ingreso}</td>
-                  </tr>
-                ))}
+                {(trazabilidad?.registros || oferta.ofertas.map((o, i) => ({
+                  id: i + 1,
+                  oferta_jueves: o,
+                  estado_planificacion: 'pendiente',
+                  tomado_en_planificacion: false,
+                  detalle_planificacion: null,
+                  ajuste_martes: { estado: 'sin_ajuste', disponible: false, oferta: null },
+                }))).map((registro) => {
+                  const o = registro.oferta_jueves
+                  const planBadge = PLAN_BADGES[registro.estado_planificacion] || PLAN_BADGES.pendiente
+                  const martesBadge = MARTES_BADGES[registro.ajuste_martes?.estado] || MARTES_BADGES.sin_ajuste
+                  const rowStyle = registro.tomado_en_planificacion
+                    ? { textDecoration: 'line-through', opacity: 0.62, background: 'rgba(22, 163, 74, 0.05)' }
+                    : registro.estado_planificacion === 'fuera_rango'
+                      ? { background: 'rgba(239, 68, 68, 0.04)' }
+                      : registro.estado_planificacion === 'no_asignado'
+                        ? { background: 'rgba(245, 158, 11, 0.05)' }
+                        : undefined
+
+                  return (
+                    <tr key={registro.id} style={rowStyle}>
+                      <td>{registro.id}</td>
+                      <td>{o.fecha_peso}</td>
+                      <td><strong>{o.granja}</strong></td>
+                      <td className="text-center">{o.galpon}</td>
+                      <td className="text-center">{o.nucleo}</td>
+                      <td className="text-right">{formatNumber(o.cantidad)}</td>
+                      <td className="text-center">{getSexoBadge(o.sexo)}</td>
+                      <td className="text-right">{o.edad_proyectada}</td>
+                      <td className="text-right">{o.peso_muestreo_proy?.toFixed(2)}</td>
+                      <td className="text-right">{o.ganancia_diaria?.toFixed(3)}</td>
+                      <td className="text-right">{o.dias_proyectados}</td>
+                      <td className="text-right">{o.edad_real}</td>
+                      <td className="text-right">{o.peso_muestreo_real?.toFixed(2)}</td>
+                      <td>{o.fecha_ingreso}</td>
+                      <td>
+                        <span style={{
+                          display: 'inline-block', padding: '2px 8px', borderRadius: 12,
+                          fontSize: '0.76rem', fontWeight: 600, background: planBadge.bg, color: planBadge.color,
+                        }}>
+                          {planBadge.label}
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{
+                          display: 'inline-block', padding: '2px 8px', borderRadius: 12,
+                          fontSize: '0.76rem', fontWeight: 600, background: martesBadge.bg, color: martesBadge.color,
+                        }}>
+                          {martesBadge.label}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: '0.8rem', minWidth: 210 }}>
+                        {registro.estado_planificacion === 'planificado' && registro.detalle_planificacion && (
+                          <div>
+                            <strong>{registro.detalle_planificacion.dia}</strong>
+                            <span style={{ color: 'var(--text-light)' }}> · {registro.detalle_planificacion.fecha}</span>
+                          </div>
+                        )}
+                        {registro.estado_planificacion !== 'planificado' && registro.detalle_planificacion?.motivo && (
+                          <div>{registro.detalle_planificacion.motivo}</div>
+                        )}
+                        {registro.ajuste_martes?.estado === 'actualizado' && registro.ajuste_martes?.oferta && (
+                          <div style={{ color: 'var(--text-light)', marginTop: 4 }}>
+                            Martes: {formatNumber(registro.ajuste_martes.oferta.cantidad)} aves, {registro.ajuste_martes.oferta.peso_muestreo_proy?.toFixed(2)} kg
+                          </div>
+                        )}
+                        {registro.estado_planificacion === 'pendiente' && !registro.detalle_planificacion && (
+                          <div style={{ color: 'var(--text-light)' }}>Aún no entra en la planificación actual.</div>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
+
+          {trazabilidadLoading && (
+            <p style={{ marginTop: '0.75rem', fontSize: '0.82rem', color: 'var(--text-light)' }}>
+              Actualizando trazabilidad de oferta...
+            </p>
+          )}
+
+          {trazabilidad?.ajuste_martes_cargado && trazabilidad.nuevos_martes?.length > 0 && (
+            <div style={{ marginTop: '1rem', padding: '0.85rem 1rem', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 8, background: 'rgba(59,130,246,0.05)' }}>
+              <strong style={{ color: '#2563eb', fontSize: '0.9rem' }}>Lotes nuevos del martes</strong>
+              <p style={{ fontSize: '0.82rem', color: 'var(--text-light)', marginTop: 6 }}>
+                {trazabilidad.nuevos_martes.length} lote{trazabilidad.nuevos_martes.length !== 1 ? 's' : ''} no estaba{trazabilidad.nuevos_martes.length !== 1 ? 'n' : ''} en la oferta del jueves.
+                Estos registros se consideran adicionales al comparar jueves vs martes.
+              </p>
+            </div>
+          )}
         </div>
       </motion.div>
     </motion.div>

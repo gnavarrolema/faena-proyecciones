@@ -29,6 +29,86 @@ function formatRange(a, b) {
   return `${formatDate(a)} - ${formatDate(b)}`
 }
 
+function formatSignedNumber(n) {
+  if (n == null) return '-'
+  if (n === 0) return '0'
+  const abs = Math.abs(n).toLocaleString('es-AR')
+  return `${n > 0 ? '+' : '-'}${abs}`
+}
+
+function getWeekStart(dateStr) {
+  if (!dateStr) return null
+  const dt = new Date(`${dateStr}T12:00:00`)
+  const day = dt.getDay()
+  const offset = day === 0 ? -6 : 1 - day
+  dt.setDate(dt.getDate() + offset)
+  return dt
+}
+
+function formatWeekRange(dateStr) {
+  const start = getWeekStart(dateStr)
+  if (!start) return '-'
+  const end = new Date(start)
+  end.setDate(end.getDate() + 5)
+  return `${start.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })} - ${end.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}`
+}
+
+function getPlanningAction(cohorte) {
+  switch (cohorte.nivel) {
+    case 'anticipada':
+      return {
+        titulo: 'Mover a ventana esperada',
+        detalle: `Programar desde la semana ${formatWeekRange(cohorte.fecha_faena_esperada_desde)}.`
+      }
+    case 'atrasada':
+      return {
+        titulo: 'Revisar prioridad de faena',
+        detalle: 'La cohorte aparece tarde respecto a +42 dias; validar sobreedad o atraso del dato.'
+      }
+    case 'excedida':
+      return {
+        titulo: 'Validar exceso de aves',
+        detalle: 'Separar por granja o lote para confirmar que no haya duplicidad o mezcla de semanas.'
+      }
+    case 'mixta':
+      return {
+        titulo: 'Desagregar la cohorte',
+        detalle: 'Hay lotes dentro y fuera de la ventana esperada; conviene partir la planificación.'
+      }
+    case 'parcial':
+      return {
+        titulo: 'Planificar como cohorte parcial',
+        detalle: 'Usar esta base para la semana y complementar con otras cohortes o compras.'
+      }
+    default:
+      return {
+        titulo: 'Planificar en la ventana actual',
+        detalle: `La cohorte calza con la semana ${formatWeekRange(cohorte.fecha_objetivo_desde || cohorte.fecha_faena_esperada_desde)}.`
+      }
+  }
+}
+
+function getPlanningWeekLabel(cohorte) {
+  if (cohorte.nivel === 'atrasada') return 'Revision inmediata'
+  return formatWeekRange(cohorte.fecha_objetivo_desde || cohorte.fecha_faena_esperada_desde)
+}
+
+function getBrechaConfig(cohorte) {
+  if (cohorte.estado_cantidad === 'por_encima') {
+    return {
+      label: `${formatSignedNumber(cohorte.diferencia_vs_max)} vs max`,
+      color: 'var(--danger)'
+    }
+  }
+  if (cohorte.diferencia_vs_min == null) {
+    return { label: '-', color: 'var(--text-light)' }
+  }
+  return {
+    label: `${formatSignedNumber(cohorte.diferencia_vs_min)} vs min`,
+    color: cohorte.diferencia_vs_min < 0 ? 'var(--warning)' : 'var(--success)'
+  }
+}
+
 const NIVEL_CONFIG = {
   alineada: { label: 'Alineada', color: '#16a34a', bg: '#f0fdf4', icon: '🟢' },
   parcial: { label: 'Parcial', color: '#6b7280', bg: '#f9fafb', icon: '⚪' },
@@ -113,6 +193,19 @@ export default function ValidacionCruzadaView() {
   const cohortes = validacion?.mortalidad_cohortes
   const consist = validacion?.consistencia_edad
   const peorTasa = fact?.coberturas?.[fact.coberturas.length - 1]?.tasa
+  const cohortesList = cohortes?.cohortes || []
+  const cohortesEnVentana = cohortesList.filter(c => c.estado_fecha === 'alineada')
+  const cohortesReprogramar = cohortesList.filter(c => c.nivel === 'anticipada' || c.nivel === 'mixta')
+  const cohortesPrioridad = cohortesList.filter(c => c.nivel === 'atrasada' || c.nivel === 'excedida')
+  const totalOfertaCohortes = cohortesList.reduce((acc, c) => acc + (c.aves_en_oferta || 0), 0)
+  const totalEsperadoMinCohortes = cohortesList.reduce((acc, c) => acc + (c.esperados_faena_min || 0), 0)
+  const balanceCohortes = totalOfertaCohortes - totalEsperadoMinCohortes
+  const proximaSemanaPlan = cohortesList.length > 0
+    ? cohortesList
+      .map(c => c.fecha_objetivo_desde || c.fecha_faena_esperada_desde)
+      .filter(Boolean)
+      .sort()[0]
+    : null
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show">
@@ -133,6 +226,39 @@ export default function ValidacionCruzadaView() {
           </div>
         </div>
       </motion.div>
+
+      {/* Resumen ejecutivo */}
+      {cohortesList.length > 0 && (
+        <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid var(--primary)' }}>
+          <div className="card-header">
+            <h2><TrendingUp size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Resumen Ejecutivo</h2>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
+              Enfoque para la oferta vigente
+            </span>
+          </div>
+          <div className="card-body">
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-light)', marginBottom: '1rem', lineHeight: 1.5 }}>
+              La oferta actual se reparte en {cohortesList.length} cohorte{cohortesList.length !== 1 ? 's' : ''}. 
+              {cohortesEnVentana.length > 0 && ` ${cohortesEnVentana.length} queda${cohortesEnVentana.length !== 1 ? 'n' : ''} dentro de la ventana esperada`} 
+              {cohortesReprogramar.length > 0 && `, ${cohortesReprogramar.length} requiere${cohortesReprogramar.length !== 1 ? 'n' : ''} reprogramacion temporal`} 
+              {cohortesPrioridad.length > 0 && ` y ${cohortesPrioridad.length} necesita${cohortesPrioridad.length !== 1 ? 'n' : ''} revision prioritaria`}. 
+              {proximaSemanaPlan && ` La semana sugerida mas cercana parte en ${formatWeekRange(proximaSemanaPlan)}.`}
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+              <KpiCard label="Cohortes en ventana" value={formatNumber(cohortesEnVentana.length)} color="var(--success)" />
+              <KpiCard label="Reprogramar" value={formatNumber(cohortesReprogramar.length)} color="var(--warning)" />
+              <KpiCard label="Revision prioritaria" value={formatNumber(cohortesPrioridad.length)} color="var(--danger)" />
+              <KpiCard label="Aves ofertadas" value={formatNumber(totalOfertaCohortes)} color="var(--text)" />
+              <KpiCard
+                label="Balance vs esperado minimo"
+                value={formatSignedNumber(balanceCohortes)}
+                color={balanceCohortes >= 0 ? 'var(--success)' : 'var(--warning)'}
+              />
+              <KpiCard label="Proxima semana sugerida" value={proximaSemanaPlan ? formatWeekRange(proximaSemanaPlan) : '-'} color="var(--primary)" />
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Insights */}
       {insights && insights.length > 0 && (
@@ -257,37 +383,38 @@ export default function ValidacionCruzadaView() {
         </motion.div>
       )}
 
-      {/* Expectativa por cohortes */}
+      {/* Planificacion por cohortes */}
       {cohortes && cohortes.cohortes && cohortes.cohortes.length > 0 && (
         <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid var(--warning)' }}>
           <div className="card-header">
-            <h2><AlertTriangle size={18} color="var(--warning)" style={{ verticalAlign: 'middle', marginRight: 6 }} /> Expectativa de Pollitos BB a Recibir en Faena</h2>
+            <h2><AlertTriangle size={18} color="var(--warning)" style={{ verticalAlign: 'middle', marginRight: 6 }} /> Planificacion por Cohortes</h2>
             <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
               {cohortes.total_cohortes} cohortes · {cohortes.alertas} alerta{cohortes.alertas !== 1 ? 's' : ''}
             </span>
           </div>
           <div className="card-body">
             <p style={{ fontSize: '0.85rem', color: 'var(--text-light)', marginBottom: '1rem' }}>
-              Usa la fecha de carga de pollitos BB para identificar la cohorte y compara la oferta actual contra el rango esperado de aves a recibir en faena.
-              Como producción viene agregada por semana y la oferta por granja/lote, una cobertura baja puede reflejar una cohorte parcial y no necesariamente un problema real.
+              Esta vista convierte el cruce oferta-produccion en decisiones de planificacion. Cada cohorte muestra su ventana esperada de faena,
+              la semana sugerida para programarla y la accion recomendada para la oferta mas reciente.
             </p>
             <div className="table-container" style={{ overflowX: 'auto' }}>
               <table>
                 <thead>
                   <tr>
-                    <th>Semana Carga BB</th>
-                    <th>Faena Esperada</th>
-                    <th className="text-right">Cargados</th>
-                    <th className="text-right">Esperados en Faena</th>
-                    <th className="text-right">En Oferta</th>
-                    <th className="text-right">Cobertura Esperada</th>
+                    <th>Cohorte</th>
+                    <th>Semana sugerida</th>
+                    <th>Ventana esperada</th>
+                    <th className="text-right">Oferta / Esperado</th>
+                    <th className="text-right">Brecha</th>
                     <th>Estado</th>
-                    <th>Granjas</th>
+                    <th>Accion sugerida</th>
                   </tr>
                 </thead>
                 <tbody>
                   {cohortes.cohortes.map((c, idx) => {
                     const cfg = NIVEL_CONFIG[c.nivel] || NIVEL_CONFIG.sin_dato
+                    const accion = getPlanningAction(c)
+                    const brecha = getBrechaConfig(c)
                     const coberturaEsperada = c.cobertura_pct_min != null && c.cobertura_pct_max != null
                       ? `${c.cobertura_pct_max}% - ${c.cobertura_pct_min}%`
                       : '-'
@@ -296,21 +423,34 @@ export default function ValidacionCruzadaView() {
                         <td>
                           <strong>{formatDate(c.fecha_desde)}</strong>
                           <span style={{ color: 'var(--text-light)', fontSize: '0.8rem' }}> – {formatDate(c.fecha_hasta)}</span>
+                          <div style={{ color: 'var(--text-light)', fontSize: '0.78rem', marginTop: 4 }}>
+                            {c.granjas?.join(', ') || '-'}
+                            {c.lotes > 0 && <span> · {c.lotes} lotes</span>}
+                          </div>
+                        </td>
+                        <td style={{ fontSize: '0.82rem', lineHeight: 1.45 }}>
+                          <div><strong>{getPlanningWeekLabel(c)}</strong></div>
+                          <div style={{ color: 'var(--text-light)' }}>
+                            Oferta objetivo: {formatRange(c.fecha_objetivo_desde || c.fecha_oferta_desde, c.fecha_objetivo_hasta || c.fecha_oferta_hasta)}
+                          </div>
                         </td>
                         <td style={{ fontSize: '0.8rem', lineHeight: 1.45 }}>
                           <div><strong>{formatRange(c.fecha_faena_esperada_desde, c.fecha_faena_esperada_hasta)}</strong></div>
                           <div style={{ color: 'var(--text-light)' }}>
-                            Oferta: {formatRange(c.fecha_objetivo_desde || c.fecha_oferta_desde, c.fecha_objetivo_hasta || c.fecha_oferta_hasta)}
+                            Cargados: {formatNumber(c.pollitos_cargados)}
                           </div>
                         </td>
-                        <td className="text-right">{formatNumber(c.pollitos_cargados)}</td>
                         <td className="text-right">
-                          <strong>{formatNumber(c.esperados_faena_min)}</strong>
-                          <div style={{ color: 'var(--text-light)', fontSize: '0.75rem' }}>a {formatNumber(c.esperados_faena_max)}</div>
+                          <strong>{formatNumber(c.aves_en_oferta)}</strong>
+                          <div style={{ color: 'var(--text-light)', fontSize: '0.75rem' }}>
+                            vs {formatNumber(c.esperados_faena_min)} a {formatNumber(c.esperados_faena_max)}
+                          </div>
+                          <div style={{ color: cfg.color, fontSize: '0.75rem', fontWeight: 600 }}>
+                            {coberturaEsperada}
+                          </div>
                         </td>
-                        <td className="text-right">{formatNumber(c.aves_en_oferta)}</td>
-                        <td className="text-right" style={{ fontWeight: 600, color: cfg.color }}>
-                          {coberturaEsperada}
+                        <td className="text-right" style={{ fontWeight: 700, color: brecha.color }}>
+                          {brecha.label}
                         </td>
                         <td>
                           <span style={{
@@ -331,9 +471,9 @@ export default function ValidacionCruzadaView() {
                             </div>
                           )}
                         </td>
-                        <td style={{ fontSize: '0.8rem' }}>
-                          {c.granjas?.join(', ') || '-'}
-                          {c.lotes > 0 && <span style={{ color: 'var(--text-light)' }}> ({c.lotes} lotes)</span>}
+                        <td style={{ fontSize: '0.8rem', lineHeight: 1.45 }}>
+                          <div style={{ fontWeight: 600 }}>{accion.titulo}</div>
+                          <div style={{ color: 'var(--text-light)', marginTop: 4 }}>{accion.detalle}</div>
                         </td>
                       </tr>
                     )

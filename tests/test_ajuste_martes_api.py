@@ -190,3 +190,63 @@ def test_ajuste_archivo_invalido(client, auth_headers):
         files={"file": ("test.txt", b"not an excel file", "text/plain")},
     )
     assert r.status_code == 400
+
+
+def test_oferta_trazabilidad_marca_lote_planificado(client, auth_headers):
+    """La trazabilidad debe indicar cuando un lote del jueves ya fue tomado en la planificación."""
+    _generar_proyeccion(client, auth_headers)
+
+    r = client.get("/oferta/trazabilidad", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+
+    assert data["planificacion_disponible"] is True
+    assert data["resumen"]["planificados"] == 1
+    assert len(data["registros"]) == 1
+    registro = data["registros"][0]
+    assert registro["estado_planificacion"] == "planificado"
+    assert registro["tomado_en_planificacion"] is True
+    assert registro["detalle_planificacion"]["dia"] in ("Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado")
+
+
+def test_oferta_trazabilidad_refleja_ajuste_martes(client, auth_headers):
+    """Si existe oferta del martes, la trazabilidad debe reflejar el estado del ajuste por lote."""
+    proy = _generar_proyeccion(client, auth_headers)
+    lote = next(
+        l
+        for dia in proy["dias"]
+        for l in dia["lotes"]
+    )
+
+    martes_data = [{
+        "fecha_peso": date.fromisoformat(lote["fecha_peso_original"]),
+        "granja": lote["granja"],
+        "galpon": lote["galpon"],
+        "nucleo": lote["nucleo"],
+        "cantidad": lote["cantidad"] + 500,
+        "sexo": lote["sexo"],
+        "edad_proyectada": lote["edad_actual"] + 1,
+        "peso_muestreo_proy": round(lote["peso_actual"] + 0.08, 3),
+        "ganancia_diaria": lote.get("ganancia_diaria_original", 0.09),
+        "dias_proyectados": 0,
+        "edad_real": lote["edad_actual"] + 1,
+        "peso_muestreo_real": round(lote["peso_actual"] + 0.08, 3),
+        "fecha_ingreso": date.fromisoformat(lote["fecha_ingreso_original"]),
+    }]
+    excel_martes = _crear_excel_oferta(martes_data)
+    r = client.post(
+        "/oferta/ajuste-martes",
+        headers=auth_headers,
+        files={"file": ("martes.xlsx", excel_martes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200
+
+    r = client.get("/oferta/trazabilidad", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["ajuste_martes_cargado"] is True
+    assert data["resumen"]["ajustados_martes"] == 1
+    registro = data["registros"][0]
+    assert registro["ajuste_martes"]["disponible"] is True
+    assert registro["ajuste_martes"]["estado"] == "actualizado"
+    assert registro["ajuste_martes"]["oferta"]["cantidad"] == lote["cantidad"] + 500

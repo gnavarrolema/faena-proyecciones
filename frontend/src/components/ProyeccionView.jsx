@@ -259,7 +259,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
         gallinas: Object.keys(gallinasMap).length > 0 ? gallinasMap : null,
       })
       setProyeccion(data)
-      toast.success('Proyección regenerada con sábado habilitado')
+      toast.success('Planificación regenerada con sábado habilitado')
     } catch (err) {
       toast.error('Error: ' + (err.response?.data?.detail || err.message))
     }
@@ -288,7 +288,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
       >
         <div className="card-body" style={{ textAlign: 'center', padding: '3rem' }}>
           <p style={{ fontSize: '1.1rem', color: 'var(--text-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-            <BarChart size={20} /> No hay proyección generada. Genérela desde la pestaña "Oferta".
+            <BarChart size={20} /> No hay planificación generada. Genérela desde la pestaña "Oferta".
           </p>
         </div>
       </motion.div>
@@ -296,7 +296,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
   }
 
   const handleDelete = async (diaIdx, loteIdx) => {
-    if (!window.confirm('¿Eliminar este lote de la proyección?')) return
+    if (!window.confirm('¿Eliminar este lote de la planificación?')) return
     setLoading(true)
     try {
       const data = await eliminarLote(diaIdx, loteIdx)
@@ -333,7 +333,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
       setProyeccion(data.proyeccion)
       setAjusteResumen(data.resumen_ajuste)
       setAjusteFile(null)
-      toast.success('Proyección ajustada con oferta del martes')
+      toast.success('Planificación ajustada con oferta del martes')
     } catch (err) {
       toast.error('Error al ajustar: ' + (err.response?.data?.detail || err.message))
     } finally {
@@ -534,7 +534,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                           gallinas: proyeccion.eventos_gallinas?.length > 0 ? Object.fromEntries(proyeccion.eventos_gallinas.map(e => [e.fecha, { livianas: e.gallinas_livianas_cantidad || 0, pesadas: e.gallinas_pesadas_cantidad || 0 }])) : null,
                         })
                         setProyeccion(data)
-                        toast.success('Proyección regenerada con sábado habilitado')
+                        toast.success('Planificación regenerada con sábado habilitado')
                       } catch (err) { toast.error(err.response?.data?.detail || 'Error al regenerar') } finally { setLoading(false) }
                     }}>
                       Habilitar sábado
@@ -844,7 +844,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                 }
               }}
               style={{ fontSize: '0.8rem' }}
-              title="Guardar estos lotes como déficit para incluirlos en la proyección de la semana siguiente"
+              title="Guardar estos lotes como déficit para incluirlos en la planificación de la semana siguiente"
             >
               <ArrowLeftRight size={14} /> Trasladar a semana siguiente
             </button>
@@ -1026,7 +1026,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                       gap: 8,
                     }}>
                       <span>
-                        El sistema sugiere diferir estos lotes a Semana 2 para optimizar la proyección.
+                        El sistema sugiere diferir estos lotes a Semana 2 para optimizar la planificación.
                         <strong> Usted decide</strong> cuáles aceptar.
                       </span>
                       <div style={{ display: 'flex', gap: 6 }}>
@@ -1800,7 +1800,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
         </motion.div>
       )}
 
-      {/* ═══ Semana 2 — Proyección Tentativa ═══ */}
+      {/* ═══ Semana 2 — Planificación Tentativa ═══ */}
       <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid #6366f1', marginTop: '1.5rem' }}>
         <div
           className="card-header"
@@ -1809,7 +1809,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
         >
           <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Clock size={18} color="#6366f1" />
-            Semana 2 — Proyección Tentativa
+            Semana 2 — Planificación Tentativa
             <span style={{
               padding: '0.15rem 0.5rem',
               background: 'rgba(99, 102, 241, 0.12)',
@@ -1832,6 +1832,17 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                 {semana2Data.total_diferidos} lote{semana2Data.total_diferidos > 1 ? 's' : ''} diferido{semana2Data.total_diferidos > 1 ? 's' : ''}
               </span>
             )}
+            {semana2Data?.lotes_recuperados_fuera_rango_s1 > 0 && (
+              <span style={{
+                padding: '0.15rem 0.5rem',
+                background: 'rgba(14, 165, 233, 0.08)',
+                borderRadius: 12,
+                fontSize: '0.72rem',
+                color: '#0369a1',
+              }}>
+                {semana2Data.lotes_recuperados_fuera_rango_s1} lote{semana2Data.lotes_recuperados_fuera_rango_s1 > 1 ? 's' : ''} recuperado{semana2Data.lotes_recuperados_fuera_rango_s1 > 1 ? 's' : ''} de S1
+              </span>
+            )}
           </h2>
           <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
             {semana2Open ? '▲ Cerrar' : '▼ Abrir'}
@@ -1849,15 +1860,15 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                 {semana2Loading ? (
                   <div style={{ textAlign: 'center', padding: '2rem' }}>
                     <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#6366f1' }} />
-                    <p style={{ marginTop: '0.5rem', color: 'var(--text-light)', fontSize: '0.9rem' }}>Generando proyección tentativa...</p>
+                    <p style={{ marginTop: '0.5rem', color: 'var(--text-light)', fontSize: '0.9rem' }}>Generando planificación tentativa...</p>
                   </div>
                 ) : !semana2Data?.tiene_datos ? (
                   <div style={{ textAlign: 'center', padding: '2rem' }}>
                     <p style={{ color: 'var(--text-light)', fontSize: '0.9rem' }}>
-                      No hay lotes diferidos ni no asignados para proyectar en Semana 2.
+                      No hay lotes diferidos, no asignados ni fuera de rango recuperables para proyectar en Semana 2.
                     </p>
                     <p style={{ color: 'var(--text-light)', fontSize: '0.82rem', marginTop: '0.5rem' }}>
-                      Use el botón <strong style={{ color: '#6366f1' }}>S2</strong> en cualquier lote para diferirlo a la semana siguiente.
+                      Use el botón <strong style={{ color: '#6366f1' }}>S2</strong> en cualquier lote para diferirlo a la semana siguiente. Los lotes jóvenes fuera de rango se reconsideran automáticamente si entran en S2.
                     </p>
                   </div>
                 ) : (() => {
@@ -1881,9 +1892,12 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                         gap: 8,
                       }}>
                         <span>
-                          Proyección indicativa para la semana del <strong>{formatDate(s2.fecha_inicio)}</strong> al <strong>{formatDate(s2.fecha_fin)}</strong>.
+                          Planificación indicativa para la semana del <strong>{formatDate(s2.fecha_inicio)}</strong> al <strong>{formatDate(s2.fecha_fin)}</strong>.
                           {semana2Data.lotes_no_asignados_s1 > 0 && (
                             <> Incluye {semana2Data.lotes_no_asignados_s1} lote{semana2Data.lotes_no_asignados_s1 > 1 ? 's' : ''} no asignados de S1.</>
+                          )}
+                          {semana2Data.lotes_recuperados_fuera_rango_s1 > 0 && (
+                            <> Reconsidera {semana2Data.lotes_recuperados_fuera_rango_s1} lote{semana2Data.lotes_recuperados_fuera_rango_s1 > 1 ? 's' : ''} joven{semana2Data.lotes_recuperados_fuera_rango_s1 > 1 ? 'es' : ''} que quedó fuera de rango en S1.</>
                           )}
                         </span>
                         <div style={{ display: 'flex', gap: 6 }}>
@@ -1924,6 +1938,10 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                         <div className="stat-card" style={{ borderLeft: '3px solid #6366f1' }}>
                           <div className="stat-label">Días de Faena</div>
                           <div className="stat-value" style={{ color: '#6366f1' }}>{s2.dias?.length || 0}</div>
+                        </div>
+                        <div className="stat-card" style={{ borderLeft: '3px solid #0ea5e9' }}>
+                          <div className="stat-label">Recuperados de S1</div>
+                          <div className="stat-value" style={{ color: '#0369a1' }}>{formatNumber(semana2Data.pollos_recuperados_fuera_rango_s1 || 0)}</div>
                         </div>
                       </div>
 

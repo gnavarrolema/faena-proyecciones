@@ -84,7 +84,7 @@ const LandingPage = () => {
                 >
                     <FeatureCard
                         icon={<BarChart2 size={32} color="#4ade80" />}
-                        title="Proyecciones Exactas"
+                        title="Planificaciones Exactas"
                         desc="Calcula automáticamente el peso y edad proyectada de cada lote según ganancia diaria."
                     />
                     <FeatureCard

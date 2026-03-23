@@ -91,7 +91,7 @@ export default function EscenariosView({ proyeccion, setProyeccion }) {
   }
 
   const handleCargar = async (id, nombreEsc) => {
-    if (!window.confirm(`¿Restaurar "${nombreEsc}" como la proyección activa? Esto reemplazará la proyección actual.`)) return
+    if (!window.confirm(`¿Restaurar "${nombreEsc}" como la planificación activa? Esto reemplazará la planificación actual.`)) return
     try {
       const data = await cargarEscenario(id)
       if (data.proyeccion) setProyeccion(data.proyeccion)
@@ -147,12 +147,12 @@ export default function EscenariosView({ proyeccion, setProyeccion }) {
         <div className="card-body">
           {!proyeccion ? (
             <p style={{ color: 'var(--text-light)', fontSize: '0.9rem' }}>
-              No hay proyección generada. Genérela primero para poder guardar un escenario.
+              No hay planificación generada. Genérela primero para poder guardar un escenario.
             </p>
           ) : (
             <>
               <p style={{ marginBottom: '0.75rem', fontSize: '0.85rem', color: 'var(--text-light)' }}>
-                Guarde la proyección actual como escenario. Luego puede generar otra proyección con parámetros distintos y compararlas.
+                Guarde la planificación actual como escenario. Luego puede generar otra planificación con parámetros distintos y compararlas.
               </p>
               <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <div style={{ flex: 1, minWidth: 180 }}>
@@ -243,7 +243,7 @@ export default function EscenariosView({ proyeccion, setProyeccion }) {
         <div className="card-body">
           {escenarios.length === 0 ? (
             <p style={{ textAlign: 'center', color: 'var(--text-light)', padding: '2rem', fontSize: '0.9rem' }}>
-              No hay escenarios guardados aún. Guarde la proyección actual para comenzar.
+              No hay escenarios guardados aún. Guarde la planificación actual para comenzar.
             </p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>

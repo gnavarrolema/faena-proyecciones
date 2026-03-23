@@ -171,6 +171,54 @@ def test_semana2_con_diferidos(client, auth_headers):
     assert data["proyeccion"]["fecha_inicio"] == "2026-03-23"
 
 
+def test_semana2_recupera_lotes_fuera_rango_de_s1(client, auth_headers):
+    """Lotes jóvenes fuera de rango en S1 deben reconsiderarse en S2."""
+    ofertas = [
+        {
+            "fecha_peso": "2026-03-19",
+            "granja": "MARTINA",
+            "galpon": 7,
+            "nucleo": 1,
+            "cantidad": 15000,
+            "sexo": "M",
+            "edad_proyectada": 32,
+            "peso_muestreo_proy": 2.56,
+            "ganancia_diaria": 0.11,
+            "dias_proyectados": 0,
+            "edad_real": 32,
+            "peso_muestreo_real": 2.56,
+            "fecha_ingreso": "2026-02-15",
+        },
+    ]
+    storage.save_ofertas(ofertas)
+
+    resp = client.post(
+        "/proyeccion/generar",
+        json={
+            "fecha_inicio_semana": "2026-03-16",
+            "dias_faena": 5,
+            "pollos_por_dia": 35000,
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    semana1 = resp.json()
+    assert semana1["total_pollos_semana"] == 0
+    assert semana1["total_pollos_fuera_rango"] == 15000
+
+    resp = client.get("/proyeccion/semana2", headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["tiene_datos"] is True
+    assert data["lotes_fuera_rango_s1"] == 1
+    assert data["lotes_recuperados_fuera_rango_s1"] == 1
+    assert data["pollos_recuperados_fuera_rango_s1"] == 15000
+    assert data["proyeccion"]["fecha_inicio"] == "2026-03-23"
+    assert data["proyeccion"]["total_pollos_semana"] == 15000
+    assert data["proyeccion"]["total_pollos_fuera_rango"] == 0
+
+
 def test_lotes_diferidos_endpoint(client, auth_headers):
     """Verificar endpoint de listar lotes diferidos."""
     _crear_oferta_y_proyeccion(client, auth_headers)

@@ -62,6 +62,7 @@ export const uploadOferta = (file, sheetName) => {
 };
 
 export const getOferta = () => api.get('/oferta').then(r => r.data);
+export const getOfertaTrazabilidad = () => api.get('/oferta/trazabilidad').then(r => r.data);
 export const clearOferta = () => api.delete('/oferta').then(r => r.data);
 
 export const uploadAjusteMartes = (file, sheetName) => {

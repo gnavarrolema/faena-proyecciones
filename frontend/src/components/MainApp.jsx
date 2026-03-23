@@ -18,7 +18,7 @@ import ValidacionCruzadaView from './ValidacionCruzadaView'
 const TABS = [
     { id: 'upload', label: 'Cargar Oferta', icon: <FolderUp size={16} /> },
     { id: 'oferta', label: 'Oferta', icon: <List size={16} /> },
-    { id: 'proyeccion', label: 'Proyección', icon: <KanbanSquare size={16} /> },
+    { id: 'proyeccion', label: 'Planificación', icon: <KanbanSquare size={16} /> },
     { id: 'resumen', label: 'Resumen', icon: <TrendingUp size={16} /> },
     { id: 'produccion', label: 'Cargas Pollitos BB', icon: <Factory size={16} /> },
     { id: 'validacion', label: 'Validación Cruzada', icon: <ShieldCheck size={16} /> },
@@ -97,7 +97,7 @@ const MainApp = () => {
                     transition={{ duration: 0.5 }}
                 >
                     <Bird size={28} className="logo-icon" /> 
-                    <h1>Proyección de Faena</h1>
+                    <h1>Planificación de Faena</h1>
                 </motion.div>
 
                 <nav className="app-nav">
