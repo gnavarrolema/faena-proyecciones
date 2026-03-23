@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2, Factory, ArrowRight, Undo2, Clock, Lightbulb, Check, Eye, EyeOff } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, redistribuirDia, agregarLote, getAnalisisTerceros, cargarDeficit, getParametros, diferirLote, restaurarLoteSemana1, getSemana2, clearLotesDiferidos, getSugerenciasDiferimiento } from '../services/api'
+import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, agregarLote, getAnalisisTerceros, cargarDeficit, getParametros, diferirLote, restaurarLoteSemana1, getSemana2, clearLotesDiferidos, getSugerenciasDiferimiento, getOfertaTrazabilidad } from '../services/api'
 import { exportProyeccionPDF } from '../utils/pdfExport'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
@@ -54,6 +54,25 @@ function getNivelCargaLabel(dia) {
   return null
 }
 
+function getSexoBadge(sexo) {
+  if (sexo === 'M') return <span className="badge badge-info">M</span>
+  if (sexo === 'H') return <span className="badge badge-warning">H</span>
+  return <span className="badge badge-success">-</span>
+}
+
+const PLAN_BADGES = {
+  planificado: { label: 'Tomado en planificación', color: '#166534', bg: '#f0fdf4' },
+  no_asignado: { label: 'Sin capacidad', color: '#92400e', bg: '#fffbeb' },
+  fuera_rango: { label: 'Fuera de rango', color: '#991b1b', bg: '#fef2f2' },
+  pendiente: { label: 'Pendiente', color: '#475569', bg: '#f8fafc' },
+}
+
+const MARTES_BADGES = {
+  actualizado: { label: 'Ajustado con martes', color: '#1d4ed8', bg: '#eff6ff' },
+  confirmado: { label: 'Confirmado con martes', color: '#0369a1', bg: '#f0f9ff' },
+  sin_ajuste: { label: 'Sin archivo martes', color: '#64748b', bg: '#f8fafc' },
+}
+
 const containerVariants = {
   hidden: { opacity: 0 },
   show: {
@@ -100,6 +119,9 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
   const [sugerenciasOpen, setSugerenciasOpen] = useState(false)
   const [sugerenciasLoading, setSugerenciasLoading] = useState(false)
   const [sugerenciasIgnoradas, setSugerenciasIgnoradas] = useState(new Set())
+  const [trazabilidad, setTrazabilidad] = useState(null)
+  const [trazabilidadLoading, setTrazabilidadLoading] = useState(false)
+  const [trazabilidadOpen, setTrazabilidadOpen] = useState(true)
   const ajusteInputRef = React.useRef(null)
 
   // Cargar semana 2 cuando cambia la proyección
@@ -118,6 +140,26 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
   useEffect(() => {
     if (proyeccion?.dias?.length) cargarSemana2()
   }, [proyeccion?.total_pollos_semana])
+
+  useEffect(() => {
+    let active = true
+
+    const cargarTrazabilidad = async () => {
+      setTrazabilidadLoading(true)
+      try {
+        const data = await getOfertaTrazabilidad()
+        if (active) setTrazabilidad(data)
+      } catch {
+        if (active) setTrazabilidad(null)
+      } finally {
+        if (active) setTrazabilidadLoading(false)
+      }
+    }
+
+    if (proyeccion?.dias?.length) cargarTrazabilidad()
+
+    return () => { active = false }
+  }, [proyeccion?.total_pollos_semana, proyeccion?.total_pollos_no_asignados, proyeccion?.total_pollos_fuera_rango])
 
   const handleDiferir = async (diaIdx, loteIdx, motivo = '') => {
     setDiferirLoading(`${diaIdx}-${loteIdx}`)
@@ -573,6 +615,144 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
           </div>
         </motion.div>
       </div>
+
+      <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid var(--primary)' }}>
+        <div
+          className="card-header"
+          style={{ cursor: 'pointer', userSelect: 'none' }}
+          onClick={() => setTrazabilidadOpen(!trazabilidadOpen)}
+        >
+          <h2><Table size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Trazabilidad de Oferta del Jueves</h2>
+          <span style={{ fontSize: '0.85rem', color: 'var(--text-light)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {trazabilidadOpen ? <><EyeOff size={14} /> Ocultar</> : <><Eye size={14} /> Mostrar</>}
+          </span>
+        </div>
+        <AnimatePresence>
+          {trazabilidadOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              style={{ overflow: 'hidden' }}
+            >
+              <div className="card-body">
+                <p style={{ marginBottom: '1rem', fontSize: '0.9rem', color: 'var(--text-light)' }}>
+                  Aquí puede consultar la oferta base del jueves desde la misma pantalla de planificación. Los registros <strong>tachados</strong> ya fueron tomados en cuenta por la planificación actual.
+                </p>
+
+                {trazabilidad && (
+                  <div className="stats-grid" style={{ marginBottom: '1rem' }}>
+                    <div className="stat-card">
+                      <div className="stat-label">Tomados en planificación</div>
+                      <div className="stat-value green">{formatNumber(trazabilidad.resumen.planificados)}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="stat-label">Sin capacidad</div>
+                      <div className="stat-value orange">{formatNumber(trazabilidad.resumen.no_asignados)}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="stat-label">Fuera de rango</div>
+                      <div className="stat-value" style={{ color: '#dc2626' }}>{formatNumber(trazabilidad.resumen.fuera_rango)}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="stat-label">Ajustados con martes</div>
+                      <div className="stat-value blue">{formatNumber(trazabilidad.resumen.ajustados_martes)}</div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="table-container" style={{ maxHeight: '420px', overflowY: 'auto' }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Granja</th>
+                        <th className="text-center">Galpón</th>
+                        <th className="text-center">Núcleo</th>
+                        <th className="text-right">Cantidad</th>
+                        <th className="text-center">Sexo</th>
+                        <th className="text-right">Edad</th>
+                        <th className="text-right">Peso</th>
+                        <th>Estado planificación</th>
+                        <th>Martes</th>
+                        <th>Detalle</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(trazabilidad?.registros || []).map((registro) => {
+                        const lote = registro.oferta_jueves
+                        const planBadge = PLAN_BADGES[registro.estado_planificacion] || PLAN_BADGES.pendiente
+                        const martesBadge = MARTES_BADGES[registro.ajuste_martes?.estado] || MARTES_BADGES.sin_ajuste
+                        const rowStyle = registro.tomado_en_planificacion
+                          ? { textDecoration: 'line-through', opacity: 0.62, background: 'rgba(22, 163, 74, 0.05)' }
+                          : registro.estado_planificacion === 'fuera_rango'
+                            ? { background: 'rgba(239, 68, 68, 0.04)' }
+                            : registro.estado_planificacion === 'no_asignado'
+                              ? { background: 'rgba(245, 158, 11, 0.05)' }
+                              : undefined
+
+                        return (
+                          <tr key={registro.id} style={rowStyle}>
+                            <td>{registro.id}</td>
+                            <td><strong>{lote.granja}</strong></td>
+                            <td className="text-center">{lote.galpon}</td>
+                            <td className="text-center">{lote.nucleo}</td>
+                            <td className="text-right">{formatNumber(lote.cantidad)}</td>
+                            <td className="text-center">{getSexoBadge(lote.sexo)}</td>
+                            <td className="text-right">{lote.edad_proyectada}</td>
+                            <td className="text-right">{lote.peso_muestreo_proy?.toFixed(2)}</td>
+                            <td>
+                              <span style={{
+                                display: 'inline-block', padding: '2px 8px', borderRadius: 12,
+                                fontSize: '0.76rem', fontWeight: 600, background: planBadge.bg, color: planBadge.color,
+                              }}>
+                                {planBadge.label}
+                              </span>
+                            </td>
+                            <td>
+                              <span style={{
+                                display: 'inline-block', padding: '2px 8px', borderRadius: 12,
+                                fontSize: '0.76rem', fontWeight: 600, background: martesBadge.bg, color: martesBadge.color,
+                              }}>
+                                {martesBadge.label}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: '0.8rem', minWidth: 220 }}>
+                              {registro.estado_planificacion === 'planificado' && registro.detalle_planificacion && (
+                                <div>
+                                  <strong>{registro.detalle_planificacion.dia}</strong>
+                                  <span style={{ color: 'var(--text-light)' }}> · {registro.detalle_planificacion.fecha}</span>
+                                </div>
+                              )}
+                              {registro.estado_planificacion !== 'planificado' && registro.detalle_planificacion?.motivo && (
+                                <div>{registro.detalle_planificacion.motivo}</div>
+                              )}
+                              {registro.ajuste_martes?.estado === 'actualizado' && registro.ajuste_martes?.oferta && (
+                                <div style={{ color: 'var(--text-light)', marginTop: 4 }}>
+                                  Martes: {formatNumber(registro.ajuste_martes.oferta.cantidad)} aves, {registro.ajuste_martes.oferta.peso_muestreo_proy?.toFixed(2)} kg
+                                </div>
+                              )}
+                              {registro.estado_planificacion === 'pendiente' && !registro.detalle_planificacion && (
+                                <div style={{ color: 'var(--text-light)' }}>Aún no entra en la planificación actual.</div>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {trazabilidadLoading && (
+                  <p style={{ marginTop: '0.75rem', fontSize: '0.82rem', color: 'var(--text-light)' }}>
+                    Actualizando trazabilidad de oferta...
+                  </p>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
 
       {/* Ajuste con Oferta del Martes */}
       <motion.div variants={itemVariants} className="card card-compact" style={{ borderLeft: '4px solid var(--info)' }}>
