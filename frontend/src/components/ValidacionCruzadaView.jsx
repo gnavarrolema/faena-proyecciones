@@ -29,6 +29,19 @@ function formatRange(a, b) {
   return `${formatDate(a)} - ${formatDate(b)}`
 }
 
+function formatDateTime(value) {
+  if (!value) return 'Sin registro'
+  const dt = new Date(value)
+  if (Number.isNaN(dt.getTime())) return value
+  return dt.toLocaleString('es-AR', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 function formatSignedNumber(n) {
   if (n == null) return '-'
   if (n === 0) return '0'
@@ -126,6 +139,17 @@ const INSIGHT_STYLES = {
   info: { border: '#93c5fd', bg: '#eff6ff', color: '#1e40af', icon: <Info size={18} color="#2563eb" /> },
 }
 
+const COHORTE_WRAP_CELL_STYLE = {
+  whiteSpace: 'normal',
+  verticalAlign: 'top',
+}
+
+const COHORTE_META_TEXT_STYLE = {
+  color: 'var(--text-light)',
+  whiteSpace: 'normal',
+  wordBreak: 'break-word',
+}
+
 export default function ValidacionCruzadaView() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -188,7 +212,7 @@ export default function ValidacionCruzadaView() {
     )
   }
 
-  const { validacion, insights, tiene_oferta, tiene_produccion, total_ofertas, total_semanas_produccion } = data
+  const { validacion, insights, fuentes, tiene_oferta, tiene_produccion, total_ofertas, total_semanas_produccion } = data
   const fact = validacion?.factibilidad
   const cohortes = validacion?.mortalidad_cohortes
   const consist = validacion?.consistencia_edad
@@ -223,6 +247,51 @@ export default function ValidacionCruzadaView() {
             <StatusBadge ok={tiene_produccion} label="Producción" detail={tiene_produccion ? `${total_semanas_produccion} semanas` : 'No cargada'} />
             <StatusBadge ok={tiene_oferta && tiene_produccion} label="Cruce disponible"
               detail={tiene_oferta && tiene_produccion ? 'Datos completos' : 'Faltan datos'} />
+          </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: '1rem',
+            marginTop: '1rem',
+          }}>
+            <DataSourceCard
+              title="Fuente de oferta"
+              source={fuentes?.oferta}
+              emptyText="No hay metadata histórica para esta carga."
+              rows={[
+                {
+                  label: 'Persistido',
+                  value: fuentes?.oferta?.persisted
+                    ? `${formatNumber(fuentes.oferta.persisted.total_lotes)} lotes · ${formatNumber(fuentes.oferta.persisted.total_pollos)} aves`
+                    : 'Sin datos',
+                },
+                {
+                  label: 'Fechas peso',
+                  value: formatRange(fuentes?.oferta?.persisted?.fecha_peso_desde, fuentes?.oferta?.persisted?.fecha_peso_hasta),
+                },
+                {
+                  label: 'Fechas ingreso',
+                  value: formatRange(fuentes?.oferta?.persisted?.fecha_ingreso_desde, fuentes?.oferta?.persisted?.fecha_ingreso_hasta),
+                },
+              ]}
+            />
+            <DataSourceCard
+              title="Fuente de producción"
+              source={fuentes?.produccion}
+              emptyText="No hay metadata histórica para esta carga."
+              rows={[
+                {
+                  label: 'Persistido',
+                  value: fuentes?.produccion?.persisted
+                    ? `${formatNumber(fuentes.produccion.persisted.total_semanas)} semanas · ${formatNumber(fuentes.produccion.persisted.total_pollitos)} pollitos`
+                    : 'Sin datos',
+                },
+                {
+                  label: 'Ventana cargada',
+                  value: formatRange(fuentes?.produccion?.persisted?.fecha_desde, fuentes?.produccion?.persisted?.fecha_hasta),
+                },
+              ]}
+            />
           </div>
         </div>
       </motion.div>
@@ -398,7 +467,16 @@ export default function ValidacionCruzadaView() {
               la semana sugerida para programarla y la accion recomendada para la oferta mas reciente.
             </p>
             <div className="table-container" style={{ overflowX: 'auto' }}>
-              <table>
+              <table className="validacion-cohortes-table">
+                <colgroup>
+                  <col style={{ width: '16%' }} />
+                  <col style={{ width: '16%' }} />
+                  <col style={{ width: '16%' }} />
+                  <col style={{ width: '14%' }} />
+                  <col style={{ width: '10%' }} />
+                  <col style={{ width: '14%' }} />
+                  <col style={{ width: '14%' }} />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Cohorte</th>
@@ -420,23 +498,23 @@ export default function ValidacionCruzadaView() {
                       : '-'
                     return (
                       <tr key={idx}>
-                        <td>
+                        <td style={COHORTE_WRAP_CELL_STYLE}>
                           <strong>{formatDate(c.fecha_desde)}</strong>
                           <span style={{ color: 'var(--text-light)', fontSize: '0.8rem' }}> – {formatDate(c.fecha_hasta)}</span>
-                          <div style={{ color: 'var(--text-light)', fontSize: '0.78rem', marginTop: 4 }}>
+                          <div style={{ ...COHORTE_META_TEXT_STYLE, fontSize: '0.78rem', marginTop: 4 }}>
                             {c.granjas?.join(', ') || '-'}
                             {c.lotes > 0 && <span> · {c.lotes} lotes</span>}
                           </div>
                         </td>
-                        <td style={{ fontSize: '0.82rem', lineHeight: 1.45 }}>
+                        <td style={{ ...COHORTE_WRAP_CELL_STYLE, fontSize: '0.82rem', lineHeight: 1.45 }}>
                           <div><strong>{getPlanningWeekLabel(c)}</strong></div>
-                          <div style={{ color: 'var(--text-light)' }}>
+                          <div style={COHORTE_META_TEXT_STYLE}>
                             Oferta objetivo: {formatRange(c.fecha_objetivo_desde || c.fecha_oferta_desde, c.fecha_objetivo_hasta || c.fecha_oferta_hasta)}
                           </div>
                         </td>
-                        <td style={{ fontSize: '0.8rem', lineHeight: 1.45 }}>
+                        <td style={{ ...COHORTE_WRAP_CELL_STYLE, fontSize: '0.8rem', lineHeight: 1.45 }}>
                           <div><strong>{formatRange(c.fecha_faena_esperada_desde, c.fecha_faena_esperada_hasta)}</strong></div>
-                          <div style={{ color: 'var(--text-light)' }}>
+                          <div style={COHORTE_META_TEXT_STYLE}>
                             Cargados: {formatNumber(c.pollitos_cargados)}
                           </div>
                         </td>
@@ -452,7 +530,7 @@ export default function ValidacionCruzadaView() {
                         <td className="text-right" style={{ fontWeight: 700, color: brecha.color }}>
                           {brecha.label}
                         </td>
-                        <td>
+                        <td style={COHORTE_WRAP_CELL_STYLE}>
                           <span style={{
                             display: 'inline-block',
                             padding: '2px 8px',
@@ -466,14 +544,14 @@ export default function ValidacionCruzadaView() {
                             {cfg.icon} {cfg.label}
                           </span>
                           {c.motivo && (
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-light)', marginTop: 6, maxWidth: 260, lineHeight: 1.35 }}>
+                            <div style={{ ...COHORTE_META_TEXT_STYLE, fontSize: '0.75rem', marginTop: 6, lineHeight: 1.35 }}>
                               {c.motivo}
                             </div>
                           )}
                         </td>
-                        <td style={{ fontSize: '0.8rem', lineHeight: 1.45 }}>
+                        <td style={{ ...COHORTE_WRAP_CELL_STYLE, fontSize: '0.8rem', lineHeight: 1.45 }}>
                           <div style={{ fontWeight: 600 }}>{accion.titulo}</div>
-                          <div style={{ color: 'var(--text-light)', marginTop: 4 }}>{accion.detalle}</div>
+                          <div style={{ ...COHORTE_META_TEXT_STYLE, marginTop: 4 }}>{accion.detalle}</div>
                         </td>
                       </tr>
                     )
@@ -579,6 +657,62 @@ function KpiCard({ label, value, color }) {
     }}>
       <div style={{ fontSize: '0.75rem', color: 'var(--text-light)', marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: '1.3rem', fontWeight: 700, color: color || 'var(--text)' }}>{value}</div>
+    </div>
+  )
+}
+
+function DataSourceCard({ title, source, rows, emptyText }) {
+  const mismatch = source?.metadata_matches_persisted === false
+
+  return (
+    <div style={{
+      border: `1px solid ${mismatch ? 'rgba(245, 158, 11, 0.45)' : 'var(--border)'}`,
+      borderRadius: 10,
+      padding: '0.9rem 1rem',
+      background: mismatch ? 'rgba(255, 251, 235, 0.7)' : '#f8fafc',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', marginBottom: 8 }}>
+        <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>{title}</div>
+        <div style={{ fontSize: '0.74rem', color: 'var(--text-light)' }}>Storage persistido</div>
+      </div>
+
+      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)' }}>
+        {source?.filename || 'Sin archivo registrado'}
+      </div>
+      <div style={{ fontSize: '0.76rem', color: 'var(--text-light)', marginTop: 4 }}>
+        Última carga: {formatDateTime(source?.uploaded_at)}
+      </div>
+      {source?.sheet_name && (
+        <div style={{ fontSize: '0.76rem', color: 'var(--text-light)', marginTop: 2 }}>
+          Hoja: {source.sheet_name}
+        </div>
+      )}
+      {!source?.filename && (
+        <div style={{ fontSize: '0.76rem', color: 'var(--text-light)', marginTop: 6 }}>
+          {emptyText}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gap: 6, marginTop: '0.75rem' }}>
+        {rows.map((row) => (
+          <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: '0.8rem' }}>
+            <span style={{ color: 'var(--text-light)' }}>{row.label}</span>
+            <span style={{ textAlign: 'right', color: 'var(--text)' }}>{row.value || '-'}</span>
+          </div>
+        ))}
+      </div>
+
+      {typeof source?.total_descartadas === 'number' && source.total_descartadas > 0 && (
+        <div style={{ fontSize: '0.76rem', color: 'var(--warning)', marginTop: '0.7rem' }}>
+          Filas descartadas al cargar: {formatNumber(source.total_descartadas)}
+        </div>
+      )}
+
+      {mismatch && (
+        <div style={{ fontSize: '0.76rem', color: '#92400e', marginTop: '0.7rem', lineHeight: 1.4 }}>
+          El resumen persistido ya no coincide con la última metadata registrada. Conviene recargar el archivo para mantener la trazabilidad.
+        </div>
+      )}
     </div>
   )
 }

@@ -242,6 +242,7 @@ def get_storage() -> StorageBackend:
 # ─── Data Access Layer (capa de acceso a datos específica) ───────────────────────
 
 OFERTAS_KEY = "ofertas"
+OFERTA_METADATA_KEY = "ofertas_metadata"
 PARAMETROS_KEY = "parametros"
 PROYECCION_KEY = "proyeccion"
 UPLOADS_PREFIX = "uploads/"
@@ -253,6 +254,14 @@ def save_ofertas(ofertas_data: list[dict]) -> None:
 
 def load_ofertas() -> Optional[list[dict]]:
     return get_storage().load(OFERTAS_KEY)
+
+
+def save_oferta_metadata(metadata: dict) -> None:
+    get_storage().save(OFERTA_METADATA_KEY, metadata)
+
+
+def load_oferta_metadata() -> Optional[dict]:
+    return get_storage().load(OFERTA_METADATA_KEY)
 
 
 def save_parametros(parametros_data: dict) -> None:
@@ -277,6 +286,10 @@ def delete_proyeccion() -> None:
 
 def delete_ofertas() -> None:
     get_storage().delete(OFERTAS_KEY)
+
+
+def delete_oferta_metadata() -> None:
+    get_storage().delete(OFERTA_METADATA_KEY)
 
 
 # ─── Ofertas Martes (ajuste semanal) ─────────────────────────────────────────
@@ -328,6 +341,7 @@ def save_upload(filename: str, content: bytes) -> str:
 # ─── Datos de Producción (semanas + mortalidad) ─────────────────────────────────
 
 PRODUCCION_KEY = "produccion"
+PRODUCCION_METADATA_KEY = "produccion_metadata"
 
 
 def save_produccion(data: list[dict]) -> None:
@@ -338,8 +352,20 @@ def load_produccion() -> Optional[list[dict]]:
     return get_storage().load(PRODUCCION_KEY)
 
 
+def save_produccion_metadata(metadata: dict) -> None:
+    get_storage().save(PRODUCCION_METADATA_KEY, metadata)
+
+
+def load_produccion_metadata() -> Optional[dict]:
+    return get_storage().load(PRODUCCION_METADATA_KEY)
+
+
 def delete_produccion() -> None:
     get_storage().delete(PRODUCCION_KEY)
+
+
+def delete_produccion_metadata() -> None:
+    get_storage().delete(PRODUCCION_METADATA_KEY)
 
 
 # ─── Pesos Reales (desvío proyectado vs real) ───────────────────────────────────

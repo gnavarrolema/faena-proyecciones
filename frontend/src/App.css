@@ -300,6 +300,17 @@ body {
 /* Tables */
 .table-container { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); }
 table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.85rem; }
+.validacion-cohortes-table {
+  min-width: 1450px;
+  table-layout: fixed;
+}
+.validacion-cohortes-table thead th,
+.validacion-cohortes-table tbody td {
+  vertical-align: top;
+}
+.validacion-cohortes-table tbody td {
+  white-space: normal;
+}
 thead th {
   background: #f8fafc;
   color: var(--text-light);

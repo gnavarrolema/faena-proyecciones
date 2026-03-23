@@ -83,6 +83,82 @@ def _get_ofertas_martes() -> list[LoteOferta]:
     return []
 
 
+def _build_oferta_summary(ofertas: list[LoteOferta]) -> dict:
+    fechas_peso = [o.fecha_peso for o in ofertas if o.fecha_peso]
+    fechas_ingreso = [o.fecha_ingreso for o in ofertas if o.fecha_ingreso]
+    return {
+        "total_lotes": len(ofertas),
+        "total_pollos": sum(o.cantidad for o in ofertas),
+        "fecha_peso_desde": min(fechas_peso).isoformat() if fechas_peso else None,
+        "fecha_peso_hasta": max(fechas_peso).isoformat() if fechas_peso else None,
+        "fecha_ingreso_desde": min(fechas_ingreso).isoformat() if fechas_ingreso else None,
+        "fecha_ingreso_hasta": max(fechas_ingreso).isoformat() if fechas_ingreso else None,
+    }
+
+
+def _build_produccion_summary(semanas: list[SemanaProduccion]) -> dict:
+    fechas_desde = [s.fecha_desde for s in semanas if s.fecha_desde]
+    fechas_hasta = [s.fecha_hasta for s in semanas if s.fecha_hasta]
+    return {
+        "total_semanas": len(semanas),
+        "total_pollitos": sum(s.pollitos_cargados for s in semanas),
+        "fecha_desde": min(fechas_desde).isoformat() if fechas_desde else None,
+        "fecha_hasta": max(fechas_hasta).isoformat() if fechas_hasta else None,
+    }
+
+
+def _same_summary_values(metadata: Optional[dict], persisted: dict, fields: tuple[str, ...]) -> Optional[bool]:
+    if not metadata:
+        return None
+    comparable = [field for field in fields if metadata.get(field) is not None]
+    if not comparable:
+        return None
+    return all(metadata.get(field) == persisted.get(field) for field in comparable)
+
+
+def _build_fuentes_validacion(ofertas: list[LoteOferta], produccion_data: Optional[list[dict]]) -> dict:
+    oferta_summary = _build_oferta_summary(ofertas)
+    oferta_metadata = storage.load_oferta_metadata() or {}
+
+    semanas_produccion = []
+    for row in produccion_data or []:
+        try:
+            semanas_produccion.append(SemanaProduccion(**row))
+        except Exception as e:
+            logger.warning(f"Error reconstruyendo semana de producción para metadata: {e}")
+
+    produccion_summary = _build_produccion_summary(semanas_produccion)
+    produccion_metadata = storage.load_produccion_metadata() or {}
+
+    return {
+        "oferta": {
+            "filename": oferta_metadata.get("filename"),
+            "uploaded_at": oferta_metadata.get("uploaded_at"),
+            "upload_key": oferta_metadata.get("upload_key"),
+            "sheet_name": oferta_metadata.get("sheet_name"),
+            "total_descartadas": oferta_metadata.get("total_descartadas"),
+            "persisted": oferta_summary,
+            "metadata_matches_persisted": _same_summary_values(
+                oferta_metadata,
+                oferta_summary,
+                ("total_lotes", "total_pollos", "fecha_peso_desde", "fecha_peso_hasta", "fecha_ingreso_desde", "fecha_ingreso_hasta"),
+            ),
+        },
+        "produccion": {
+            "filename": produccion_metadata.get("filename"),
+            "uploaded_at": produccion_metadata.get("uploaded_at"),
+            "upload_key": produccion_metadata.get("upload_key"),
+            "sheet_name": produccion_metadata.get("sheet_name"),
+            "persisted": produccion_summary,
+            "metadata_matches_persisted": _same_summary_values(
+                produccion_metadata,
+                produccion_summary,
+                ("total_semanas", "total_pollitos", "fecha_desde", "fecha_hasta"),
+            ),
+        },
+    }
+
+
 def _get_proyeccion() -> Optional[SemanaFaena]:
     """Lee proyección desde storage. Devuelve None si no existe."""
     data = storage.load_proyeccion()
@@ -703,7 +779,20 @@ async def upload_oferta(file: UploadFile = File(...), sheet_name: Optional[str] 
 
     # Persistir ofertas y archivo original
     storage.save_ofertas([o.model_dump() for o in ofertas])
-    storage.save_upload(file.filename, content)
+    upload_key = storage.save_upload(file.filename, content)
+    storage.save_oferta_metadata({
+        "filename": file.filename,
+        "uploaded_at": datetime.now().isoformat(),
+        "upload_key": upload_key,
+        "sheet_name": sheet_name,
+        "total_lotes": len(ofertas),
+        "total_pollos": sum(o.cantidad for o in ofertas),
+        "fecha_peso_desde": min((o.fecha_peso for o in ofertas if o.fecha_peso), default=None),
+        "fecha_peso_hasta": max((o.fecha_peso for o in ofertas if o.fecha_peso), default=None),
+        "fecha_ingreso_desde": min((o.fecha_ingreso for o in ofertas if o.fecha_ingreso), default=None),
+        "fecha_ingreso_hasta": max((o.fecha_ingreso for o in ofertas if o.fecha_ingreso), default=None),
+        "total_descartadas": len(filas_descartadas),
+    })
 
     # Resumen por granja
     resumen = {}
@@ -766,6 +855,7 @@ def get_oferta_trazabilidad(current_user: TokenData = Depends(get_current_user))
 def clear_oferta(current_user: TokenData = Depends(get_current_user)):
     """Limpiar la oferta cargada."""
     storage.delete_ofertas()
+    storage.delete_oferta_metadata()
     storage.delete_ofertas_martes()
     storage.delete_proyeccion()
     return {"message": "Oferta limpiada"}
@@ -1464,7 +1554,17 @@ async def upload_produccion(
 
     # Persistir
     storage.save_produccion([s.model_dump() for s in semanas])
-    storage.save_upload(file.filename, content)
+    upload_key = storage.save_upload(file.filename, content)
+    storage.save_produccion_metadata({
+        "filename": file.filename,
+        "uploaded_at": datetime.now().isoformat(),
+        "upload_key": upload_key,
+        "sheet_name": sheet_name,
+        "total_semanas": len(semanas),
+        "total_pollitos": sum(s.pollitos_cargados for s in semanas),
+        "fecha_desde": min((s.fecha_desde for s in semanas if s.fecha_desde), default=None),
+        "fecha_hasta": max((s.fecha_hasta for s in semanas if s.fecha_hasta), default=None),
+    })
 
     resultado = {
         "total_semanas": len(semanas),
@@ -1792,12 +1892,14 @@ def get_validacion_cruzada(current_user: TokenData = Depends(get_current_user)):
     tiene_produccion = produccion_data is not None and len(produccion_data) > 0
 
     insights = _generar_insights_validacion(validacion) if validacion else []
+    fuentes = _build_fuentes_validacion(ofertas, produccion_data)
 
     return {
         "tiene_oferta": tiene_oferta,
         "tiene_produccion": tiene_produccion,
         "total_ofertas": len(ofertas),
         "total_semanas_produccion": len(produccion_data) if produccion_data else 0,
+        "fuentes": fuentes,
         "validacion": validacion,
         "insights": insights,
     }
@@ -1807,6 +1909,7 @@ def get_validacion_cruzada(current_user: TokenData = Depends(get_current_user)):
 def clear_produccion(current_user: TokenData = Depends(get_current_user)):
     """Limpiar datos de producción."""
     storage.delete_produccion()
+    storage.delete_produccion_metadata()
     return {"message": "Datos de producción eliminados."}
 
 
