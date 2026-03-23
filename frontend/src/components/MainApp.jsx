@@ -90,15 +90,21 @@ const MainApp = () => {
     return (
         <>
             <header className="app-header">
-                <motion.div 
-                    className="app-header-logo"
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.5 }}
-                >
-                    <Bird size={28} className="logo-icon" /> 
-                    <h1>Planificación de Faena</h1>
-                </motion.div>
+                <div className="app-header-top">
+                    <motion.div 
+                        className="app-header-logo"
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.5 }}
+                    >
+                        <Bird size={28} className="logo-icon" /> 
+                        <h1>Planificación de Faena</h1>
+                    </motion.div>
+
+                    <button onClick={handleLogout} className="logout-btn">
+                        <LogOut size={16} /> <span>Salir</span>
+                    </button>
+                </div>
 
                 <nav className="app-nav">
                     {TABS.map(tab => {
@@ -123,9 +129,6 @@ const MainApp = () => {
                             </button>
                         );
                     })}
-                    <button onClick={handleLogout} className="logout-btn">
-                        <LogOut size={16} /> <span>Salir</span>
-                    </button>
                 </nav>
             </header>
 
