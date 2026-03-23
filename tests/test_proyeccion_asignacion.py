@@ -138,6 +138,38 @@ def test_heavier_lots_assigned_to_earlier_days_on_equal_deficit():
         )
 
 
+def test_single_day_conflict_prioritizes_heavier_lot_over_input_order():
+    """Si dos lotes compiten por un único día, el más pesado debe ocupar la capacidad primero."""
+    ofertas = [
+        _lote(17000, 1, peso=3.00),
+        _lote(17000, 2, peso=3.12),
+    ]
+    params = Parametros(
+        pollos_diarios_objetivo_min=25000,
+        pollos_diarios_objetivo_max=30000,
+        capacidad_maxima_planta=30000,
+        capacidad_con_horas_extras=30000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.8,
+        peso_max_faena=3.2,
+    )
+
+    semana = generar_proyeccion(
+        ofertas=ofertas,
+        fecha_inicio_semana=date(2026, 2, 23),
+        dias_faena=1,
+        pollos_por_dia=30000,
+        params=params,
+    )
+
+    asignados = {(l.granja, l.galpon) for d in semana.dias for l in d.lotes}
+    no_asignados = {(l.granja, l.galpon) for l in semana.lotes_no_asignados}
+
+    assert ("TEST", 2) in asignados
+    assert ("TEST", 1) in no_asignados
+
+
 def test_ajuste_martes_detecta_fuera_de_rango_post_ajuste():
     """El ajuste del martes debe alertar si un lote queda fuera de rango tras actualización."""
     params = Parametros(

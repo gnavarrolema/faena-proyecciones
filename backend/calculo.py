@@ -769,13 +769,40 @@ def generar_proyeccion(
         """Checks hard daily maximum capacity (respeta límite sábado y gallinas)."""
         return pollos_dia[dia_idx] + ofertas[lote_idx].cantidad <= _capacidad_dia(dia_idx)
 
+    def _prioridad_dinamica_lote(lote_idx: int) -> tuple:
+        """Prioridad consistente basada en la mejor foto recalculada del lote dentro de la semana.
+
+        No parte lotes. Solo define qué lote se intenta ubicar primero cuando varios
+        compiten por la misma capacidad semanal.
+        """
+        dias_eleg = elegibilidad[lote_idx]
+        oferta = ofertas[lote_idx]
+        todos_sobreedad = all(s for _, _, _, s in dias_eleg)
+        mejor_dif_ideal = min(
+            abs(diferencia_edad_ideal(oferta.sexo, edad_fin, params))
+            for _, _, edad_fin, _ in dias_eleg
+        )
+        peso_max = max(peso for _, peso, _, _ in dias_eleg)
+        edad_max = max(edad for _, _, edad, _ in dias_eleg)
+        dia_temprano = min(d for d, _, _, _ in dias_eleg)
+
+        return (
+            len(dias_eleg),
+            0 if todos_sobreedad else 1,
+            mejor_dif_ideal,
+            -peso_max,
+            -edad_max,
+            dia_temprano,
+            -oferta.cantidad,
+        )
+
     # ── Fase 2: Propagación de restricciones ────────────────────────────────
     cambio = True
     while cambio:
         cambio = False
 
         # 2a: Lotes elegibles en un solo día → asignación forzada
-        for i in list(elegibilidad.keys()):
+        for i in sorted(elegibilidad.keys(), key=_prioridad_dinamica_lote):
             if i in asignados or i in no_asignados:
                 continue
             dias_eleg = [d for d, _, _, _ in elegibilidad[i]]
@@ -822,11 +849,7 @@ def generar_proyeccion(
         if i not in asignados and i not in no_asignados
         and all(s for _, _, _, s in elegibilidad[i])
     ]
-    # Los más viejos/pesados primero
-    sobreedad_restantes.sort(key=lambda i: (
-        -max(e for _, _, e, _ in elegibilidad[i]),
-        -ofertas[i].cantidad,
-    ))
+    sobreedad_restantes.sort(key=_prioridad_dinamica_lote)
     for i in sobreedad_restantes:
         dias_eleg = elegibilidad[i]
         # Asignar al día elegible con mayor capacidad remanente
@@ -852,17 +875,11 @@ def generar_proyeccion(
     restantes = [
         i for i in elegibilidad if i not in asignados and i not in no_asignados
     ]
-    restantes_con_info = []
-    for i in restantes:
-        peso_max = max(p for _, p, _, _ in elegibilidad[i])
-        n_dias = len(elegibilidad[i])
-        restantes_con_info.append((i, peso_max, n_dias))
-    # Más restringidos primero (menos días elegibles), luego más pesados
-    restantes_con_info.sort(key=lambda x: (x[2], -x[1], -ofertas[x[0]].cantidad))
+    restantes_ordenados = sorted(restantes, key=_prioridad_dinamica_lote)
 
     pendientes = []
 
-    for i, _, _ in restantes_con_info:
+    for i in restantes_ordenados:
         dias_eleg = elegibilidad[i]
         sexo = ofertas[i].sexo
 
@@ -896,7 +913,7 @@ def generar_proyeccion(
             pendientes.append(i)
 
     # ── Fase 4: Excedentes → día menos cargado (con tope duro) ─────────────
-    for i in pendientes:
+    for i in sorted(pendientes, key=_prioridad_dinamica_lote):
         dias_eleg = elegibilidad[i]
 
         mejor_dia = None
@@ -929,7 +946,10 @@ def generar_proyeccion(
     def _puede_asignarse_extras(lote_idx: int, dia_idx: int) -> bool:
         return pollos_dia[dia_idx] + ofertas[lote_idx].cantidad <= _capacidad_dia_extras(dia_idx)
 
-    lotes_aun_no_asignados = [i for i in no_asignados if i in elegibilidad]
+    lotes_aun_no_asignados = sorted(
+        [i for i in no_asignados if i in elegibilidad],
+        key=_prioridad_dinamica_lote,
+    )
     for i in lotes_aun_no_asignados:
         dias_eleg = elegibilidad[i]
         mejor_dia = None
