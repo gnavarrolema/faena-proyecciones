@@ -451,11 +451,11 @@ export default function ResumenSemanal({ proyeccion }) {
                 <div className="stat-value">{formatNumber(refProduccion.semana_produccion.pollitos_cargados)}</div>
               </div>
               <div className="stat-card">
-                <div className="stat-label">Disponible est. (6.5% mort.)</div>
+                <div className="stat-label">Disponible est. (7.5% mort.)</div>
                 <div className="stat-value blue">
                   {formatNumber(
                     refProduccion.semana_produccion.simulaciones.find(
-                      s => Math.abs(s.tasa_mortalidad - 0.065) < 0.001
+                      s => Math.abs(s.tasa_mortalidad - 0.075) < 0.001
                     )?.pollitos_disponibles
                   )}
                 </div>
@@ -564,7 +564,7 @@ export default function ResumenSemanal({ proyeccion }) {
                   </p>
                   <div className="stats-grid" style={{ marginTop: '0.75rem' }}>
                     <div className="stat-card">
-                      <div className="stat-label">Producción propia (6.5%)</div>
+                      <div className="stat-label">Producción propia (7.5%)</div>
                       <div className="stat-value blue">{formatNumber(dp.disponibles_peor)}</div>
                     </div>
                     <div className="stat-card">

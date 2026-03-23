@@ -26,7 +26,7 @@ class SemanaProduccion(BaseModel):
 
 class SimulacionMortalidadFila(BaseModel):
     """Resultado de la simulación de mortalidad para una semana y una tasa."""
-    tasa_mortalidad: float         # ej: 0.065 (6.5%)
+    tasa_mortalidad: float         # ej: 0.075 (7.5%)
     pollitos_disponibles: int      # pollitos_cargados * (1 - tasa)
 
 
@@ -43,7 +43,7 @@ class SemanaSimulacion(BaseModel):
 
 DIAS_HASTA_FAENA = 42
 
-TASAS_MORTALIDAD_DEFAULT = [0.045, 0.05, 0.055, 0.06, 0.065]
+TASAS_MORTALIDAD_DEFAULT = [0.045, 0.05, 0.055, 0.06, 0.065, 0.07, 0.075]
 
 # Mapeo de columnas del Excel de producción
 # Columna A está vacía; los datos empiezan en B

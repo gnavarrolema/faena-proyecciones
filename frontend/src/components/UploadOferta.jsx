@@ -48,19 +48,19 @@ export default function UploadOferta({ onUpload, hayDatosExistentes, deficitGuar
           const f = vc.factibilidad
           if (f.deficit_peor) {
             toast(
-              `Déficit de producción: la oferta (${formatNumber(f.total_oferta)}) supera la disponibilidad al 6.5% mort. (${formatNumber(f.disponibles_peor)}) en ${formatNumber(f.deficit_peor)} aves. Cobertura: ${f.cobertura_pct_peor}%`,
+              `Déficit de producción: la oferta (${formatNumber(f.total_oferta)}) supera el escenario conservador esperado (${formatNumber(f.disponibles_peor)}) en ${formatNumber(f.deficit_peor)} aves. Cobertura: ${f.cobertura_pct_peor}%`,
               { icon: '🔴', duration: 12000, style: { background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', fontSize: '0.85rem' } }
             )
           } else {
             toast.success(
-              `Producción OK: la oferta (${formatNumber(f.total_oferta)}) está cubierta por producción propia (${formatNumber(f.disponibles_peor)} al 6.5% mort.)`,
+              `Producción OK: la oferta (${formatNumber(f.total_oferta)}) está cubierta por producción propia (${formatNumber(f.disponibles_peor)} en escenario conservador)`,
               { duration: 6000, style: { fontSize: '0.85rem' } }
             )
           }
         }
         if (vc.mortalidad_cohortes?.alertas > 0) {
           toast(
-            `${vc.mortalidad_cohortes.alertas} cohorte${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''} con mortalidad elevada/crítica detectada${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''}. Revise la vista Pronóstico de Pesos para más detalle.`,
+            `${vc.mortalidad_cohortes.alertas} cohorte${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''} con fechas o cantidades fuera de lo esperado detectada${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''}. Revise la Validación Cruzada para más detalle.`,
             { icon: '⚠️', duration: 10000, style: { background: '#fffbeb', border: '1px solid #f59e0b', color: '#92400e', fontSize: '0.85rem' } }
           )
         }

@@ -23,13 +23,19 @@ function formatDate(d) {
   return dt.toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+function formatRange(a, b) {
+  if (!a && !b) return '-'
+  if (a === b) return formatDate(a)
+  return `${formatDate(a)} - ${formatDate(b)}`
+}
+
 const NIVEL_CONFIG = {
-  excelente: { label: 'Excelente', color: '#16a34a', bg: '#f0fdf4', icon: '🟢' },
-  normal: { label: 'Normal', color: '#2563eb', bg: '#eff6ff', icon: '🔵' },
-  elevada: { label: 'Elevada', color: '#d97706', bg: '#fffbeb', icon: '🟡' },
-  critica: { label: 'Crítica', color: '#dc2626', bg: '#fef2f2', icon: '🔴' },
-  inconsistente: { label: 'Inconsistente', color: '#7c3aed', bg: '#f5f3ff', icon: '🟣' },
-  cobertura_parcial: { label: 'Cobertura parcial', color: '#6b7280', bg: '#f9fafb', icon: '⚪' },
+  alineada: { label: 'Alineada', color: '#16a34a', bg: '#f0fdf4', icon: '🟢' },
+  parcial: { label: 'Parcial', color: '#6b7280', bg: '#f9fafb', icon: '⚪' },
+  anticipada: { label: 'Anticipada', color: '#d97706', bg: '#fffbeb', icon: '🟡' },
+  atrasada: { label: 'Atrasada', color: '#ea580c', bg: '#fff7ed', icon: '🟠' },
+  mixta: { label: 'Mixta', color: '#2563eb', bg: '#eff6ff', icon: '🔵' },
+  excedida: { label: 'Excedida', color: '#dc2626', bg: '#fef2f2', icon: '🔴' },
   sin_dato: { label: 'Sin dato', color: '#9ca3af', bg: '#f9fafb', icon: '⚫' },
 }
 
@@ -104,8 +110,9 @@ export default function ValidacionCruzadaView() {
 
   const { validacion, insights, tiene_oferta, tiene_produccion, total_ofertas, total_semanas_produccion } = data
   const fact = validacion?.factibilidad
-  const mort = validacion?.mortalidad_cohortes
+  const cohortes = validacion?.mortalidad_cohortes
   const consist = validacion?.consistencia_edad
+  const peorTasa = fact?.coberturas?.[fact.coberturas.length - 1]?.tasa
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show">
@@ -193,9 +200,9 @@ export default function ValidacionCruzadaView() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
               <KpiCard label="Pollitos Cargados" value={formatNumber(fact.pollitos_cargados)} />
               <KpiCard label="Oferta Total" value={formatNumber(fact.total_oferta)} />
-              <KpiCard label="Disponibles (6.5% mort.)" value={formatNumber(fact.disponibles_peor)}
+              <KpiCard label="Esperados en faena (mín.)" value={formatNumber(fact.disponibles_peor)}
                 color="var(--orange)" />
-              <KpiCard label="Disponibles (4.5% mort.)" value={formatNumber(fact.disponibles_mejor)}
+              <KpiCard label="Esperados en faena (máx.)" value={formatNumber(fact.disponibles_mejor)}
                 color="var(--primary)" />
               {fact.deficit_peor ? (
                 <KpiCard label="Déficit" value={formatNumber(fact.deficit_peor)} color="var(--danger)" />
@@ -211,14 +218,14 @@ export default function ValidacionCruzadaView() {
             {fact.coberturas && fact.coberturas.length > 0 && (
               <>
                 <h3 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-light)' }}>
-                  Cobertura por escenario de mortalidad
+                  Cobertura por escenario esperado de recepción
                 </h3>
                 <div className="table-container">
                   <table>
                     <thead>
                       <tr>
-                        <th>Tasa Mortalidad</th>
-                        <th className="text-right">Disponibles</th>
+                        <th>Escenario</th>
+                        <th className="text-right">Esperados en Faena</th>
                         <th className="text-right">Cobertura</th>
                         <th>Estado</th>
                       </tr>
@@ -226,9 +233,11 @@ export default function ValidacionCruzadaView() {
                     <tbody>
                       {fact.coberturas.map((c, idx) => (
                         <tr key={idx} style={{
-                          background: c.tasa === 6.5 ? 'rgba(251,146,60,0.06)' : undefined,
+                          background: c.tasa === peorTasa ? 'rgba(251,146,60,0.06)' : undefined,
                         }}>
-                          <td style={{ fontWeight: c.tasa === 6.5 ? 700 : 400 }}>{c.tasa}%</td>
+                          <td style={{ fontWeight: c.tasa === peorTasa ? 700 : 400 }}>
+                            {c.tasa === peorTasa ? 'Conservador' : c.tasa === 4.5 ? 'Base' : `Escenario ${c.tasa}%`}
+                          </td>
                           <td className="text-right">{formatNumber(c.disponibles)}</td>
                           <td className="text-right" style={{ fontWeight: 600 }}>{c.cobertura_pct}%</td>
                           <td>
@@ -248,55 +257,61 @@ export default function ValidacionCruzadaView() {
         </motion.div>
       )}
 
-      {/* Mortalidad por cohortes */}
-      {mort && mort.cohortes && mort.cohortes.length > 0 && (
+      {/* Expectativa por cohortes */}
+      {cohortes && cohortes.cohortes && cohortes.cohortes.length > 0 && (
         <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid var(--warning)' }}>
           <div className="card-header">
-            <h2><AlertTriangle size={18} color="var(--warning)" style={{ verticalAlign: 'middle', marginRight: 6 }} /> Mortalidad Implícita por Cohorte</h2>
+            <h2><AlertTriangle size={18} color="var(--warning)" style={{ verticalAlign: 'middle', marginRight: 6 }} /> Expectativa de Pollitos BB a Recibir en Faena</h2>
             <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
-              {mort.total_cohortes} cohortes · {mort.alertas} alerta{mort.alertas !== 1 ? 's' : ''}
+              {cohortes.total_cohortes} cohortes · {cohortes.alertas} alerta{cohortes.alertas !== 1 ? 's' : ''}
             </span>
           </div>
           <div className="card-body">
             <p style={{ fontSize: '0.85rem', color: 'var(--text-light)', marginBottom: '1rem' }}>
-              Mortalidad implícita calculada como <code style={{ fontSize: '0.8rem' }}>(1 − aves_en_oferta / pollitos_cargados) × 100</code>.
-              Compara las aves de la oferta con los pollitos cargados en la semana de producción correspondiente.
+              Usa la fecha de carga de pollitos BB para identificar la cohorte y compara la oferta actual contra el rango esperado de aves a recibir en faena.
+              Como producción viene agregada por semana y la oferta por granja/lote, una cobertura baja puede reflejar una cohorte parcial y no necesariamente un problema real.
             </p>
             <div className="table-container" style={{ overflowX: 'auto' }}>
               <table>
                 <thead>
                   <tr>
-                    <th>Semana Producción</th>
+                    <th>Semana Carga BB</th>
+                    <th>Faena Esperada</th>
                     <th className="text-right">Cargados</th>
+                    <th className="text-right">Esperados en Faena</th>
                     <th className="text-right">En Oferta</th>
-                    <th className="text-right">Diferencia</th>
-                    <th className="text-right">Mortalidad</th>
-                    <th className="text-right">Cobertura</th>
-                    <th>Nivel</th>
+                    <th className="text-right">Cobertura Esperada</th>
+                    <th>Estado</th>
                     <th>Granjas</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {mort.cohortes.map((c, idx) => {
+                  {cohortes.cohortes.map((c, idx) => {
                     const cfg = NIVEL_CONFIG[c.nivel] || NIVEL_CONFIG.sin_dato
+                    const coberturaEsperada = c.cobertura_pct_min != null && c.cobertura_pct_max != null
+                      ? `${c.cobertura_pct_max}% - ${c.cobertura_pct_min}%`
+                      : '-'
                     return (
                       <tr key={idx}>
                         <td>
                           <strong>{formatDate(c.fecha_desde)}</strong>
                           <span style={{ color: 'var(--text-light)', fontSize: '0.8rem' }}> – {formatDate(c.fecha_hasta)}</span>
                         </td>
+                        <td style={{ fontSize: '0.8rem', lineHeight: 1.45 }}>
+                          <div><strong>{formatRange(c.fecha_faena_esperada_desde, c.fecha_faena_esperada_hasta)}</strong></div>
+                          <div style={{ color: 'var(--text-light)' }}>
+                            Oferta: {formatRange(c.fecha_objetivo_desde || c.fecha_oferta_desde, c.fecha_objetivo_hasta || c.fecha_oferta_hasta)}
+                          </div>
+                        </td>
                         <td className="text-right">{formatNumber(c.pollitos_cargados)}</td>
+                        <td className="text-right">
+                          <strong>{formatNumber(c.esperados_faena_min)}</strong>
+                          <div style={{ color: 'var(--text-light)', fontSize: '0.75rem' }}>a {formatNumber(c.esperados_faena_max)}</div>
+                        </td>
                         <td className="text-right">{formatNumber(c.aves_en_oferta)}</td>
-                        <td className="text-right" style={{
-                          color: c.diferencia > 0 ? 'var(--danger)' : 'var(--success)',
-                          fontWeight: 600,
-                        }}>
-                          {c.diferencia > 0 ? '-' : '+'}{formatNumber(Math.abs(c.diferencia))}
-                        </td>
                         <td className="text-right" style={{ fontWeight: 600, color: cfg.color }}>
-                          {c.mortalidad_pct != null ? `${c.mortalidad_pct}%` : '-'}
+                          {coberturaEsperada}
                         </td>
-                        <td className="text-right">{c.cobertura_pct != null ? `${c.cobertura_pct}%` : '-'}</td>
                         <td>
                           <span style={{
                             display: 'inline-block',
@@ -310,6 +325,11 @@ export default function ValidacionCruzadaView() {
                           }}>
                             {cfg.icon} {cfg.label}
                           </span>
+                          {c.motivo && (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-light)', marginTop: 6, maxWidth: 260, lineHeight: 1.35 }}>
+                              {c.motivo}
+                            </div>
+                          )}
                         </td>
                         <td style={{ fontSize: '0.8rem' }}>
                           {c.granjas?.join(', ') || '-'}

@@ -183,7 +183,7 @@ class GuardarEscenarioRequest(BaseModel):
     """Para guardar la proyección actual como escenario."""
     nombre: str
     descripcion: Optional[str] = None
-    tasa_mortalidad: Optional[float] = None  # ej: 0.065 (6.5%)
+    tasa_mortalidad: Optional[float] = None  # ej: 0.075 (7.5%)
 
 
 class CompararEscenariosRequest(BaseModel):
@@ -196,7 +196,7 @@ class FactibilidadProduccion(BaseModel):
     encontrada: bool
     pollitos_cargados: Optional[int] = None
     disponibles_mejor: Optional[int] = None   # al 4.5% mortalidad
-    disponibles_peor: Optional[int] = None     # al 6.5% mortalidad
+    disponibles_peor: Optional[int] = None     # al peor escenario configurado
     total_oferta: int = 0
     deficit_peor: Optional[int] = None          # oferta - disponibles_peor (si >0)
     cobertura_pct_peor: Optional[float] = None  # (oferta / disponibles_peor) * 100
@@ -250,8 +250,15 @@ class RestaurarLoteRequest(BaseModel):
 def _calcular_factibilidad(
     fecha_inicio_semana: date,
     total_oferta: int,
+    ofertas: Optional[list[LoteOferta]] = None,
 ) -> Optional[FactibilidadProduccion]:
-    """Cruza oferta con producción cargada para evaluar factibilidad."""
+    """Cruza oferta con producción cargada para evaluar factibilidad.
+
+    Si se pasan ofertas, agrega TODAS las semanas de producción que
+    corresponden a los fecha_ingreso de los lotes (más preciso para el
+    cruce validación cruzada).  Sin ofertas, busca una sola semana por
+    fecha_faena_estimada (compatibilidad con proyección).
+    """
     data = storage.load_produccion()
     if not data:
         return None
@@ -259,36 +266,63 @@ def _calcular_factibilidad(
     semanas = [SemanaProduccion(**s) for s in data]
     TOLERANCIA_DIAS = 3
 
-    semana_encontrada = None
-    for sem in semanas:
-        fecha_faena_estimada = sem.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
-        if abs((fecha_faena_estimada - fecha_inicio_semana).days) <= TOLERANCIA_DIAS:
-            semana_encontrada = sem
-            break
+    semanas_encontradas: list[SemanaProduccion] = []
 
-    if semana_encontrada is None:
+    if ofertas:
+        # Agregar TODAS las semanas de producción referenciadas por la oferta
+        seen: set[str] = set()
+        for oferta in ofertas:
+            if not oferta.fecha_ingreso:
+                continue
+            for sem in semanas:
+                key = sem.fecha_desde.isoformat()
+                if key in seen:
+                    continue
+                if sem.fecha_desde <= oferta.fecha_ingreso <= sem.fecha_hasta:
+                    seen.add(key)
+                    semanas_encontradas.append(sem)
+                    break
+            else:
+                # Tolerancia: ±3 días
+                for sem in semanas:
+                    key = sem.fecha_desde.isoformat()
+                    if key in seen:
+                        continue
+                    if abs((oferta.fecha_ingreso - sem.fecha_desde).days) <= TOLERANCIA_DIAS:
+                        seen.add(key)
+                        semanas_encontradas.append(sem)
+                        break
+    else:
+        # Legacy: buscar una sola semana por fecha de faena estimada
+        for sem in semanas:
+            fecha_faena_estimada = sem.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
+            if abs((fecha_faena_estimada - fecha_inicio_semana).days) <= TOLERANCIA_DIAS:
+                semanas_encontradas.append(sem)
+                break
+
+    if not semanas_encontradas:
         return FactibilidadProduccion(encontrada=False, total_oferta=total_oferta)
 
-    simulacion = simular_mortalidad([semana_encontrada])
-    sims = simulacion[0].simulaciones
-
-    disponibles_mejor = sims[0].pollitos_disponibles   # 4.5%
-    disponibles_peor = sims[-1].pollitos_disponibles    # 6.5%
-    deficit = max(0, total_oferta - disponibles_peor)
-    cobertura = round((total_oferta / disponibles_peor * 100), 1) if disponibles_peor > 0 else None
+    total_pollitos = sum(s.pollitos_cargados for s in semanas_encontradas)
 
     coberturas = []
-    for sim in sims:
-        cob_pct = round((total_oferta / sim.pollitos_disponibles * 100), 1) if sim.pollitos_disponibles > 0 else None
+    for tasa in TASAS_MORTALIDAD_DEFAULT:
+        disponibles = int(total_pollitos * (1 - tasa))
+        cob_pct = round((total_oferta / disponibles * 100), 1) if disponibles > 0 else None
         coberturas.append({
-            "tasa": round(sim.tasa_mortalidad * 100, 1),
-            "disponibles": sim.pollitos_disponibles,
+            "tasa": round(tasa * 100, 1),
+            "disponibles": disponibles,
             "cobertura_pct": cob_pct,
         })
 
+    disponibles_mejor = coberturas[0]["disponibles"]   # 4.5%
+    disponibles_peor = coberturas[-1]["disponibles"]    # peor escenario configurado
+    deficit = max(0, total_oferta - disponibles_peor)
+    cobertura = round((total_oferta / disponibles_peor * 100), 1) if disponibles_peor > 0 else None
+
     return FactibilidadProduccion(
         encontrada=True,
-        pollitos_cargados=semana_encontrada.pollitos_cargados,
+        pollitos_cargados=total_pollitos,
         disponibles_mejor=disponibles_mejor,
         disponibles_peor=disponibles_peor,
         total_oferta=total_oferta,
@@ -318,7 +352,7 @@ def _calcular_deficit_produccion(proyeccion: SemanaFaena) -> Optional[dict]:
         "cobertura_pct_peor": fact.cobertura_pct_peor,
         "hay_deficit": hay_deficit,
         "recomendacion_terceros": (
-            f"La producción propia ({fact.disponibles_peor:,} al 6.5% mort.) "
+            f"La producción propia ({fact.disponibles_peor:,} en el escenario conservador) "
             f"no cubre la oferta ({fact.total_oferta:,}). "
             f"Se recomienda adquirir ~{fact.deficit_peor:,} pollos a terceros."
         ) if hay_deficit else None,
@@ -335,18 +369,18 @@ def _validar_cruce_oferta(ofertas: list[LoteOferta]) -> Optional[dict]:
 
     result: dict = {}
 
-    # 1. Factibilidad: cobertura oferta vs producción
+    # 1. Factibilidad: cobertura oferta vs producción (agregando todas las semanas)
     from collections import Counter
     fechas_peso = [o.fecha_peso for o in ofertas if o.fecha_peso]
     if fechas_peso:
         fecha_mas_comun = Counter(fechas_peso).most_common(1)[0][0]
         lunes = fecha_mas_comun - timedelta(days=fecha_mas_comun.weekday())
         total_oferta = sum(o.cantidad for o in ofertas)
-        fact = _calcular_factibilidad(lunes, total_oferta)
+        fact = _calcular_factibilidad(lunes, total_oferta, ofertas=ofertas)
         if fact:
             result["factibilidad"] = fact.model_dump()
 
-    # 2. Mortalidad implícita por cohorte
+    # 2. Concordancia producción-oferta por cohorte
     mortalidad = validar_mortalidad_oferta(ofertas, produccion_data)
     if mortalidad and mortalidad.get("cohortes"):
         result["mortalidad_cohortes"] = mortalidad
@@ -386,18 +420,18 @@ def _validar_cruce_produccion() -> Optional[dict]:
 
     result: dict = {}
 
-    # 1. Factibilidad
+    # 1. Factibilidad (agregando todas las semanas referenciadas)
     from collections import Counter
     fechas_peso = [o.fecha_peso for o in ofertas if o.fecha_peso]
     if fechas_peso:
         fecha_mas_comun = Counter(fechas_peso).most_common(1)[0][0]
         lunes = fecha_mas_comun - timedelta(days=fecha_mas_comun.weekday())
         total_oferta = sum(o.cantidad for o in ofertas)
-        fact = _calcular_factibilidad(lunes, total_oferta)
+        fact = _calcular_factibilidad(lunes, total_oferta, ofertas=ofertas)
         if fact:
             result["factibilidad"] = fact.model_dump()
 
-    # 2. Mortalidad implícita por cohorte
+    # 2. Concordancia producción-oferta por cohorte
     mortalidad = validar_mortalidad_oferta(ofertas, produccion_data)
     if mortalidad and mortalidad.get("cohortes"):
         result["mortalidad_cohortes"] = mortalidad
@@ -1293,7 +1327,7 @@ def get_produccion(current_user: TokenData = Depends(get_current_user)):
 @app.get("/produccion/simulacion")
 def get_simulacion_mortalidad(current_user: TokenData = Depends(get_current_user)):
     """
-    Retorna simulación de mortalidad a 5 tasas (4.5%–6.5%)
+    Retorna simulación de mortalidad a 7 tasas (4.5%–7.5%)
     para cada semana de producción cargada.
     """
     data = storage.load_produccion()
@@ -1344,14 +1378,15 @@ def get_referencia_produccion(
     simulacion = simular_mortalidad([semana_encontrada])
     sim_data = simulacion[0].model_dump()
 
-    # Cobertura: oferta actual vs disponible al 6.5%
+    # Cobertura: oferta actual vs disponible al peor escenario configurado
     proyeccion = _get_proyeccion()
     total_oferta = proyeccion.total_pollos_semana if proyeccion else 0
 
-    disponible_65 = int(semana_encontrada.pollitos_cargados * (1 - 0.065))
-    cobertura = round((total_oferta / disponible_65 * 100), 1) if disponible_65 > 0 else None
+    peor_tasa = max(TASAS_MORTALIDAD_DEFAULT)
+    disponible_peor = int(semana_encontrada.pollitos_cargados * (1 - peor_tasa))
+    cobertura = round((total_oferta / disponible_peor * 100), 1) if disponible_peor > 0 else None
 
-    # Coberturas multi-escenario (5 tasas)
+    # Coberturas multi-escenario
     coberturas = []
     for sim_fila in simulacion[0].simulaciones:
         cob_pct = round((total_oferta / sim_fila.pollitos_disponibles * 100), 1) if sim_fila.pollitos_disponibles > 0 else None
@@ -1392,7 +1427,7 @@ def _generar_insights_validacion(validacion: dict) -> list[dict]:
                 "titulo": "Déficit de producción propia",
                 "detalle": (
                     f"La oferta actual ({total_oferta:,} aves) supera en {deficit:,} aves "
-                    f"({pct_exceso}%) la producción disponible al 6.5% de mortalidad "
+                    f"({pct_exceso}%) la producción disponible en el escenario conservador "
                     f"({disponibles_peor:,} aves)."
                 ),
                 "accion": (
@@ -1407,9 +1442,9 @@ def _generar_insights_validacion(validacion: dict) -> list[dict]:
                 "titulo": "Cobertura ajustada",
                 "detalle": (
                     f"La producción cubre la oferta pero con margen bajo "
-                    f"(la oferta consume {cobertura}% de la producción al 6.5% mort.)."
+                    f"(la oferta consume {cobertura}% de la producción en el escenario conservador)."
                 ),
-                "accion": "Monitorear mortalidad real; si sube, podría generarse déficit.",
+                "accion": "Monitorear merma real; si sube, podría generarse déficit.",
             })
         else:
             margen = disponibles_peor - total_oferta if disponibles_peor else 0
@@ -1418,7 +1453,7 @@ def _generar_insights_validacion(validacion: dict) -> list[dict]:
                 "categoria": "factibilidad",
                 "titulo": "Producción suficiente",
                 "detalle": (
-                    f"La producción propia ({disponibles_peor:,} al 6.5% mort.) "
+                    f"La producción propia ({disponibles_peor:,} en el escenario conservador) "
                     f"cubre la oferta ({total_oferta:,}) con un superávit de {margen:,} aves."
                 ),
                 "accion": "",
@@ -1431,110 +1466,84 @@ def _generar_insights_validacion(validacion: dict) -> list[dict]:
                 insights.append({
                     "tipo": "info",
                     "categoria": "sensibilidad",
-                    "titulo": "Rango de sensibilidad por mortalidad",
+                    "titulo": "Rango de sensibilidad por merma estimada",
                     "detalle": (
-                        f"Entre el mejor (4.5% mort. → {disponibles_mejor:,}) "
-                        f"y peor escenario (6.5% mort. → {disponibles_peor:,}) "
+                        f"Entre el mejor (4.5% merma → {disponibles_mejor:,}) "
+                        f"y peor escenario ({max(TASAS_MORTALIDAD_DEFAULT) * 100:.1f}% merma → {disponibles_peor:,}) "
                         f"hay una variación de {rango:,} aves."
                     ),
                     "accion": "",
                 })
 
-    # ── Insights de mortalidad por cohortes ──
+    # ── Insights de concordancia producción-oferta por cohortes ──
     mort = validacion.get("mortalidad_cohortes")
     if mort and mort.get("cohortes"):
         cohortes = mort["cohortes"]
         total_cohortes = len(cohortes)
-        criticas = [c for c in cohortes if c.get("nivel") == "critica"]
-        elevadas = [c for c in cohortes if c.get("nivel") == "elevada"]
-        excelentes = [c for c in cohortes if c.get("nivel") == "excelente"]
-        inconsistentes = [c for c in cohortes if c.get("nivel") == "inconsistente"]
+        anticipadas = [c for c in cohortes if c.get("nivel") == "anticipada"]
+        atrasadas = [c for c in cohortes if c.get("nivel") == "atrasada"]
+        excedidas = [c for c in cohortes if c.get("nivel") == "excedida"]
+        parciales = [c for c in cohortes if c.get("nivel") == "parcial"]
+        alineadas = [c for c in cohortes if c.get("nivel") == "alineada"]
 
-        if criticas:
-            granjas_afectadas = set()
-            for c in criticas:
-                granjas_afectadas.update(c.get("granjas", []))
-            mort_promedio = round(
-                sum(c["mortalidad_pct"] for c in criticas) / len(criticas), 1
-            )
-            insights.append({
-                "tipo": "critico",
-                "categoria": "mortalidad",
-                "titulo": f"{len(criticas)} cohorte(s) con mortalidad crítica (>{10}%)",
-                "detalle": (
-                    f"Mortalidad implícita promedio: {mort_promedio}%. "
-                    f"Granjas afectadas: {', '.join(sorted(granjas_afectadas))}."
-                ),
-                "accion": (
-                    "Investigar causas de mortalidad elevada en estas granjas. "
-                    "Revisar condiciones sanitarias y ambientales."
-                ),
-            })
-
-        if elevadas:
-            mort_promedio = round(
-                sum(c["mortalidad_pct"] for c in elevadas) / len(elevadas), 1
-            )
+        if anticipadas:
             insights.append({
                 "tipo": "advertencia",
-                "categoria": "mortalidad",
-                "titulo": f"{len(elevadas)} cohorte(s) con mortalidad elevada (6.5%–10%)",
+                "categoria": "fechas",
+                "titulo": f"{len(anticipadas)} cohorte(s) con oferta anticipada respecto a la carga BB",
                 "detalle": (
-                    f"Mortalidad implícita promedio: {mort_promedio}%. "
-                    f"Están por encima del rango normal pero debajo del umbral crítico."
+                    "Las fechas objetivo de la oferta quedan antes de la ventana esperada de faena "
+                    "(+42 días desde la carga) para esas cohortes."
                 ),
-                "accion": "Seguimiento cercano. Podría escalar a crítica.",
+                "accion": "Revisar si la fecha de ingreso o la fecha objetivo de la oferta corresponden a la misma cohorte.",
             })
 
-        if excelentes and not criticas and not elevadas:
+        if atrasadas:
             insights.append({
-                "tipo": "positivo",
-                "categoria": "mortalidad",
-                "titulo": "Mortalidad en rango excelente",
+                "tipo": "advertencia",
+                "categoria": "fechas",
+                "titulo": f"{len(atrasadas)} cohorte(s) con oferta tardía respecto a la carga BB",
                 "detalle": (
-                    f"{len(excelentes)} de {total_cohortes} cohortes con mortalidad ≤4.5%."
+                    "Las fechas objetivo de la oferta caen después de la ventana esperada de faena "
+                    "para esas cargas de pollitos BB."
                 ),
-                "accion": "",
+                "accion": "Validar si la cohorte fue diferida o si hay un desfase de fechas en los reportes.",
             })
 
-        if inconsistentes:
+        if excedidas:
             insights.append({
                 "tipo": "critico",
                 "categoria": "datos",
-                "titulo": f"{len(inconsistentes)} cohorte(s) con datos inconsistentes",
+                "titulo": f"{len(excedidas)} cohorte(s) por encima de lo esperado",
                 "detalle": (
-                    "Se detectaron más aves en oferta que pollitos cargados en producción. "
-                    "Esto puede indicar un error en los datos o un matcheo incorrecto."
+                    "La oferta supera el rango esperado de aves en faena para al menos una cohorte. "
+                    "Esto suele indicar duplicidades, fechas cruzadas o un matcheo incorrecto entre reportes."
                 ),
-                "accion": "Verificar los datos del Excel de producción y de la oferta.",
+                "accion": "Verificar fechas de ingreso, fechas objetivo de oferta y cantidades duplicadas.",
             })
 
-        # Tendencia de mortalidad
-        cohortes_con_mort = [c for c in cohortes if c.get("mortalidad_pct") is not None
-                            and c.get("nivel") not in ("inconsistente", "cobertura_parcial")]
-        if len(cohortes_con_mort) >= 3:
-            morts = [c["mortalidad_pct"] for c in cohortes_con_mort]
-            mitad = len(morts) // 2
-            prom_primera = sum(morts[:mitad]) / mitad if mitad > 0 else 0
-            prom_segunda = sum(morts[mitad:]) / (len(morts) - mitad) if (len(morts) - mitad) > 0 else 0
-            delta = round(prom_segunda - prom_primera, 2)
-            if abs(delta) > 0.5:
-                tendencia = "al alza ↑" if delta > 0 else "a la baja ↓"
-                insights.append({
-                    "tipo": "advertencia" if delta > 0 else "positivo",
-                    "categoria": "tendencia",
-                    "titulo": f"Tendencia de mortalidad {tendencia}",
-                    "detalle": (
-                        f"Promedio primera mitad: {round(prom_primera, 1)}% → "
-                        f"segunda mitad: {round(prom_segunda, 1)}% "
-                        f"(delta: {'+' if delta > 0 else ''}{delta}pp)."
-                    ),
-                    "accion": (
-                        "La mortalidad está aumentando. Investigar causas."
-                        if delta > 0 else
-                        "Buena tendencia. La mortalidad está mejorando."
-                    ),
-                })
+        if parciales:
+            insights.append({
+                "tipo": "info",
+                "categoria": "cobertura",
+                "titulo": f"{len(parciales)} cohorte(s) con cobertura parcial en la oferta",
+                "detalle": (
+                    "La producción está informada por semana y la oferta por granja/lote, por lo que una cobertura baja "
+                    "puede reflejar una cohorte parcial y no necesariamente un problema real."
+                ),
+                "accion": "Usar este cruce como referencia agregada, no como mortalidad observada por granja.",
+            })
+
+        if alineadas and not anticipadas and not atrasadas and not excedidas:
+            insights.append({
+                "tipo": "positivo",
+                "categoria": "cohortes",
+                "titulo": "Cohortes temporalmente alineadas",
+                "detalle": (
+                    f"{len(alineadas)} de {total_cohortes} cohortes muestran fechas objetivo coherentes con la ventana esperada de faena."
+                ),
+                "accion": "",
+            })
 
     # ── Insights de consistencia de edad ──
     consist = validacion.get("consistencia_edad")
@@ -1558,7 +1567,8 @@ def _generar_insights_validacion(validacion: dict) -> list[dict]:
 def get_validacion_cruzada(current_user: TokenData = Depends(get_current_user)):
     """
     Reporte persistente de validación cruzada oferta ↔ producción.
-    Incluye factibilidad, mortalidad por cohortes, consistencia de edad e insights.
+    Incluye factibilidad, concordancia producción-oferta por cohortes,
+    consistencia de edad e insights.
     """
     ofertas = _get_ofertas()
     produccion_data = storage.load_produccion()
@@ -1569,18 +1579,18 @@ def get_validacion_cruzada(current_user: TokenData = Depends(get_current_user)):
     validacion: dict = {}
 
     if ofertas and produccion_data:
-        # Factibilidad
+        # Factibilidad (agregando todas las semanas de producción referenciadas)
         from collections import Counter
         fechas_peso = [o.fecha_peso for o in ofertas if o.fecha_peso]
         if fechas_peso:
             fecha_mas_comun = Counter(fechas_peso).most_common(1)[0][0]
             lunes = fecha_mas_comun - timedelta(days=fecha_mas_comun.weekday())
             total_oferta = sum(o.cantidad for o in ofertas)
-            fact = _calcular_factibilidad(lunes, total_oferta)
+            fact = _calcular_factibilidad(lunes, total_oferta, ofertas=ofertas)
             if fact:
                 validacion["factibilidad"] = fact.model_dump()
 
-        # Mortalidad por cohortes
+        # Concordancia producción-oferta por cohortes
         mortalidad = validar_mortalidad_oferta(ofertas, produccion_data)
         if mortalidad and mortalidad.get("cohortes"):
             validacion["mortalidad_cohortes"] = mortalidad
@@ -2054,7 +2064,7 @@ def mortalidad_observada(current_user: TokenData = Depends(get_current_user)):
 
         # Comparar con tasas estándar
         mejor_tasa = min(TASAS_MORTALIDAD_DEFAULT) * 100  # 4.5
-        peor_tasa = max(TASAS_MORTALIDAD_DEFAULT) * 100   # 6.5
+        peor_tasa = max(TASAS_MORTALIDAD_DEFAULT) * 100
 
         if mortalidad_pct <= mejor_tasa:
             evaluacion = "excelente"
@@ -3096,7 +3106,7 @@ def get_alerta_temprana(current_user: TokenData = Depends(get_current_user)):
     Analiza todos los lotes de la oferta y proyecta anticipadamente
     cuáles llegarán al rango de peso ideal para faena y cuáles no.
     Permite detectar problemas de peso días antes de la semana de faena.
-    Incluye validación de mortalidad cruzando oferta vs producción.
+    Incluye validación cruzada entre oferta y cargas de pollitos BB.
     """
     params = _get_parametros()
     ofertas = _get_ofertas()
@@ -3106,7 +3116,7 @@ def get_alerta_temprana(current_user: TokenData = Depends(get_current_user)):
 
     resultado = calcular_alerta_temprana(ofertas, params)
 
-    # Cruce oferta vs producción: validación de mortalidad por cohorte
+    # Cruce oferta vs producción: expectativa por cohorte
     prod_data = storage.load_produccion()
     resultado["validacion_mortalidad"] = validar_mortalidad_oferta(
         ofertas, prod_data or [],

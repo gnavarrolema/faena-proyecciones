@@ -64,9 +64,9 @@ def test_match_exacto_con_superavit():
     assert result.encontrada is True
     assert result.pollitos_cargados == 100000
     assert result.disponibles_mejor == 95500   # 100000 * (1 - 0.045)
-    assert result.disponibles_peor == 93500    # 100000 * (1 - 0.065)
+    assert result.disponibles_peor == 92500    # 100000 * (1 - 0.075)
     assert result.deficit_peor is None
-    assert result.cobertura_pct_peor == round(80000 / 93500 * 100, 1)
+    assert result.cobertura_pct_peor == round(80000 / 92500 * 100, 1)
 
 
 def test_match_con_deficit():
@@ -80,8 +80,8 @@ def test_match_con_deficit():
         total_oferta=96000,
     )
     assert result.encontrada is True
-    assert result.deficit_peor == 96000 - 93500  # 2500
-    assert result.cobertura_pct_peor == round(96000 / 93500 * 100, 1)
+    assert result.deficit_peor == 96000 - 92500  # 3500
+    assert result.cobertura_pct_peor == round(96000 / 92500 * 100, 1)
 
 
 def test_tolerancia_3_dias():
@@ -105,8 +105,8 @@ def test_tolerancia_3_dias():
     assert result.encontrada is False
 
 
-def test_coberturas_contiene_5_escenarios():
-    """El campo coberturas tiene 5 entradas, una por tasa de mortalidad."""
+def test_coberturas_contiene_7_escenarios():
+    """El campo coberturas tiene 7 entradas, una por tasa de mortalidad."""
     fecha_prod = date(2026, 2, 2)
     fecha_faena = fecha_prod + timedelta(days=DIAS_HASTA_FAENA)
     _guardar_produccion(fecha_prod, 100000)
@@ -116,9 +116,9 @@ def test_coberturas_contiene_5_escenarios():
         total_oferta=90000,
     )
     assert result.coberturas is not None
-    assert len(result.coberturas) == 5
+    assert len(result.coberturas) == 7
     tasas = [c["tasa"] for c in result.coberturas]
-    assert tasas == [4.5, 5.0, 5.5, 6.0, 6.5]
+    assert tasas == [4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5]
 
     # Cada cobertura es diferente
     coberturas = [c["cobertura_pct"] for c in result.coberturas]

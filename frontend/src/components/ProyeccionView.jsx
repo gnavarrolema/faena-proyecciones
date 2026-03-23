@@ -459,7 +459,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                     <>
                       <div style={{ fontWeight: 600, color: '#ea580c', fontSize: '0.95rem' }}>Déficit de Producción Detectado</div>
                       <span style={{ fontSize: '0.85rem', color: 'var(--text)', lineHeight: 1.5 }}>
-                        La oferta ({formatNumber(fact.total_oferta)}) excede la producción disponible ({formatNumber(fact.disponibles_peor)} al 6.5% mort.) en <strong style={{ color: '#ef4444' }}>{formatNumber(fact.deficit_peor)} pollos</strong>. Cobertura: <strong>{fact.cobertura_pct_peor}%</strong>.
+                        La oferta ({formatNumber(fact.total_oferta)}) excede la producción disponible ({formatNumber(fact.disponibles_peor)} en el escenario conservador) en <strong style={{ color: '#ef4444' }}>{formatNumber(fact.deficit_peor)} pollos</strong>. Cobertura: <strong>{fact.cobertura_pct_peor}%</strong>.
                       </span>
                       <button 
                         className="btn btn-sm"
@@ -477,7 +477,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                     <>
                       <div style={{ fontWeight: 600, color: '#16a34a', fontSize: '0.95rem' }}>Producción OK</div>
                       <span style={{ fontSize: '0.85rem', color: 'var(--text)', lineHeight: 1.5 }}>
-                        La producción propia ({formatNumber(fact.disponibles_peor)} al 6.5% mort.) cubre la oferta ({formatNumber(fact.total_oferta)}). Cobertura: <strong>{fact.cobertura_pct_peor}%</strong>.
+                        La producción propia ({formatNumber(fact.disponibles_peor)} en el escenario conservador) cubre la oferta ({formatNumber(fact.total_oferta)}). Cobertura: <strong>{fact.cobertura_pct_peor}%</strong>.
                       </span>
                       {/* Botón opcional de compras a terceros, aunque todo este OK */}
                       <button 

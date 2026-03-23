@@ -76,7 +76,7 @@ export default function ProduccionView() {
           const f = vc.factibilidad
           if (f.deficit_peor) {
             toast(
-              `Déficit detectado: la oferta actual (${formatNumber(f.total_oferta)}) supera la producción al 6.5% mort. (${formatNumber(f.disponibles_peor)}) en ${formatNumber(f.deficit_peor)} aves.`,
+              `Déficit detectado: la oferta actual (${formatNumber(f.total_oferta)}) supera la producción en el escenario conservador (${formatNumber(f.disponibles_peor)}) en ${formatNumber(f.deficit_peor)} aves.`,
               { icon: '🔴', duration: 12000, style: { background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', fontSize: '0.85rem' } }
             )
           } else {
@@ -88,7 +88,7 @@ export default function ProduccionView() {
         }
         if (vc.mortalidad_cohortes?.alertas > 0) {
           toast(
-            `${vc.mortalidad_cohortes.alertas} cohorte${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''} con mortalidad elevada/crítica. Revise Pronóstico de Pesos.`,
+            `${vc.mortalidad_cohortes.alertas} cohorte${vc.mortalidad_cohortes.alertas !== 1 ? 's' : ''} con fechas o cantidades fuera de lo esperado. Revise la Validación Cruzada.`,
             { icon: '⚠️', duration: 10000, style: { background: '#fffbeb', border: '1px solid #f59e0b', color: '#92400e', fontSize: '0.85rem' } }
           )
         }
@@ -252,8 +252,8 @@ export default function ProduccionView() {
                     <th className="text-right">Cargados</th>
                     {simulacion.tasas.map(t => (
                       <th key={t} className="text-right" style={{
-                        background: t === 6.5 ? 'rgba(251, 146, 60, 0.1)' : undefined,
-                        fontWeight: t === 6.5 ? 700 : undefined,
+                        background: t === simulacion.tasas[simulacion.tasas.length - 1] ? 'rgba(251, 146, 60, 0.1)' : undefined,
+                        fontWeight: t === simulacion.tasas[simulacion.tasas.length - 1] ? 700 : undefined,
                       }}>
                         Mort. {t}%
                       </th>
@@ -275,8 +275,8 @@ export default function ProduccionView() {
                       </td>
                       {sem.simulaciones.map((sim, sIdx) => (
                         <td key={sIdx} className="text-right" style={{
-                          background: simulacion.tasas[sIdx] === 6.5 ? 'rgba(251, 146, 60, 0.08)' : undefined,
-                          fontWeight: simulacion.tasas[sIdx] === 6.5 ? 600 : undefined,
+                          background: simulacion.tasas[sIdx] === simulacion.tasas[simulacion.tasas.length - 1] ? 'rgba(251, 146, 60, 0.08)' : undefined,
+                          fontWeight: simulacion.tasas[sIdx] === simulacion.tasas[simulacion.tasas.length - 1] ? 600 : undefined,
                         }}>
                           {formatNumber(sim.pollitos_disponibles)}
                         </td>

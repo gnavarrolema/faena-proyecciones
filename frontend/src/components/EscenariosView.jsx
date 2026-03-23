@@ -206,7 +206,9 @@ export default function EscenariosView({ proyeccion, setProyeccion }) {
                     <option value="5.0">5.0%</option>
                     <option value="5.5">5.5%</option>
                     <option value="6.0">6.0%</option>
-                    <option value="6.5">6.5% (peor caso)</option>
+                    <option value="6.5">6.5%</option>
+                    <option value="7.0">7.0%</option>
+                    <option value="7.5">7.5% (peor caso)</option>
                   </select>
                 </div>
                 <button className="btn btn-primary" disabled={saving || !nombre.trim()} onClick={handleGuardar}

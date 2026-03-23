@@ -9,6 +9,12 @@ from pydantic import BaseModel
 import math
 
 
+DIAS_HASTA_FAENA_REFERENCIA = 42
+MERMA_REFERENCIA_MIN = 0.045
+MERMA_REFERENCIA_MAX = 0.075
+TOLERANCIA_FECHA_CRUCE_DIAS = 3
+
+
 # ─── Modelos ────────────────────────────────────────────────────────────────────
 
 class Parametros(BaseModel):
@@ -1435,16 +1441,27 @@ def calcular_alerta_temprana(
     }
 
 
-# ─── Validación de mortalidad: cruce oferta vs producción ─────────────────────
+# ─── Validación cruzada: oferta vs producción ─────────────────────────────────
 
 def validar_mortalidad_oferta(
     ofertas: List[LoteOferta],
     semanas_produccion: list[dict],
 ) -> dict:
     """
-    Cruza las cantidades de aves de la oferta contra los pollitos cargados
-    en la semana de producción correspondiente (por fecha_ingreso).
-    Detecta inconsistencias de mortalidad por cohorte semanal.
+    Cruza la oferta detallada por granja contra las cargas semanales de
+    pollitos BB para estimar cuántas aves se esperan recibir en faena por
+    cohorte.
+
+    El archivo de producción es agregado por semana y no detalla granjas,
+    mientras que la oferta sí viene desagregada por lote. Por eso el cruce no
+    debe inferir mortalidad observada a partir de la diferencia simple entre
+    ambos reportes. En cambio, reporta:
+
+    - ventana esperada de faena para la cohorte (+42 días desde la carga)
+    - rango esperado de aves en faena aplicando la merma de referencia
+    - aves presentes en la oferta actual
+    - si la fecha objetivo de la oferta está alineada o desfasada respecto a
+      la ventana esperada
 
     Args:
         ofertas: Lista de lotes de la oferta cargada.
@@ -1478,9 +1495,9 @@ def validar_mortalidad_oferta(
                 return sem
         # Tolerancia: buscar ±3 días si no hay match exacto
         for sem in semanas:
-            if abs((fecha_ingreso - sem["fecha_desde"]).days) <= 3:
+            if abs((fecha_ingreso - sem["fecha_desde"]).days) <= TOLERANCIA_FECHA_CRUCE_DIAS:
                 return sem
-            if abs((fecha_ingreso - sem["fecha_hasta"]).days) <= 3:
+            if abs((fecha_ingreso - sem["fecha_hasta"]).days) <= TOLERANCIA_FECHA_CRUCE_DIAS:
                 return sem
         return None
 
@@ -1504,57 +1521,136 @@ def validar_mortalidad_oferta(
                 "aves_en_oferta": 0,
                 "lotes": 0,
                 "granjas": set(),
+                "fecha_oferta_desde": None,
+                "fecha_oferta_hasta": None,
+                "fecha_objetivo_desde": None,
+                "fecha_objetivo_hasta": None,
             }
         c = cohortes_map[key]
+        fecha_objetivo = oferta.fecha_peso + timedelta(days=max(oferta.dias_proyectados, 0))
         c["aves_en_oferta"] += oferta.cantidad
         c["lotes"] += 1
         c["granjas"].add(oferta.granja)
+        c["fecha_oferta_desde"] = min(
+            [d for d in (c["fecha_oferta_desde"], oferta.fecha_peso) if d is not None]
+        )
+        c["fecha_oferta_hasta"] = max(
+            [d for d in (c["fecha_oferta_hasta"], oferta.fecha_peso) if d is not None]
+        )
+        c["fecha_objetivo_desde"] = min(
+            [d for d in (c["fecha_objetivo_desde"], fecha_objetivo) if d is not None]
+        )
+        c["fecha_objetivo_hasta"] = max(
+            [d for d in (c["fecha_objetivo_hasta"], fecha_objetivo) if d is not None]
+        )
 
-    # Calcular mortalidad implícita por cohorte
+    # Calcular expectativa de recepción en faena por cohorte
     cohortes = []
     for key in sorted(cohortes_map.keys()):
         c = cohortes_map[key]
         cargados = c["pollitos_cargados"]
         en_oferta = c["aves_en_oferta"]
 
-        # La producción es agregada (todas las granjas). La oferta puede no
-        # incluir todos los lotes de esa semana. Calculamos cobertura para
-        # distinguir mortalidad real de cobertura parcial.
-        if cargados > 0:
-            cobertura_pct = round(en_oferta / cargados * 100, 1)
-            mortalidad_implicita = round((1 - en_oferta / cargados) * 100, 2)
-        else:
-            cobertura_pct = 0.0
-            mortalidad_implicita = None
+        fecha_desde = date.fromisoformat(c["fecha_desde"])
+        fecha_hasta = date.fromisoformat(c["fecha_hasta"])
+        faena_esperada_desde = fecha_desde + timedelta(days=DIAS_HASTA_FAENA_REFERENCIA)
+        faena_esperada_hasta = fecha_hasta + timedelta(days=DIAS_HASTA_FAENA_REFERENCIA)
 
-        # Clasificar según cobertura y mortalidad
-        if mortalidad_implicita is None:
-            nivel = "sin_dato"
-        elif cobertura_pct > 105:
-            # Más aves que las cargadas → error de datos o matcheo incorrecto
-            nivel = "inconsistente"
-        elif cobertura_pct < 50:
-            # Menos del 50% de cobertura → la oferta no incluye todas las
-            # granjas de esa semana, no se puede inferir mortalidad
-            nivel = "cobertura_parcial"
-        elif mortalidad_implicita <= 4.5:
-            nivel = "excelente"
-        elif mortalidad_implicita <= 6.5:
-            nivel = "normal"
-        elif mortalidad_implicita <= 10.0:
-            nivel = "elevada"
+        if cargados > 0:
+            esperados_faena_max = int(cargados * (1 - MERMA_REFERENCIA_MIN))
+            esperados_faena_min = int(cargados * (1 - MERMA_REFERENCIA_MAX))
+            cobertura_pct_cargados = round(en_oferta / cargados * 100, 1)
+            cobertura_pct_min = round(en_oferta / esperados_faena_min * 100, 1) if esperados_faena_min > 0 else None
+            cobertura_pct_max = round(en_oferta / esperados_faena_max * 100, 1) if esperados_faena_max > 0 else None
         else:
-            nivel = "critica"
+            esperados_faena_max = 0
+            esperados_faena_min = 0
+            cobertura_pct_cargados = 0.0
+            cobertura_pct_min = None
+            cobertura_pct_max = None
+
+        objetivo_desde = c["fecha_objetivo_desde"]
+        objetivo_hasta = c["fecha_objetivo_hasta"]
+        if objetivo_desde is None or objetivo_hasta is None:
+            estado_fecha = "sin_dato"
+            desfase_dias = None
+        elif objetivo_hasta < faena_esperada_desde - timedelta(days=TOLERANCIA_FECHA_CRUCE_DIAS):
+            estado_fecha = "anticipada"
+            desfase_dias = (objetivo_hasta - faena_esperada_desde).days
+        elif objetivo_desde > faena_esperada_hasta + timedelta(days=TOLERANCIA_FECHA_CRUCE_DIAS):
+            estado_fecha = "atrasada"
+            desfase_dias = (objetivo_desde - faena_esperada_hasta).days
+        elif (
+            objetivo_desde >= faena_esperada_desde - timedelta(days=TOLERANCIA_FECHA_CRUCE_DIAS)
+            and objetivo_hasta <= faena_esperada_hasta + timedelta(days=TOLERANCIA_FECHA_CRUCE_DIAS)
+        ):
+            estado_fecha = "alineada"
+            desfase_dias = 0
+        else:
+            estado_fecha = "mixta"
+            desfase_dias = 0
+
+        if esperados_faena_min <= 0:
+            estado_cantidad = "sin_dato"
+        elif en_oferta > (esperados_faena_max + max(500, int(esperados_faena_max * 0.03))):
+            estado_cantidad = "por_encima"
+        elif en_oferta < esperados_faena_min:
+            estado_cantidad = "parcial"
+        else:
+            estado_cantidad = "en_rango"
+
+        if estado_fecha in ("anticipada", "atrasada"):
+            nivel = estado_fecha
+        elif estado_cantidad == "por_encima":
+            nivel = "excedida"
+        elif estado_fecha == "mixta":
+            nivel = "mixta"
+        elif estado_cantidad == "parcial":
+            nivel = "parcial"
+        elif estado_fecha == "sin_dato":
+            nivel = "sin_dato"
+        else:
+            nivel = "alineada"
+
+        if nivel == "anticipada":
+            motivo = "La fecha objetivo de la oferta cae antes de la ventana estimada de faena (+42 días) para esta cohorte."
+        elif nivel == "atrasada":
+            motivo = "La fecha objetivo de la oferta cae después de la ventana estimada de faena (+42 días) para esta cohorte."
+        elif nivel == "excedida":
+            motivo = "La oferta supera el rango esperado de aves en faena para esta cohorte. Conviene revisar fechas o duplicidades."
+        elif nivel == "mixta":
+            motivo = "La cohorte mezcla lotes con fechas objetivo dentro y fuera de la ventana esperada."
+        elif nivel == "parcial":
+            motivo = "La oferta actual cubre solo una parte de lo esperado para la cohorte. Esto puede ser normal porque producción es semanal y la oferta viene por granja/lote."
+        elif nivel == "alineada":
+            motivo = "La cantidad ofertada y la ventana temporal son coherentes con lo esperado para la cohorte."
+        else:
+            motivo = "No hay datos suficientes para evaluar la cohorte."
 
         cohortes.append({
             "fecha_desde": c["fecha_desde"],
             "fecha_hasta": c["fecha_hasta"],
+            "fecha_faena_esperada_desde": faena_esperada_desde.isoformat(),
+            "fecha_faena_esperada_hasta": faena_esperada_hasta.isoformat(),
+            "fecha_oferta_desde": c["fecha_oferta_desde"].isoformat() if c["fecha_oferta_desde"] else None,
+            "fecha_oferta_hasta": c["fecha_oferta_hasta"].isoformat() if c["fecha_oferta_hasta"] else None,
+            "fecha_objetivo_desde": objetivo_desde.isoformat() if objetivo_desde else None,
+            "fecha_objetivo_hasta": objetivo_hasta.isoformat() if objetivo_hasta else None,
             "pollitos_cargados": cargados,
+            "esperados_faena_min": esperados_faena_min,
+            "esperados_faena_max": esperados_faena_max,
             "aves_en_oferta": en_oferta,
-            "diferencia": cargados - en_oferta,
-            "cobertura_pct": cobertura_pct,
-            "mortalidad_pct": mortalidad_implicita,
+            "diferencia": en_oferta - esperados_faena_min,
+            "diferencia_vs_min": en_oferta - esperados_faena_min,
+            "diferencia_vs_max": en_oferta - esperados_faena_max,
+            "cobertura_pct": cobertura_pct_cargados,
+            "cobertura_pct_min": cobertura_pct_min,
+            "cobertura_pct_max": cobertura_pct_max,
+            "estado_fecha": estado_fecha,
+            "estado_cantidad": estado_cantidad,
+            "desfase_dias": desfase_dias,
             "nivel": nivel,
+            "motivo": motivo,
             "lotes": c["lotes"],
             "granjas": sorted(c["granjas"]),
         })
@@ -1563,7 +1659,7 @@ def validar_mortalidad_oferta(
         "tiene_produccion": True,
         "cohortes": cohortes,
         "total_cohortes": len(cohortes),
-        "alertas": sum(1 for c in cohortes if c["nivel"] in ("elevada", "critica", "inconsistente")),
+        "alertas": sum(1 for c in cohortes if c["nivel"] in ("anticipada", "atrasada", "excedida", "mixta")),
     }
 
 

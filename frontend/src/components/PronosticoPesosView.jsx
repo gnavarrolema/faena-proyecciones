@@ -711,61 +711,69 @@ export default function PronosticoPesosView({ proyeccion }) {
                         <thead>
                           <tr>
                             <th>Semana Ingreso</th>
+                            <th>Faena Esperada</th>
                             <th className="text-right">Pollitos Cargados</th>
+                            <th className="text-right">Esperados en Faena</th>
                             <th className="text-right">Aves en Oferta</th>
-                            <th className="text-right">Cobertura</th>
-                            <th className="text-right">Mortalidad Impl.</th>
+                            <th className="text-right">Cobertura Esperada</th>
                             <th className="text-center">Estado</th>
                             <th>Granjas</th>
                           </tr>
                         </thead>
                         <tbody>
                           {alertaData.validacion_mortalidad.cohortes.map((c, idx) => {
-                            const nivelColor = c.nivel === 'excelente' ? 'var(--success, #22c55e)'
-                              : c.nivel === 'normal' ? '#3b82f6'
-                              : c.nivel === 'elevada' ? 'var(--warning, #fb923c)'
-                              : c.nivel === 'critica' ? '#ef4444'
-                              : c.nivel === 'inconsistente' ? '#ef4444'
-                              : c.nivel === 'cobertura_parcial' ? '#a78bfa'
+                            const nivelColor = c.nivel === 'alineada' ? 'var(--success, #22c55e)'
+                              : c.nivel === 'mixta' ? '#3b82f6'
+                              : c.nivel === 'anticipada' ? 'var(--warning, #fb923c)'
+                              : c.nivel === 'atrasada' ? '#ea580c'
+                              : c.nivel === 'excedida' ? '#ef4444'
+                              : c.nivel === 'parcial' ? '#a78bfa'
                               : 'var(--text-light)'
-                            const nivelBg = c.nivel === 'elevada' ? 'rgba(251, 146, 60, 0.06)'
-                              : c.nivel === 'critica' ? 'rgba(239, 68, 68, 0.06)'
-                              : c.nivel === 'inconsistente' ? 'rgba(239, 68, 68, 0.06)'
+                            const nivelBg = c.nivel === 'anticipada' ? 'rgba(251, 146, 60, 0.06)'
+                              : c.nivel === 'atrasada' ? 'rgba(234, 88, 12, 0.06)'
+                              : c.nivel === 'excedida' ? 'rgba(239, 68, 68, 0.06)'
                               : 'transparent'
-                            const nivelLabel = c.nivel === 'excelente' ? 'Excelente'
-                              : c.nivel === 'normal' ? 'Normal'
-                              : c.nivel === 'elevada' ? 'Elevada'
-                              : c.nivel === 'critica' ? 'Critica'
-                              : c.nivel === 'inconsistente' ? 'Inconsistente'
-                              : c.nivel === 'cobertura_parcial' ? 'Parcial'
+                            const nivelLabel = c.nivel === 'alineada' ? 'Alineada'
+                              : c.nivel === 'mixta' ? 'Mixta'
+                              : c.nivel === 'anticipada' ? 'Anticipada'
+                              : c.nivel === 'atrasada' ? 'Atrasada'
+                              : c.nivel === 'excedida' ? 'Excedida'
+                              : c.nivel === 'parcial' ? 'Parcial'
                               : 'Sin dato'
                             const desde = new Date(c.fecha_desde + 'T12:00:00')
                             const hasta = new Date(c.fecha_hasta + 'T12:00:00')
+                            const faenaDesde = c.fecha_faena_esperada_desde ? new Date(c.fecha_faena_esperada_desde + 'T12:00:00') : null
+                            const faenaHasta = c.fecha_faena_esperada_hasta ? new Date(c.fecha_faena_esperada_hasta + 'T12:00:00') : null
+                            const coberturaEsperada = c.cobertura_pct_min != null && c.cobertura_pct_max != null
+                              ? `${c.cobertura_pct_max.toFixed(1)}% - ${c.cobertura_pct_min.toFixed(1)}%`
+                              : '-'
                             return (
                               <tr key={idx} style={{ background: nivelBg }}>
                                 <td style={{ whiteSpace: 'nowrap', fontSize: '0.85rem' }}>
                                   {desde.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })} - {hasta.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}
                                 </td>
-                                <td className="text-right">{formatNumber(c.pollitos_cargados)}</td>
-                                <td className="text-right">{formatNumber(c.aves_en_oferta)}</td>
-                                <td className="text-right" style={{
-                                  color: c.cobertura_pct > 105 ? '#ef4444' : c.cobertura_pct < 50 ? '#a78bfa' : 'var(--text)',
-                                }}>
-                                  {c.cobertura_pct?.toFixed(1)}%
+                                <td style={{ whiteSpace: 'nowrap', fontSize: '0.85rem' }}>
+                                  {faenaDesde && faenaHasta
+                                    ? `${faenaDesde.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })} - ${faenaHasta.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}`
+                                    : '-'}
                                 </td>
-                                <td className="text-right" style={{ fontWeight: 600, color: nivelColor }}>
-                                  {c.nivel === 'cobertura_parcial' ? '-' : c.mortalidad_pct != null ? `${c.mortalidad_pct.toFixed(1)}%` : '-'}
+                                <td className="text-right">{formatNumber(c.pollitos_cargados)}</td>
+                                <td className="text-right">{formatNumber(c.esperados_faena_min)} - {formatNumber(c.esperados_faena_max)}</td>
+                                <td className="text-right">{formatNumber(c.aves_en_oferta)}</td>
+                                <td className="text-right" style={{ color: nivelColor, fontWeight: 600 }}>
+                                  {coberturaEsperada}
                                 </td>
                                 <td className="text-center">
                                   <span style={{
                                     padding: '0.15rem 0.5rem', borderRadius: 10,
                                     fontSize: '0.75rem', fontWeight: 600,
                                     color: nivelColor,
-                                    background: c.nivel === 'excelente' ? 'rgba(34, 197, 94, 0.1)'
-                                      : c.nivel === 'normal' ? 'rgba(59, 130, 246, 0.1)'
-                                      : c.nivel === 'elevada' ? 'rgba(251, 146, 60, 0.1)'
-                                      : c.nivel === 'critica' || c.nivel === 'inconsistente' ? 'rgba(239, 68, 68, 0.1)'
-                                      : c.nivel === 'cobertura_parcial' ? 'rgba(167, 139, 250, 0.1)'
+                                    background: c.nivel === 'alineada' ? 'rgba(34, 197, 94, 0.1)'
+                                      : c.nivel === 'mixta' ? 'rgba(59, 130, 246, 0.1)'
+                                      : c.nivel === 'anticipada' ? 'rgba(251, 146, 60, 0.1)'
+                                      : c.nivel === 'atrasada' ? 'rgba(234, 88, 12, 0.1)'
+                                      : c.nivel === 'excedida' ? 'rgba(239, 68, 68, 0.1)'
+                                      : c.nivel === 'parcial' ? 'rgba(167, 139, 250, 0.1)'
                                       : 'rgba(0,0,0,0.05)',
                                   }}>
                                     {nivelLabel}

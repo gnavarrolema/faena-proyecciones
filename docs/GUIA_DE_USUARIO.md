@@ -462,7 +462,7 @@ En el encabezado se indica el total de semanas y la suma total de pollitos.
 
 ### 9.3 Simulación de mortalidad
 
-Esta sección proyecta cuántos pollitos estarán disponibles para faena (fecha de carga + 42 días) descontando diferentes tasas de mortalidad (4.5%, 5.0%, 5.5%, 6.0%, 6.5%).
+Esta sección proyecta cuántos pollitos estarán disponibles para faena (fecha de carga + 42 días) descontando diferentes tasas de mortalidad (4.5%, 5.0%, 5.5%, 6.0%, 6.5%, 7.0%, 7.5%).
 
 | Columna | Descripción |
 |---|---|
@@ -471,7 +471,7 @@ Esta sección proyecta cuántos pollitos estarán disponibles para faena (fecha 
 | **Cargados** | Pollitos BB originales |
 | **Mort. X%** | Pollitos disponibles tras descontar la mortalidad |
 
-> La columna **Mort. 6.5%** se resalta como el escenario de referencia (peor caso).
+> La columna **Mort. 7.5%** se resalta como el escenario de referencia (peor caso).
 
 ### 9.4 Forecast de producción
 
@@ -616,7 +616,7 @@ Esta pestaña permite guardar "fotos" de la proyección actual, compararlas entr
 1. Complete los campos:
    - **Nombre** (obligatorio): ej. "Semana sin sábado".
    - **Descripción** (opcional): ej. "Sin horas extra, tope 35k".
-   - **Mortalidad %** (opcional): seleccione una tasa de mortalidad del 4.5% al 6.5%.
+   - **Mortalidad %** (opcional): seleccione una tasa de mortalidad del 4.5% al 7.5%.
 2. Haga clic en **"Guardar"**.
 3. El escenario se almacena con un resumen automático (total pollos, cajas, días) y la fecha de creación.
 
@@ -857,7 +857,7 @@ Los escenarios permiten guardar diferentes versiones de la proyección (por ejem
 Es una vista que analiza cada lote de la proyección y estima si llegará al peso ideal para faena. Si algún lote tiene ganancia diaria insuficiente o peso fuera de rango, genera una alerta para que tome acción antes de la fecha de faena.
 
 ### ¿Cómo funciona la simulación de mortalidad?
-Al cargar los datos de "Cargas Pollitos BB", el sistema calcula la disponibilidad estimada de pollos restando diferentes tasas de mortalidad (4.5% a 6.5%). La fecha de faena estimada es 42 días después de la carga.
+Al cargar los datos de "Cargas Pollitos BB", el sistema calcula la disponibilidad estimada de pollos restando diferentes tasas de mortalidad (4.5% a 7.5%). La fecha de faena estimada es 42 días después de la carga.
 
 ### ¿Qué significa el botón "S2" en un lote?
 El botón **S2** difiere ese lote a la proyección tentativa de Semana 2. El lote se retira de la semana actual y aparece en la sección "Semana 2 — Proyección Tentativa" al final de la pestaña Proyección. Puede revertir esta acción con el botón "Restaurar" dentro de esa sección.

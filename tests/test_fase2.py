@@ -89,7 +89,7 @@ def test_deficit_produccion_con_deficit():
     result = _calcular_deficit_produccion(proy)
     assert result is not None
     assert result["hay_deficit"] is True
-    assert result["deficit_peor"] == 96000 - 93500  # 100000*(1-0.065)=93500
+    assert result["deficit_peor"] == 96000 - 92500  # 100000*(1-0.075)=92500
     assert "terceros" in result["recomendacion_terceros"].lower()
 
 
@@ -121,8 +121,8 @@ def test_forecast_con_datos(client, auth_headers):
     assert sem0["peor_caso"] is not None
     # Mejor caso: 50000 * (1 - 0.045) = 47750
     assert sem0["mejor_caso"]["pollitos_disponibles"] == 47750
-    # Peor caso: 50000 * (1 - 0.065) = 46750
-    assert sem0["peor_caso"]["pollitos_disponibles"] == 46750
+    # Peor caso: 50000 * (1 - 0.075) = 46250
+    assert sem0["peor_caso"]["pollitos_disponibles"] == 46250
 
 
 def test_forecast_sin_match(client, auth_headers):

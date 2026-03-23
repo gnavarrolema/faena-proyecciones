@@ -118,13 +118,12 @@ class TestGenerarInsights:
         advertencias = [i for i in insights if i["tipo"] == "advertencia"]
         assert any("ajustada" in i["titulo"].lower() for i in advertencias)
 
-    def test_insight_mortalidad_critica(self):
+    def test_insight_cohorte_anticipada(self):
         validacion = {
             "mortalidad_cohortes": {
                 "cohortes": [
                     {
-                        "nivel": "critica",
-                        "mortalidad_pct": 15.0,
+                        "nivel": "anticipada",
                         "granjas": ["GRANJA_A", "GRANJA_B"],
                     },
                 ],
@@ -133,29 +132,29 @@ class TestGenerarInsights:
             }
         }
         insights = _generar_insights_validacion(validacion)
-        criticos = [i for i in insights if i["tipo"] == "critico" and i["categoria"] == "mortalidad"]
-        assert len(criticos) == 1
-        assert "crítica" in criticos[0]["titulo"].lower()
+        advertencias = [i for i in insights if i["tipo"] == "advertencia" and i["categoria"] == "fechas"]
+        assert len(advertencias) == 1
+        assert "anticipada" in advertencias[0]["titulo"].lower()
 
-    def test_insight_mortalidad_elevada(self):
+    def test_insight_cobertura_parcial(self):
         validacion = {
             "mortalidad_cohortes": {
                 "cohortes": [
-                    {"nivel": "elevada", "mortalidad_pct": 8.5, "granjas": ["G1"]},
+                    {"nivel": "parcial", "granjas": ["G1"]},
                 ],
                 "total_cohortes": 1,
-                "alertas": 1,
+                "alertas": 0,
             }
         }
         insights = _generar_insights_validacion(validacion)
-        advs = [i for i in insights if i["tipo"] == "advertencia" and i["categoria"] == "mortalidad"]
-        assert len(advs) == 1
+        infos = [i for i in insights if i["tipo"] == "info" and i["categoria"] == "cobertura"]
+        assert len(infos) == 1
 
     def test_insight_datos_inconsistentes(self):
         validacion = {
             "mortalidad_cohortes": {
                 "cohortes": [
-                    {"nivel": "inconsistente", "mortalidad_pct": -5.0, "granjas": ["G1"]},
+                    {"nivel": "excedida", "granjas": ["G1"]},
                 ],
                 "total_cohortes": 1,
                 "alertas": 1,
@@ -181,24 +180,23 @@ class TestGenerarInsights:
         assert len(info) == 1
         assert "3" in info[0]["titulo"]
 
-    def test_insight_tendencia_mortalidad_alza(self):
-        """Cohortes con mortalidad creciente generan insight de tendencia."""
+    def test_insight_cohortes_alineadas(self):
+        """Cohortes alineadas generan insight positivo."""
         validacion = {
             "mortalidad_cohortes": {
                 "cohortes": [
-                    {"nivel": "excelente", "mortalidad_pct": 3.5, "granjas": ["G1"]},
-                    {"nivel": "normal", "mortalidad_pct": 4.0, "granjas": ["G1"]},
-                    {"nivel": "normal", "mortalidad_pct": 5.5, "granjas": ["G1"]},
-                    {"nivel": "elevada", "mortalidad_pct": 7.0, "granjas": ["G1"]},
+                    {"nivel": "alineada", "granjas": ["G1"]},
+                    {"nivel": "alineada", "granjas": ["G1"]},
+                    {"nivel": "alineada", "granjas": ["G1"]},
                 ],
-                "total_cohortes": 4,
-                "alertas": 1,
+                "total_cohortes": 3,
+                "alertas": 0,
             }
         }
         insights = _generar_insights_validacion(validacion)
-        tendencia = [i for i in insights if i["categoria"] == "tendencia"]
-        assert len(tendencia) == 1
-        assert "alza" in tendencia[0]["titulo"].lower()
+        positivos = [i for i in insights if i["categoria"] == "cohortes"]
+        assert len(positivos) == 1
+        assert "alineadas" in positivos[0]["titulo"].lower()
 
     def test_insight_sensibilidad(self):
         validacion = {
