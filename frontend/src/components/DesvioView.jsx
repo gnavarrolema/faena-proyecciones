@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Scale, AlertTriangle, CheckCircle2, ArrowUpDown, Save, Trash2, Loader2, MessageCircleWarning, Target, ShoppingCart, TrendingDown, Zap, Factory, TrendingUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { cargarPesosReales, getDesvio, deletePesosReales, getRecomendacionPeso, getMortalidadObservada } from '../services/api'
 
 const containerVariants = {
   hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.08 } }
+  show: { opacity: 1, transition: { staggerChildren: 0.1, delayChildren: 0.05 } }
 }
 const itemVariants = {
-  hidden: { opacity: 0, y: 15 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.3 } }
+  hidden: { opacity: 0, y: 25, scale: 0.98, filter: 'blur(4px)' },
+  show: { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)', transition: { type: 'spring', stiffness: 300, damping: 24 } }
 }
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
@@ -181,24 +181,28 @@ export default function DesvioView({ proyeccion }) {
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show">
       {/* Alerta de desvío */}
-      {desvioData?.mensaje_alerta && (
-        <motion.div variants={itemVariants} style={{
-          padding: '1rem 1.2rem',
-          background: getNivelBg(desvioData.alerta_semana),
-          border: `1px solid ${getNivelColor(desvioData.alerta_semana)}`,
-          borderRadius: 10,
-          display: 'flex', alignItems: 'flex-start', gap: 10,
-          fontSize: '0.9rem',
-          color: getNivelColor(desvioData.alerta_semana),
-          fontWeight: 500,
-        }}>
+      <AnimatePresence>
+        {desvioData?.mensaje_alerta && (
+          <motion.div variants={itemVariants} initial="hidden" animate="show" exit={{ opacity: 0, y: -20 }} style={{
+            padding: '1.25rem 1.5rem',
+            background: getNivelBg(desvioData.alerta_semana),
+            border: `1px solid ${getNivelColor(desvioData.alerta_semana)}`,
+            borderRadius: 14,
+            display: 'flex', alignItems: 'flex-start', gap: 12,
+            fontSize: '0.95rem',
+            color: getNivelColor(desvioData.alerta_semana),
+            fontWeight: 600,
+            boxShadow: `0 4px 15px -3px ${getNivelColor(desvioData.alerta_semana)}30`,
+            marginBottom: '1.5rem'
+          }}>
           <MessageCircleWarning size={22} style={{ flexShrink: 0, marginTop: 1 }} />
           <div>
-            <div style={{ fontWeight: 600, marginBottom: 2 }}>Alerta para Comercial</div>
-            <div style={{ fontWeight: 400 }}>{desvioData.mensaje_alerta}</div>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Alerta para Comercial</div>
+            <div style={{ fontWeight: 500, opacity: 0.9 }}>{desvioData.mensaje_alerta}</div>
           </div>
         </motion.div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* Stats */}
       {desvioData && (
@@ -326,17 +330,19 @@ export default function DesvioView({ proyeccion }) {
           </div>
           <div className="card-body">
             {/* Mensaje principal */}
-            <div style={{
-              padding: '0.8rem 1rem',
+            <motion.div layout initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} style={{
+              padding: '1.25rem 1.5rem',
               background: recomendacion.peso_por_debajo ? 'rgba(239, 68, 68, 0.06)' : 'rgba(34, 197, 94, 0.06)',
               border: `1px solid ${recomendacion.peso_por_debajo ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)'}`,
-              borderRadius: 8,
-              fontSize: '0.9rem',
-              marginBottom: recomendacion.peso_por_debajo ? '1rem' : 0,
-              color: recomendacion.peso_por_debajo ? '#dc2626' : '#16a34a',
+              borderRadius: 12,
+              fontSize: '0.95rem',
+              fontWeight: 500,
+              marginBottom: recomendacion.peso_por_debajo ? '1.5rem' : 0,
+              color: recomendacion.peso_por_debajo ? '#dc2626' : '#15803d',
+              boxShadow: recomendacion.peso_por_debajo ? '0 4px 12px rgba(239, 68, 68, 0.05)' : '0 4px 12px rgba(34, 197, 94, 0.05)',
             }}>
               {recomendacion.recomendacion}
-            </div>
+            </motion.div>
 
             {/* Detalle por día si hay déficit */}
             {recomendacion.peso_por_debajo && recomendacion.dias_afectados.length > 0 && (
@@ -434,24 +440,25 @@ export default function DesvioView({ proyeccion }) {
 
                 {/* Alerta para comercial */}
                 {recomendacion.alerta_comercial && (
-                  <div style={{
-                    marginTop: '1rem',
-                    padding: '0.7rem 1rem',
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} style={{
+                    marginTop: '1.5rem',
+                    padding: '1rem 1.25rem',
                     background: 'rgba(251, 146, 60, 0.08)',
                     border: '1px solid rgba(251, 146, 60, 0.25)',
-                    borderRadius: 8,
-                    fontSize: '0.85rem',
-                    color: '#ea580c',
+                    borderRadius: 12,
+                    fontSize: '0.9rem',
+                    color: '#c2410c',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 8,
+                    gap: 12,
+                    boxShadow: '0 4px 12px rgba(251, 146, 60, 0.05)',
                   }}>
-                    <TrendingDown size={16} style={{ flexShrink: 0 }} />
+                    <TrendingDown size={18} style={{ flexShrink: 0 }} />
                     <div>
                       <strong>Alerta para Comercial: </strong>
                       {recomendacion.alerta_comercial}
                     </div>
-                  </div>
+                  </motion.div>
                 )}
               </>
             )}
@@ -466,16 +473,17 @@ export default function DesvioView({ proyeccion }) {
             <h2><Factory size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Tendencia de Mortalidad Observada</h2>
           </div>
           <div className="card-body">
-            <div style={{
-              padding: '0.8rem 1rem',
-              background: 'rgba(107, 114, 128, 0.06)',
-              border: '1px solid rgba(107, 114, 128, 0.2)',
-              borderRadius: 8,
-              fontSize: '0.9rem',
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{
+              padding: '1.25rem 1.5rem',
+              background: 'rgba(107, 114, 128, 0.04)',
+              border: '1px dashed rgba(107, 114, 128, 0.3)',
+              borderRadius: 12,
+              fontSize: '0.95rem',
               color: 'var(--text-light)',
+              textAlign: 'center',
             }}>
               {mortalidad.mensaje}
-            </div>
+            </motion.div>
           </div>
         </motion.div>
       )}
@@ -494,8 +502,8 @@ export default function DesvioView({ proyeccion }) {
           </div>
           <div className="card-body">
             {/* Mensaje resumen */}
-            <div style={{
-              padding: '0.8rem 1rem',
+            <motion.div layout initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} style={{
+              padding: '1.25rem 1.5rem',
               background: mortalidad.resumen?.tendencia === 'favorable'
                 ? 'rgba(34, 197, 94, 0.06)'
                 : mortalidad.resumen?.tendencia === 'desfavorable'
@@ -508,12 +516,18 @@ export default function DesvioView({ proyeccion }) {
                   ? 'rgba(239, 68, 68, 0.2)'
                   : 'rgba(99, 102, 241, 0.2)'
               }`,
-              borderRadius: 8,
-              fontSize: '0.9rem',
-              marginBottom: '1rem',
+              borderRadius: 12,
+              fontSize: '0.95rem',
+              fontWeight: 500,
+              marginBottom: '1.5rem',
+              color: mortalidad.resumen?.tendencia === 'favorable'
+                ? '#15803d'
+                : mortalidad.resumen?.tendencia === 'desfavorable'
+                ? '#dc2626'
+                : '#4338ca',
             }}>
               {mortalidad.mensaje}
-            </div>
+            </motion.div>
 
             {/* Stats */}
             <div className="stats-grid" style={{ marginBottom: '1rem' }}>
