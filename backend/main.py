@@ -678,6 +678,171 @@ def _validar_cruce_produccion() -> Optional[dict]:
     return result if result else None
 
 
+# ─── Helpers: sinc. operativa / validación cruzada ────────────────────────────
+
+def _generar_insights_validacion(validacion: dict) -> list:
+    """
+    Genera una lista de insights legibles a partir del dict de validación cruzada.
+
+    Cada insight es un dict con:
+        tipo: "critico" | "advertencia" | "info" | "positivo"
+        titulo: str
+        detalle: str
+        categoria: "factibilidad" | "fechas" | "cobertura" | "datos" | "consistencia" | "sensibilidad" | "cohortes"
+
+    Args:
+        validacion: dict producido por _validar_cruce_oferta / _validar_cruce_produccion.
+
+    Returns:
+        Lista de dicts con los insights.
+    """
+    if not validacion:
+        return []
+
+    insights: list[dict] = []
+
+    # ── Factibilidad ────────────────────────────────────────────────────────────
+    fact = validacion.get("factibilidad")
+    if fact and fact.get("encontrada"):
+        total_oferta = fact.get("total_oferta", 0)
+        disponibles_peor = fact.get("disponibles_peor") or 0
+        disponibles_mejor = fact.get("disponibles_mejor") or 0
+        deficit = fact.get("deficit_peor")
+        cobertura = fact.get("cobertura_pct_peor") or 0
+        pollitos = fact.get("pollitos_cargados") or 0
+
+        if deficit and deficit > 0:
+            insights.append({
+                "tipo": "critico",
+                "titulo": f"Déficit de producción propia: {deficit:,} pollos",
+                "detalle": (
+                    f"La oferta ({total_oferta:,}) supera la producción propia disponible "
+                    f"en el escenario conservador ({disponibles_peor:,}). "
+                    f"Cobertura: {cobertura:.1f}%."
+                ),
+                "categoria": "factibilidad",
+            })
+        elif cobertura >= 90:
+            insights.append({
+                "tipo": "advertencia",
+                "titulo": f"Cobertura ajustada: {cobertura:.1f}%",
+                "detalle": (
+                    f"La oferta cubre el {cobertura:.1f}% de la producción disponible "
+                    f"en escenario conservador. Margen reducido."
+                ),
+                "categoria": "factibilidad",
+            })
+        else:
+            insights.append({
+                "tipo": "positivo",
+                "titulo": f"Producción propia suficiente ({cobertura:.1f}% de cobertura)",
+                "detalle": (
+                    f"La oferta ({total_oferta:,}) está cubierta por la producción propia. "
+                    f"Disponibles: {disponibles_mejor:,} – {disponibles_peor:,}."
+                ),
+                "categoria": "factibilidad",
+            })
+
+        # Sensibilidad: diferencia entre mejor y peor escenario
+        if disponibles_mejor and disponibles_peor:
+            diferencia_escenarios = disponibles_mejor - disponibles_peor
+            insights.append({
+                "tipo": "info",
+                "titulo": "Sensibilidad al escenario de mortalidad",
+                "detalle": (
+                    f"La diferencia entre el escenario optimista y conservador es de "
+                    f"{diferencia_escenarios:,} pollos ({diferencia_escenarios/max(pollitos,1)*100:.1f}% de variación)."
+                ),
+                "categoria": "sensibilidad",
+            })
+
+    # ── Cohortes / mortalidad ───────────────────────────────────────────────────
+    mort = validacion.get("mortalidad_cohortes")
+    if mort and mort.get("cohortes"):
+        cohortes = mort["cohortes"]
+        total_alertas = mort.get("alertas", 0)
+
+        # Cohortes anticipadas o atrasadas
+        anticipadas = [c for c in cohortes if c.get("nivel") == "anticipada"]
+        atrasadas = [c for c in cohortes if c.get("nivel") == "atrasada"]
+        excedidas = [c for c in cohortes if c.get("nivel") == "excedida"]
+        parciales = [c for c in cohortes if c.get("nivel") == "parcial"]
+        alineadas = [c for c in cohortes if c.get("nivel") == "alineada"]
+
+        if anticipadas:
+            granjas = sorted({g for c in anticipadas for g in c.get("granjas", [])})
+            insights.append({
+                "tipo": "advertencia",
+                "titulo": f"Cohorte anticipada ({len(anticipadas)} cohorte{'s' if len(anticipadas) > 1 else ''})",
+                "detalle": (
+                    f"Las granjas {', '.join(granjas)} tienen fecha objetivo adelantada "
+                    f"respecto a la ventana esperada de faena (+42 días)."
+                ),
+                "categoria": "fechas",
+            })
+
+        if atrasadas:
+            granjas = sorted({g for c in atrasadas for g in c.get("granjas", [])})
+            insights.append({
+                "tipo": "advertencia",
+                "titulo": f"Cohorte atrasada ({len(atrasadas)} cohorte{'s' if len(atrasadas) > 1 else ''})",
+                "detalle": (
+                    f"Las granjas {', '.join(granjas)} tienen fecha objetivo posterior "
+                    f"a la ventana estimada de faena."
+                ),
+                "categoria": "fechas",
+            })
+
+        if excedidas:
+            granjas = sorted({g for c in excedidas for g in c.get("granjas", [])})
+            insights.append({
+                "tipo": "critico",
+                "titulo": f"Oferta excede lo esperado ({len(excedidas)} cohorte{'s' if len(excedidas) > 1 else ''})",
+                "detalle": (
+                    f"Las granjas {', '.join(granjas)} superan el rango esperado de aves en faena. "
+                    f"Revisar posibles duplicidades o errores de carga."
+                ),
+                "categoria": "datos",
+            })
+
+        if parciales:
+            granjas = sorted({g for c in parciales for g in c.get("granjas", [])})
+            insights.append({
+                "tipo": "info",
+                "titulo": f"Cobertura parcial en {len(parciales)} cohorte{'s' if len(parciales) > 1 else ''}",
+                "detalle": (
+                    f"Las granjas {', '.join(granjas)} muestran oferta menor a la esperada. "
+                    f"Puede ser normal si parte de la producción aún no está en oferta."
+                ),
+                "categoria": "cobertura",
+            })
+
+        if alineadas and total_alertas == 0:
+            insights.append({
+                "tipo": "positivo",
+                "titulo": f"Cohortes alineadas ({len(alineadas)})",
+                "detalle": "Todas las cohortes tienen fecha y cantidad coherentes con lo esperado.",
+                "categoria": "cohortes",
+            })
+
+    # ── Consistencia de edad ────────────────────────────────────────────────────
+    consist = validacion.get("consistencia_edad")
+    if consist and consist.get("total", 0) > 0:
+        total_consist = consist["total"]
+        insights.append({
+            "tipo": "advertencia",
+            "titulo": f"{total_consist} lote{'s' if total_consist > 1 else ''} con edad inconsistente",
+            "detalle": (
+                f"La edad real declarada no coincide con (fecha_peso − fecha_ingreso) "
+                f"en {total_consist} lote{'s' if total_consist > 1 else ''}. "
+                f"Revisar datos de la oferta."
+            ),
+            "categoria": "consistencia",
+        })
+
+    return insights
+
+
 # ─── Endpoints ──────────────────────────────────────────────────────────────────
 
 @app.get("/")
@@ -3415,6 +3580,48 @@ def get_pronostico_pesos(current_user: TokenData = Depends(get_current_user)):
         "lotes": lotes_pronostico,
         "dias": dias_resumen,
         "granjas": granjas_resumen,
+    }
+
+
+# ─── Sinc. Operativa / Validación Cruzada ──────────────────────────────────────
+
+@app.get("/validacion-cruzada")
+def get_validacion_cruzada(current_user: TokenData = Depends(get_current_user)):
+    """
+    Retorna el estado completo de sincronización operativa entre oferta y producción.
+
+    Combina:
+    - Factibilidad: cobertura oferta vs producción propia (tasas de mortalidad)
+    - Cohortes: oferta vs expectativa de aves en faena por semana de producción
+    - Consistencia de edad: detecta lotes con edad_real inconsistente
+    - Fuentes: metadata de los archivos cargados
+    - Insights: lista de observaciones priorizadas sobre los datos
+
+    Retorna 404 si no hay ni oferta ni producción cargadas.
+    """
+    ofertas = _get_ofertas()
+    produccion_data = storage.load_produccion()
+
+    tiene_oferta = bool(ofertas)
+    tiene_produccion = bool(produccion_data)
+
+    if not tiene_oferta and not tiene_produccion:
+        raise HTTPException(404, "No hay oferta ni producción cargadas.")
+
+    validacion: dict = {}
+    if tiene_oferta and tiene_produccion:
+        validacion = _validar_cruce_oferta(ofertas) or {}
+
+    insights = _generar_insights_validacion(validacion)
+
+    fuentes = _build_fuentes_validacion(ofertas, produccion_data)
+
+    return {
+        "tiene_oferta": tiene_oferta,
+        "tiene_produccion": tiene_produccion,
+        "validacion": validacion,
+        "insights": insights,
+        "fuentes": fuentes,
     }
 
 
