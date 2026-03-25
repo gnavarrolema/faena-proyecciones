@@ -1009,6 +1009,64 @@ export default function PronosticoPesosView({ proyeccion }) {
                         </tbody>
                       </table>
                     </div>
+
+                    {/* Explicación de columnas y cálculos */}
+                    <div style={{
+                      marginTop: '1rem',
+                      padding: '0.85rem 1rem',
+                      background: 'rgba(139, 92, 246, 0.04)',
+                      border: '1px solid rgba(139, 92, 246, 0.15)',
+                      borderRadius: 8,
+                      fontSize: '0.8rem',
+                      lineHeight: 1.7,
+                      color: 'var(--text-light)',
+                    }}>
+                      <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: '0.4rem' }}>
+                        📐 ¿Cómo se calculan estas métricas?
+                      </div>
+                      <div style={{ marginBottom: '0.4rem' }}>
+                        <strong>Semana Ingreso:</strong> semana en que se cargaron los pollitos BB según el archivo de producción.
+                        Cada lote de la oferta se asocia a una semana de ingreso mediante su columna "Fecha de Ingreso".
+                      </div>
+                      <div style={{ marginBottom: '0.4rem' }}>
+                        <strong>Faena Esperada:</strong> ventana estimada sumando 42 días a la semana de ingreso
+                        (ej: ingreso 07-feb → faena esperada desde 21-mar). Representa cuándo esas aves deberían estar listas.
+                      </div>
+                      <div style={{ marginBottom: '0.4rem' }}>
+                        <strong>Pollitos Cargados:</strong> total de pollitos BB reportados en el archivo de producción semanal para esa semana de ingreso.
+                      </div>
+                      <div style={{ marginBottom: '0.4rem' }}>
+                        <strong>Esperados en Faena:</strong> rango de aves que se espera recibir vivas en planta, aplicando una merma de referencia
+                        entre 4.5% y 7.5% sobre los pollitos cargados.
+                        <br />
+                        <span style={{ fontStyle: 'italic' }}>
+                          Mínimo = Pollitos × (1 − 7.5%) &nbsp;|&nbsp; Máximo = Pollitos × (1 − 4.5%)
+                        </span>
+                      </div>
+                      <div style={{ marginBottom: '0.4rem' }}>
+                        <strong>Aves en Oferta:</strong> suma de la columna "Cantidad" de todos los lotes de la oferta cuya "Fecha de Ingreso"
+                        cae dentro de esa semana de producción.
+                      </div>
+                      <div style={{ marginBottom: '0.4rem' }}>
+                        <strong>Cobertura Esperada:</strong> porcentaje que representan las aves en oferta respecto al rango esperado en faena.
+                        <br />
+                        <span style={{ fontStyle: 'italic' }}>
+                          Cobertura = Aves en Oferta / Esperados en Faena × 100%
+                        </span>
+                        <br />
+                        Un valor cercano a 100% indica buena alineación. Valores muy bajos ({'<'}50%) sugieren cobertura parcial;
+                        valores superiores a 100% pueden indicar aves de otras cohortes o diferimientos.
+                      </div>
+                      <div>
+                        <strong>Estado:</strong><br />
+                        • <span style={{ color: 'var(--success, #22c55e)', fontWeight: 600 }}>Alineada</span>: cantidad y fechas dentro de lo esperado<br />
+                        • <span style={{ color: '#a78bfa', fontWeight: 600 }}>Parcial</span>: la oferta cubre solo una parte (puede ser normal si la oferta viene por granja)<br />
+                        • <span style={{ color: 'var(--warning, #fb923c)', fontWeight: 600 }}>Anticipada</span>: la oferta planea faenar antes de la ventana de +42 días<br />
+                        • <span style={{ color: '#ea580c', fontWeight: 600 }}>Atrasada</span>: la oferta planea faenar después de la ventana esperada<br />
+                        • <span style={{ color: '#3b82f6', fontWeight: 600 }}>Mixta</span>: lotes con fechas dentro y fuera de la ventana<br />
+                        • <span style={{ color: '#ef4444', fontWeight: 600 }}>Excedida</span>: aves en oferta superan el máximo esperado para la cohorte
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
