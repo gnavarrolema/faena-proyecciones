@@ -6,6 +6,7 @@
 # Desarrollo local
 local_storage/
 .venv/
+.venv-*/
 venv/
 __pycache__/
 
