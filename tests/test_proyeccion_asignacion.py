@@ -747,3 +747,58 @@ def test_rescate_no_aplica_si_s2_esta_en_rango():
         # El lote joven podría caber normalmente en algún día si tiene elegibilidad
         pass  # Aceptable también
 
+
+def test_rescate_swap_desplaza_lote_menor_urgencia():
+    """Fase 5.5 Paso B: cuando un lote de alta ganancia no cabe directamente
+    en ningún día S1 (todos los días saturados a ~35k y el lote es 18k),
+    el swap debe desplazar un lote asignado que sufra menos en S2."""
+    fecha_p = date(2026, 3, 19)
+
+    def mk(cant, galpon, sexo, edad, peso, ganancia, granja):
+        return LoteOferta(
+            fecha_peso=fecha_p, granja=granja, galpon=galpon, nucleo=1,
+            cantidad=cant, sexo=sexo, edad_proyectada=edad,
+            peso_muestreo_proy=peso, ganancia_diaria=ganancia,
+            dias_proyectados=0, edad_real=edad, peso_muestreo_real=peso,
+            fecha_ingreso=date(2026, 2, 1),
+        )
+
+    # 5 anclas (20k M) + 5 relleno (15k H) = 35k/día (5 días, sin feriado)
+    anchors = [mk(20000, g, "M", 36, 2.70, 0.085, f"ANCHOR_{g}") for g in range(1, 6)]
+    seconds = [mk(15000, g + 10, "H", 36, 2.65, 0.079, f"SECOND_{g}") for g in range(1, 6)]
+    # Lote rápido: 18k M, alta ganancia. 35k + 18k = 53k > 45k → no cabe directo.
+    fast = mk(18000, 99, "M", 37, 2.92, 0.110, "RAPIDO")
+
+    params = Parametros(
+        pollos_diarios_objetivo_min=25000,
+        pollos_diarios_objetivo_max=35000,
+        capacidad_maxima_planta=42000,
+        capacidad_con_horas_extras=45000,
+        edad_min_faena=38, edad_max_faena=43,
+        peso_min_faena=2.80, peso_max_faena=3.20,
+    )
+
+    semana = generar_proyeccion(
+        ofertas=anchors + seconds + [fast],
+        fecha_inicio_semana=date(2026, 3, 23),
+        dias_faena=5,
+        pollos_por_dia=35000,
+        params=params,
+    )
+
+    granjas_s1 = set()
+    for dia in semana.dias:
+        for lote in dia.lotes:
+            granjas_s1.add(lote.granja)
+
+    assert "RAPIDO" in granjas_s1, (
+        f"RAPIDO debió ser rescatado via swap en S1. "
+        f"No asignados: {[(l.granja, l.motivo) for l in semana.lotes_no_asignados]}"
+    )
+
+    # Verificar que todos los días se mantienen bajo cap_extras
+    for dia in semana.dias:
+        assert dia.total_pollos <= 45000, (
+            f"Día {dia.fecha} excede cap_extras: {dia.total_pollos}"
+        )
+

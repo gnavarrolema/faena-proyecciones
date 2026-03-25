@@ -971,47 +971,133 @@ def generar_proyeccion(
     fecha_inicio_s2 = fecha_inicio_semana + timedelta(days=7)
     fecha_media_s2 = fecha_inicio_s2 + timedelta(days=2)  # miércoles S2
 
+    def _desviacion_s2(lote_idx: int) -> float:
+        """Desviación combinada (edad + peso) que tendría el lote en S2."""
+        o = ofertas[lote_idx]
+        edad = calcular_edad_fin_retiro_v2(
+            fecha_media_s2, o.fecha_peso, o.edad_proyectada,
+            dias_proyectados=o.dias_proyectados,
+        )
+        peso = _peso_proyectado_en_fecha(o, fecha_media_s2, params)
+        return max(0, edad - params.edad_max_faena) + max(0.0, peso - params.peso_max_faena)
+
+    def _desviacion_s1_en_dia(lote_idx: int, d_idx: int) -> float:
+        """Desviación combinada del lote si se faena en el día d_idx de S1."""
+        for d, peso_proy, edad_fin, _ in elegibilidad.get(lote_idx, []):
+            if d == d_idx:
+                return max(0, edad_fin - params.edad_max_faena) + max(0.0, peso_proy - params.peso_max_faena)
+        return float("inf")  # no elegible ese día
+
+    def _desasignar(lote_idx: int, dia_idx: int):
+        """Quita un lote de su día asignado y actualiza estructuras."""
+        asignaciones[dia_idx].remove(lote_idx)
+        pollos_dia[dia_idx] -= ofertas[lote_idx].cantidad
+        asignados.discard(lote_idx)
+
+    # Paso A: intento directo (si cabe bajo cap extras)
     lotes_rescate = sorted(
         [i for i in no_asignados if i in elegibilidad],
         key=_prioridad_dinamica_lote,
     )
     for i in lotes_rescate:
-        oferta = ofertas[i]
         dias_eleg = elegibilidad[i]
-
-        # Calcular desviación del lote en S2 (edad + peso fuera de rango)
-        edad_s2 = calcular_edad_fin_retiro_v2(
-            fecha_media_s2, oferta.fecha_peso, oferta.edad_proyectada,
-            dias_proyectados=oferta.dias_proyectados,
-        )
-        peso_s2 = _peso_proyectado_en_fecha(oferta, fecha_media_s2, params)
-        desv_edad_s2 = max(0, edad_s2 - params.edad_max_faena)
-        desv_peso_s2 = max(0.0, peso_s2 - params.peso_max_faena)
-
-        # Si S2 no empeora (ambas desviaciones cero), no hay urgencia
-        if desv_edad_s2 == 0 and desv_peso_s2 == 0:
+        desv_s2_i = _desviacion_s2(i)
+        if desv_s2_i == 0:
             continue
 
-        # Buscar el mejor día S1 donde quepa (bajo capacidad con horas extras)
         mejor_dia = None
-        menor_desv = None  # (desv_edad, desv_peso, pollos_dia)
-
-        for d_idx, peso_proy, edad_fin, sobreedad in dias_eleg:
+        menor_desv = None
+        for d_idx, peso_proy, edad_fin, _ in dias_eleg:
             if not _puede_asignarse_extras(i, d_idx):
                 continue
-            desv_edad_s1 = max(0, edad_fin - params.edad_max_faena)
-            desv_peso_s1 = max(0.0, peso_proy - params.peso_max_faena)
-            # Solo rescatar si S1 es estrictamente mejor que S2
-            if (desv_edad_s1 + desv_peso_s1) >= (desv_edad_s2 + desv_peso_s2):
+            desv_s1 = _desviacion_s1_en_dia(i, d_idx)
+            if desv_s1 >= desv_s2_i:
                 continue
-            score = (desv_edad_s1, desv_peso_s1, pollos_dia[d_idx])
+            score = (desv_s1, pollos_dia[d_idx])
             if menor_desv is None or score < menor_desv:
                 menor_desv = score
                 mejor_dia = d_idx
-
         if mejor_dia is not None:
             _asignar(i, mejor_dia)
             del no_asignados[i]
+
+    # Paso B: intercambio (swap) — si el lote no cabe directamente,
+    # intentar reemplazar un lote asignado en S1 que sufriría MENOS en S2.
+    lotes_swap = sorted(
+        [i for i in no_asignados if i in elegibilidad],
+        key=_prioridad_dinamica_lote,
+    )
+    for i in lotes_swap:
+        dias_eleg_i = elegibilidad[i]
+        desv_s2_i = _desviacion_s2(i)
+        if desv_s2_i == 0:
+            continue
+
+        mejor_swap = None     # (d_idx, j, beneficio_neto)
+        mejor_beneficio = 0.0
+
+        for d_idx, _, _, _ in dias_eleg_i:
+            # Para cada lote j ya asignado al día d_idx
+            for j in list(asignaciones[d_idx]):
+                oferta_j = ofertas[j]
+                # ¿Al quitar j y poner i, cabe en el día?
+                pollos_despues = pollos_dia[d_idx] - oferta_j.cantidad + ofertas[i].cantidad
+                if pollos_despues > _capacidad_dia_extras(d_idx):
+                    continue
+
+                desv_s1_i = _desviacion_s1_en_dia(i, d_idx)
+                desv_s1_j = _desviacion_s1_en_dia(j, d_idx)
+                desv_s2_j = _desviacion_s2(j)
+
+                # Situación actual:  i→S2, j→S1(d_idx)  → costo = desv_s2_i + desv_s1_j
+                # Con swap:          i→S1(d_idx), j→S2   → costo = desv_s1_i + desv_s2_j
+                # (si j se reubica en otro día S1, su costo S2 se evita)
+                costo_actual = desv_s2_i + desv_s1_j
+                costo_swap = desv_s1_i + desv_s2_j
+                beneficio = costo_actual - costo_swap
+
+                if beneficio <= 0:
+                    continue
+
+                # Verificar si j puede reubicarse en otro día S1
+                j_reubicable = False
+                for dd, _, _, _ in elegibilidad.get(j, []):
+                    if dd == d_idx:
+                        continue
+                    pollos_dd = pollos_dia[dd] + oferta_j.cantidad
+                    if pollos_dd <= _capacidad_dia_extras(dd):
+                        j_reubicable = True
+                        break
+
+                # Ponderar: si j es reubicable en S1, beneficio total es mayor
+                # porque j no va a S2 (no paga desv_s2_j).
+                beneficio_real = beneficio
+                if j_reubicable:
+                    beneficio_real = desv_s2_i - desv_s1_i  # j no pierde nada
+
+                if beneficio_real > mejor_beneficio:
+                    mejor_beneficio = beneficio_real
+                    mejor_swap = (d_idx, j, j_reubicable)
+
+        if mejor_swap is not None:
+            d_idx, j, j_reubicable = mejor_swap
+            _desasignar(j, d_idx)
+            _asignar(i, d_idx)
+            del no_asignados[i]
+
+            # Intentar reubicar j en otro día S1
+            if j_reubicable:
+                for dd, _, _, _ in elegibilidad.get(j, []):
+                    if dd == d_idx:
+                        continue
+                    if pollos_dia[dd] + ofertas[j].cantidad <= _capacidad_dia_extras(dd):
+                        _asignar(j, dd)
+                        break
+            # Si j no pudo reubicarse, pasa a no_asignados (irá a S2)
+            if j not in asignados:
+                no_asignados[j] = (
+                    "Desplazado por lote con mayor urgencia S2"
+                )
 
     # ── Construir DiaFaena con lotes proyectados ────────────────────────────
     dias_resultado: List[DiaFaena] = []
