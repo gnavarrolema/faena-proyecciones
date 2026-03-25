@@ -123,6 +123,7 @@ export default function PronosticoPesosView({ proyeccion }) {
   const [alertaFiltroNivel, setAlertaFiltroNivel] = useState('todos')
   const [alertaExpandedGranjas, setAlertaExpandedGranjas] = useState({})
   const [alertaExpandedGalpones, setAlertaExpandedGalpones] = useState({})
+  const [showExplicacion, setShowExplicacion] = useState(false)
 
   useEffect(() => {
     cargarPronostico()
@@ -303,6 +304,114 @@ export default function PronosticoPesosView({ proyeccion }) {
             {data.alertas_criticas}
           </div>
         </div>
+      </motion.div>
+
+      {/* Explicación de cálculos */}
+      <motion.div variants={itemVariants} style={{ marginBottom: '0.75rem' }}>
+        <button
+          onClick={() => setShowExplicacion(!showExplicacion)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: 'rgba(99, 102, 241, 0.06)',
+            border: '1px solid rgba(99, 102, 241, 0.2)',
+            borderRadius: 8, padding: '0.5rem 1rem',
+            fontSize: '0.85rem', color: 'var(--primary, #6366f1)',
+            cursor: 'pointer', fontWeight: 500, width: '100%',
+            justifyContent: 'space-between',
+          }}
+        >
+          <span>📐 ¿Cómo se calculan los pesos y métricas?</span>
+          {showExplicacion ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
+        {showExplicacion && (
+          <div style={{
+            background: 'var(--bg, white)',
+            border: '1px solid var(--border, #e5e7eb)',
+            borderTop: 'none',
+            borderRadius: '0 0 8px 8px',
+            padding: '1rem 1.2rem',
+            fontSize: '0.84rem',
+            lineHeight: 1.7,
+            color: 'var(--text)',
+          }}>
+            <div style={{ marginBottom: '0.75rem' }}>
+              <strong>Datos de entrada (Archivo de Oferta Excel)</strong>
+              <p style={{ margin: '0.3rem 0', color: 'var(--text-light)' }}>
+                Se leen las columnas: <em>Fecha de Peso, Granja, Galpón, Núcleo, Cantidad, Sexo, Edad Proyectada,
+                Peso Muestreo Proyectado, Ganancia Diaria, Días Proyectados, Edad Real, Peso Muestreo Real y Fecha de Ingreso</em>.
+              </p>
+            </div>
+
+            <div style={{ marginBottom: '0.75rem' }}>
+              <strong>Edad Hoy (edad actual del lote)</strong>
+              <p style={{ margin: '0.3rem 0', color: 'var(--text-light)' }}>
+                <code style={{ background: 'rgba(0,0,0,0.05)', padding: '1px 4px', borderRadius: 3 }}>
+                  Edad Hoy = Edad Proyectada + (Fecha de Hoy − Fecha Base)
+                </code><br />
+                Donde <em>Fecha Base = Fecha de Peso + Días Proyectados</em>. Los "Días Proyectados" indican cuántos días 
+                después del pesaje se emitió la oferta, por lo que la Edad Proyectada ya incluye esos días.
+              </p>
+            </div>
+
+            <div style={{ marginBottom: '0.75rem' }}>
+              <strong>Peso Vivo Proyectado al retiro / a edad ideal</strong>
+              <p style={{ margin: '0.3rem 0', color: 'var(--text-light)' }}>
+                <code style={{ background: 'rgba(0,0,0,0.05)', padding: '1px 4px', borderRadius: 3 }}>
+                  Peso Vivo = (Días Extra × Ganancia Diaria) + Peso Muestreo Proy. + Medio Día
+                </code><br />
+                • <em>Días Extra</em> = Edad al retiro − Edad Proyectada − 1<br />
+                • <em>Ganancia Diaria</em>: se usa la del lote (columna "Ganancia Diaria" de la oferta); si no está disponible, 
+                se usa la global por sexo (Macho: 0.090, Hembra: 0.079 kg/día)<br />
+                • <em>Medio Día</em> = 0.090 × 0.5 = 0.045 kg (ajuste de medio día, siempre con ganancia macho)<br />
+                • Para <strong>Machos y Mixtos</strong>: se aplica un descuento del 4% → <code style={{ background: 'rgba(0,0,0,0.05)', padding: '1px 4px', borderRadius: 3 }}>Peso × 0.96</code><br />
+                • Para <strong>Hembras</strong>: sin descuento
+              </p>
+            </div>
+
+            <div style={{ marginBottom: '0.75rem' }}>
+              <strong>Ganancia Mínima Necesaria</strong>
+              <p style={{ margin: '0.3rem 0', color: 'var(--text-light)' }}>
+                Es la ganancia diaria mínima que debería tener el lote para alcanzar el peso mínimo de faena 
+                ({data.peso_min_faena} kg) a su edad ideal. Se calcula como la inversa de la fórmula de peso vivo:
+                <br />
+                <code style={{ background: 'rgba(0,0,0,0.05)', padding: '1px 4px', borderRadius: 3 }}>
+                  Gan. Necesaria = (Peso Objetivo − Peso Muestreo Proy. − Medio Día) / Días Extra
+                </code><br />
+                Para M/MIX, el peso objetivo se ajusta por el descuento: Peso Mín / 0.96
+              </p>
+            </div>
+
+            <div style={{ marginBottom: '0.75rem' }}>
+              <strong>Clasificación Semáforo (Alerta Temprana)</strong>
+              <p style={{ margin: '0.3rem 0', color: 'var(--text-light)' }}>
+                • <span style={{ color: '#22c55e', fontWeight: 600 }}>Verde</span>: peso proyectado a edad ideal dentro del rango {data.peso_min_faena}–{data.peso_max_faena} kg con margen suficiente<br />
+                • <span style={{ color: '#fb923c', fontWeight: 600 }}>Amarillo</span>: peso al límite ({'<'}100g sobre mín.), necesita mejorar ganancia ({'>'}10% sobre la actual), o sobrepeso a edad ideal pero alcanzable faenando antes<br />
+                • <span style={{ color: '#ef4444', fontWeight: 600 }}>Rojo</span>: no alcanza peso mínimo ni a edad máxima ({data.dias?.length > 0 ? '' : '43d'}), o sobrepeso incluso a edad mínima
+              </p>
+            </div>
+
+            <div style={{ marginBottom: '0.75rem' }}>
+              <strong>Clasificación Semáforo (Por Lote - Planificación)</strong>
+              <p style={{ margin: '0.3rem 0', color: 'var(--text-light)' }}>
+                • <span style={{ color: '#22c55e', fontWeight: 600 }}>Normal</span>: peso proyectado al día de faena asignado dentro del rango<br />
+                • <span style={{ color: '#fb923c', fontWeight: 600 }}>Moderado</span>: bajo peso o sobrepeso con déficit/exceso ≤ 150g<br />
+                • <span style={{ color: '#ef4444', fontWeight: 600 }}>Crítico</span>: bajo peso o sobrepeso con déficit/exceso {'>'} 150g
+              </p>
+            </div>
+
+            <div>
+              <strong>Parámetros de referencia</strong>
+              <p style={{ margin: '0.3rem 0', color: 'var(--text-light)' }}>
+                Rango de peso aceptable: {data.peso_min_faena}–{data.peso_max_faena} kg | 
+                Peso objetivo recepción: {data.peso_objetivo} kg | 
+                Edad ideal: Macho 40d, Hembra 44d, Mixto 42d | 
+                Ventana de faena: 38–43 días de edad | 
+                Rendimiento canal: 87% | 
+                Calibre = 20 kg / Peso faenado
+              </p>
+            </div>
+          </div>
+        )}
       </motion.div>
 
       {/* Tabs de vista */}
@@ -490,16 +599,16 @@ export default function PronosticoPesosView({ proyeccion }) {
                       <thead>
                         <tr>
                           <th>Granja</th>
-                          <th className="text-center">G/N</th>
+                          <th className="text-center">Galpón / Núcleo</th>
                           <th className="text-center">Sexo</th>
-                          <th className="text-right">Aves</th>
-                          <th className="text-right">Edad Actual</th>
-                          <th className="text-right">Peso Actual</th>
-                          <th className="text-right">Peso a Edad Ideal</th>
-                          <th style={{ minWidth: 130 }}>Rango</th>
-                          <th className="text-right">Gan. Actual</th>
-                          <th className="text-right">Gan. Necesaria</th>
-                          <th className="text-center">Días Rest.</th>
+                          <th className="text-right">Cantidad de Aves</th>
+                          <th className="text-right">Edad Hoy (días)</th>
+                          <th className="text-right">Peso Muestreo (kg)</th>
+                          <th className="text-right">Peso Proy. a Edad Ideal (kg)</th>
+                          <th style={{ minWidth: 130 }}>Rango Aceptable</th>
+                          <th className="text-right">Gan. Diaria Oferta</th>
+                          <th className="text-right">Gan. Mín. Necesaria</th>
+                          <th className="text-center">Días a Edad Ideal</th>
                           <th className="text-center">Estado</th>
                           <th>Detalle</th>
                         </tr>
@@ -590,6 +699,10 @@ export default function PronosticoPesosView({ proyeccion }) {
                       Mostrando {alertaData.lotes.filter(l => alertaFiltroNivel === 'todos' || l.nivel === alertaFiltroNivel).length} de {alertaData.total_lotes} lotes.
                       Rango ideal: {alertaData.peso_min_faena}–{alertaData.peso_max_faena} kg.
                       Ventana faena: {alertaData.edad_min_faena}–{alertaData.edad_max_faena} días.
+                      <br />
+                      <em>Peso Muestreo</em> corresponde a la columna "Peso Muestreo Proy" del archivo de oferta.
+                      La <em>Ganancia Diaria Oferta</em> proviene de la columna "Ganancia Diaria" del mismo archivo.
+                      La <em>Edad Hoy</em> se calcula sumando los días transcurridos desde la fecha base de la oferta a la edad proyectada.
                     </div>
                   )}
                 </div>
@@ -606,10 +719,10 @@ export default function PronosticoPesosView({ proyeccion }) {
                       <thead>
                         <tr>
                           <th>Granja</th>
-                          <th className="text-right">Lotes</th>
-                          <th className="text-right">Aves</th>
-                          <th className="text-right">Peso Prom. Ideal</th>
-                          <th className="text-center" style={{ color: 'var(--success, #22c55e)' }}>OK</th>
+                          <th className="text-right">Cant. Lotes</th>
+                          <th className="text-right">Total Aves</th>
+                          <th className="text-right">Peso Prom. a Edad Ideal (kg)</th>
+                          <th className="text-center" style={{ color: 'var(--success, #22c55e)' }}>En Rango</th>
                           <th className="text-center" style={{ color: 'var(--warning, #fb923c)' }}>Moderado</th>
                           <th className="text-center" style={{ color: '#ef4444' }}>Alto</th>
                           <th className="text-center">Estado</th>
@@ -703,13 +816,13 @@ export default function PronosticoPesosView({ proyeccion }) {
                       <thead>
                         <tr>
                           <th>Granja</th>
-                          <th className="text-center">G/N</th>
-                          <th className="text-right">Lotes</th>
-                          <th className="text-right">Aves</th>
+                          <th className="text-center">Galpón / Núcleo</th>
+                          <th className="text-right">Cant. Lotes</th>
+                          <th className="text-right">Total Aves</th>
                           <th className="text-right">% Riesgo Alto</th>
                           <th className="text-right">% En Alerta</th>
-                          <th className="text-right">Peso Prom. Ideal</th>
-                          <th className="text-center" style={{ color: 'var(--success, #22c55e)' }}>OK</th>
+                          <th className="text-right">Peso Prom. a Edad Ideal (kg)</th>
+                          <th className="text-center" style={{ color: 'var(--success, #22c55e)' }}>En Rango</th>
                           <th className="text-center" style={{ color: 'var(--warning, #fb923c)' }}>Moderado</th>
                           <th className="text-center" style={{ color: '#ef4444' }}>Alto</th>
                           <th className="text-center">Estado</th>
@@ -961,15 +1074,15 @@ export default function PronosticoPesosView({ proyeccion }) {
               <table>
                 <thead>
                   <tr>
-                    <th>Día</th>
+                    <th>Día Faena</th>
                     <th>Granja</th>
-                    <th className="text-center">G/N</th>
+                    <th className="text-center">Galpón / Núcleo</th>
                     <th className="text-center">Sexo</th>
-                    <th className="text-right">Aves</th>
-                    <th className="text-right">Edad</th>
-                    <th className="text-right">Peso Proy.</th>
-                    <th style={{ minWidth: 130 }}>Rango</th>
-                    <th className="text-right">Gan. Diaria</th>
+                    <th className="text-right">Cantidad de Aves</th>
+                    <th className="text-right">Edad al Retiro (días)</th>
+                    <th className="text-right">Peso Vivo Proy. (kg)</th>
+                    <th style={{ minWidth: 130 }}>Rango Aceptable</th>
+                    <th className="text-right">Gan. Diaria Oferta</th>
                     <th className="text-center">Estado</th>
                     <th>Detalle</th>
                   </tr>
@@ -1040,12 +1153,12 @@ export default function PronosticoPesosView({ proyeccion }) {
               <table>
                 <thead>
                   <tr>
-                    <th>Día</th>
+                    <th>Día Faena</th>
                     <th>Fecha</th>
-                    <th className="text-right">Pollos</th>
-                    <th className="text-right">Peso Prom.</th>
-                    <th className="text-right">Lotes</th>
-                    <th className="text-center" style={{ color: 'var(--success, #22c55e)' }}>OK</th>
+                    <th className="text-right">Total Aves</th>
+                    <th className="text-right">Peso Prom. Ponderado (kg)</th>
+                    <th className="text-right">Cant. Lotes</th>
+                    <th className="text-center" style={{ color: 'var(--success, #22c55e)' }}>En Rango</th>
                     <th className="text-center" style={{ color: 'var(--warning, #fb923c)' }}>Moderado</th>
                     <th className="text-center" style={{ color: '#ef4444' }}>Crítico</th>
                     <th className="text-center">Estado</th>
@@ -1084,10 +1197,10 @@ export default function PronosticoPesosView({ proyeccion }) {
                 <thead>
                   <tr>
                     <th>Granja</th>
-                    <th className="text-right">Lotes</th>
-                    <th className="text-right">Aves</th>
-                    <th className="text-right">Peso Prom.</th>
-                    <th className="text-center" style={{ color: 'var(--success, #22c55e)' }}>OK</th>
+                    <th className="text-right">Cant. Lotes</th>
+                    <th className="text-right">Total Aves</th>
+                    <th className="text-right">Peso Prom. Ponderado (kg)</th>
+                    <th className="text-center" style={{ color: 'var(--success, #22c55e)' }}>En Rango</th>
                     <th className="text-center" style={{ color: 'var(--warning, #fb923c)' }}>Moderado</th>
                     <th className="text-center" style={{ color: '#ef4444' }}>Crítico</th>
                     <th className="text-center">Estado</th>
