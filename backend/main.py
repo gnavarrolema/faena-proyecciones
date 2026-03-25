@@ -692,171 +692,6 @@ def _validar_cruce_produccion() -> Optional[dict]:
     return result if result else None
 
 
-# ─── Helpers: sinc. operativa / validación cruzada ────────────────────────────
-
-def _generar_insights_validacion(validacion: dict) -> list:
-    """
-    Genera una lista de insights legibles a partir del dict de validación cruzada.
-
-    Cada insight es un dict con:
-        tipo: "critico" | "advertencia" | "info" | "positivo"
-        titulo: str
-        detalle: str
-        categoria: "factibilidad" | "fechas" | "cobertura" | "datos" | "consistencia" | "sensibilidad" | "cohortes"
-
-    Args:
-        validacion: dict producido por _validar_cruce_oferta / _validar_cruce_produccion.
-
-    Returns:
-        Lista de dicts con los insights.
-    """
-    if not validacion:
-        return []
-
-    insights: list[dict] = []
-
-    # ── Factibilidad ────────────────────────────────────────────────────────────
-    fact = validacion.get("factibilidad")
-    if fact and fact.get("encontrada"):
-        total_oferta = fact.get("total_oferta", 0)
-        disponibles_peor = fact.get("disponibles_peor") or 0
-        disponibles_mejor = fact.get("disponibles_mejor") or 0
-        deficit = fact.get("deficit_peor")
-        cobertura = fact.get("cobertura_pct_peor") or 0
-        pollitos = fact.get("pollitos_cargados") or 0
-
-        if deficit and deficit > 0:
-            insights.append({
-                "tipo": "critico",
-                "titulo": f"Déficit de producción propia: {deficit:,} pollos",
-                "detalle": (
-                    f"La oferta ({total_oferta:,}) supera la producción propia disponible "
-                    f"en el escenario conservador ({disponibles_peor:,}). "
-                    f"Cobertura: {cobertura:.1f}%."
-                ),
-                "categoria": "factibilidad",
-            })
-        elif cobertura >= 90:
-            insights.append({
-                "tipo": "advertencia",
-                "titulo": f"Cobertura ajustada: {cobertura:.1f}%",
-                "detalle": (
-                    f"La oferta cubre el {cobertura:.1f}% de la producción disponible "
-                    f"en escenario conservador. Margen reducido."
-                ),
-                "categoria": "factibilidad",
-            })
-        else:
-            insights.append({
-                "tipo": "positivo",
-                "titulo": f"Producción propia suficiente ({cobertura:.1f}% de cobertura)",
-                "detalle": (
-                    f"La oferta ({total_oferta:,}) está cubierta por la producción propia. "
-                    f"Disponibles: {disponibles_mejor:,} – {disponibles_peor:,}."
-                ),
-                "categoria": "factibilidad",
-            })
-
-        # Sensibilidad: diferencia entre mejor y peor escenario
-        if disponibles_mejor and disponibles_peor:
-            diferencia_escenarios = disponibles_mejor - disponibles_peor
-            insights.append({
-                "tipo": "info",
-                "titulo": "Sensibilidad al escenario de mortalidad",
-                "detalle": (
-                    f"La diferencia entre el escenario optimista y conservador es de "
-                    f"{diferencia_escenarios:,} pollos ({diferencia_escenarios/max(pollitos,1)*100:.1f}% de variación)."
-                ),
-                "categoria": "sensibilidad",
-            })
-
-    # ── Cohortes / mortalidad ───────────────────────────────────────────────────
-    mort = validacion.get("mortalidad_cohortes")
-    if mort and mort.get("cohortes"):
-        cohortes = mort["cohortes"]
-        total_alertas = mort.get("alertas", 0)
-
-        # Cohortes anticipadas o atrasadas
-        anticipadas = [c for c in cohortes if c.get("nivel") == "anticipada"]
-        atrasadas = [c for c in cohortes if c.get("nivel") == "atrasada"]
-        excedidas = [c for c in cohortes if c.get("nivel") == "excedida"]
-        parciales = [c for c in cohortes if c.get("nivel") == "parcial"]
-        alineadas = [c for c in cohortes if c.get("nivel") == "alineada"]
-
-        if anticipadas:
-            granjas = sorted({g for c in anticipadas for g in c.get("granjas", [])})
-            insights.append({
-                "tipo": "advertencia",
-                "titulo": f"Cohorte anticipada ({len(anticipadas)} cohorte{'s' if len(anticipadas) > 1 else ''})",
-                "detalle": (
-                    f"Las granjas {', '.join(granjas)} tienen fecha objetivo adelantada "
-                    f"respecto a la ventana esperada de faena (+42 días)."
-                ),
-                "categoria": "fechas",
-            })
-
-        if atrasadas:
-            granjas = sorted({g for c in atrasadas for g in c.get("granjas", [])})
-            insights.append({
-                "tipo": "advertencia",
-                "titulo": f"Cohorte atrasada ({len(atrasadas)} cohorte{'s' if len(atrasadas) > 1 else ''})",
-                "detalle": (
-                    f"Las granjas {', '.join(granjas)} tienen fecha objetivo posterior "
-                    f"a la ventana estimada de faena."
-                ),
-                "categoria": "fechas",
-            })
-
-        if excedidas:
-            granjas = sorted({g for c in excedidas for g in c.get("granjas", [])})
-            insights.append({
-                "tipo": "critico",
-                "titulo": f"Oferta excede lo esperado ({len(excedidas)} cohorte{'s' if len(excedidas) > 1 else ''})",
-                "detalle": (
-                    f"Las granjas {', '.join(granjas)} superan el rango esperado de aves en faena. "
-                    f"Revisar posibles duplicidades o errores de carga."
-                ),
-                "categoria": "datos",
-            })
-
-        if parciales:
-            granjas = sorted({g for c in parciales for g in c.get("granjas", [])})
-            insights.append({
-                "tipo": "info",
-                "titulo": f"Cobertura parcial en {len(parciales)} cohorte{'s' if len(parciales) > 1 else ''}",
-                "detalle": (
-                    f"Las granjas {', '.join(granjas)} muestran oferta menor a la esperada. "
-                    f"Puede ser normal si parte de la producción aún no está en oferta."
-                ),
-                "categoria": "cobertura",
-            })
-
-        if alineadas and total_alertas == 0:
-            insights.append({
-                "tipo": "positivo",
-                "titulo": f"Cohortes alineadas ({len(alineadas)})",
-                "detalle": "Todas las cohortes tienen fecha y cantidad coherentes con lo esperado.",
-                "categoria": "cohortes",
-            })
-
-    # ── Consistencia de edad ────────────────────────────────────────────────────
-    consist = validacion.get("consistencia_edad")
-    if consist and consist.get("total", 0) > 0:
-        total_consist = consist["total"]
-        insights.append({
-            "tipo": "advertencia",
-            "titulo": f"{total_consist} lote{'s' if total_consist > 1 else ''} con edad inconsistente",
-            "detalle": (
-                f"La edad real declarada no coincide con (fecha_peso − fecha_ingreso) "
-                f"en {total_consist} lote{'s' if total_consist > 1 else ''}. "
-                f"Revisar datos de la oferta."
-            ),
-            "categoria": "consistencia",
-        })
-
-    return insights
-
-
 # ─── Endpoints ──────────────────────────────────────────────────────────────────
 
 @app.get("/")
@@ -947,7 +782,7 @@ async def upload_oferta(file: UploadFile = File(...), sheet_name: Optional[str] 
     Subir archivo Excel de oferta de granjas.
     Acepta formato OFERTA JUEV o similar.
     """
-    if not file.filename.endswith(('.xlsx', '.xls')):
+    if not file.filename or not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(400, "El archivo debe ser .xlsx o .xls")
 
     content = await file.read()
@@ -1051,7 +886,7 @@ async def upload_ajuste_martes(
     Matchea lotes por (granja, galpon, nucleo, sexo, fecha_ingreso),
     actualiza datos y recalcula preservando las asignaciones de día.
     """
-    if not file.filename.endswith(('.xlsx', '.xls')):
+    if not file.filename or not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(400, "El archivo debe ser .xlsx o .xls")
 
     # Verificar que existe una proyección para ajustar
@@ -1463,13 +1298,13 @@ def eliminar_lote(dia_index: int, lote_index: int, current_user: TokenData = Dep
     dia.lotes.pop(lote_index)
 
     # Recalcular (preservar lotes no asignados y fuera de rango)
+    params = _get_parametros()
     semana.dias[dia_index] = calcular_dia_faena(
         dia.fecha, dia.lotes, params=params,
         gallinas_cantidad=dia.gallinas_cantidad,
         gallinas_livianas=dia.gallinas_livianas_cantidad,
         gallinas_pesadas=dia.gallinas_pesadas_cantidad,
     )
-    params = _get_parametros()
     resultado = calcular_semana_faena(
         semana.fecha_inicio, semana.dias, params,
         lotes_no_asignados=semana.lotes_no_asignados,
@@ -1719,7 +1554,7 @@ async def upload_produccion(
     Subir archivo Excel de producción semanal (13.Datos Produccion por Semana).
     Lee la columna I (Pollitos Cargados en Granjas Propias).
     """
-    if not file.filename.endswith(('.xlsx', '.xls')):
+    if not file.filename or not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(400, "El archivo debe ser .xlsx o .xls")
 
     content = await file.read()
@@ -2012,76 +1847,6 @@ def _generar_insights_validacion(validacion: dict) -> list[dict]:
         })
 
     return insights
-
-
-@app.get("/validacion-cruzada")
-def get_validacion_cruzada(current_user: TokenData = Depends(get_current_user)):
-    """
-    Reporte persistente de validación cruzada oferta ↔ producción.
-    Incluye factibilidad, concordancia producción-oferta por cohortes,
-    consistencia de edad e insights.
-    """
-    ofertas = _get_ofertas()
-    produccion_data = storage.load_produccion()
-
-    if not ofertas and not produccion_data:
-        raise HTTPException(404, "No hay datos de oferta ni de producción cargados.")
-
-    validacion: dict = {}
-
-    if ofertas and produccion_data:
-        # Factibilidad (agregando todas las semanas de producción referenciadas)
-        from collections import Counter
-        fechas_peso = [o.fecha_peso for o in ofertas if o.fecha_peso]
-        if fechas_peso:
-            fecha_mas_comun = Counter(fechas_peso).most_common(1)[0][0]
-            lunes = fecha_mas_comun - timedelta(days=fecha_mas_comun.weekday())
-            total_oferta = sum(o.cantidad for o in ofertas)
-            fact = _calcular_factibilidad(lunes, total_oferta, ofertas=ofertas)
-            if fact:
-                validacion["factibilidad"] = fact.model_dump()
-
-        # Concordancia producción-oferta por cohortes
-        mortalidad = validar_mortalidad_oferta(ofertas, produccion_data)
-        if mortalidad and mortalidad.get("cohortes"):
-            validacion["mortalidad_cohortes"] = mortalidad
-
-        # Consistencia de edad
-        alertas_edad: list[dict] = []
-        for i, o in enumerate(ofertas):
-            if o.fecha_peso and o.fecha_ingreso and o.edad_real:
-                dias_calculados = (o.fecha_peso - o.fecha_ingreso).days
-                diferencia = abs(dias_calculados - o.edad_real)
-                if diferencia > 3:
-                    alertas_edad.append({
-                        "lote": i + 1,
-                        "granja": o.granja,
-                        "galpon": o.galpon,
-                        "edad_real": o.edad_real,
-                        "dias_calculados": dias_calculados,
-                        "diferencia": diferencia,
-                    })
-        if alertas_edad:
-            validacion["consistencia_edad"] = {
-                "alertas": alertas_edad,
-                "total": len(alertas_edad),
-            }
-
-    tiene_oferta = len(ofertas) > 0
-    tiene_produccion = produccion_data is not None and len(produccion_data) > 0
-
-    insights = _generar_insights_validacion(validacion) if validacion else []
-    fuentes = _build_fuentes_validacion(ofertas, produccion_data)
-
-    return {
-        "tiene_oferta": tiene_oferta,
-        "tiene_produccion": tiene_produccion,
-        "total_ofertas": len(ofertas),
-        "total_semanas_produccion": len(produccion_data) if produccion_data else 0,
-        "fuentes": fuentes,
-        "validacion": validacion,
-        "insights": insights,
-    }
 
 
 @app.delete("/produccion")
@@ -2835,7 +2600,7 @@ def guardar_escenario(
             fecha_inicio_semana=proyeccion.fecha_inicio,
             total_oferta=proyeccion.total_pollos_semana,
         )
-        if fact and fact.encontrada:
+        if fact and fact.encontrada and fact.pollitos_cargados is not None:
             disponibles = int(fact.pollitos_cargados * (1 - tasa))
             deficit = max(0, proyeccion.total_pollos_semana - disponibles)
             cobertura = round(proyeccion.total_pollos_semana / disponibles * 100, 1) if disponibles > 0 else None
