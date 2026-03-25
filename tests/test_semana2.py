@@ -255,3 +255,147 @@ def test_limpiar_diferidos(client, auth_headers):
 
     resp = client.get("/proyeccion/lotes-diferidos", headers=auth_headers)
     assert resp.json()["total_diferidos"] == 0
+
+
+# ─── Tests para edición interactiva de Semana 2 ─────────────────────────────
+
+
+def _generar_semana2(client, auth_headers):
+    """Helper: genera S1, difiere un lote, y obtiene S2."""
+    _crear_oferta_y_proyeccion(client, auth_headers)
+    client.post(
+        "/proyeccion/diferir-lote",
+        json={"dia_index": 0, "lote_index": 0},
+        headers=auth_headers,
+    )
+    resp = client.get("/proyeccion/semana2", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["tiene_datos"] is True
+    return resp.json()
+
+
+def test_mover_lote_s2(client, auth_headers):
+    """Mover un lote entre días dentro de semana 2."""
+    s2_data = _generar_semana2(client, auth_headers)
+    s2 = s2_data["proyeccion"]
+
+    # Buscar un día con al menos un lote
+    dia_con_lotes = None
+    for idx, dia in enumerate(s2["dias"]):
+        if len(dia["lotes"]) > 0:
+            dia_con_lotes = idx
+            break
+    assert dia_con_lotes is not None, "No hay lotes en S2 para mover"
+
+    # Destino = primer día diferente
+    dia_destino = (dia_con_lotes + 1) % len(s2["dias"])
+    pollos_origen_antes = s2["dias"][dia_con_lotes]["total_pollos"]
+    pollos_destino_antes = s2["dias"][dia_destino]["total_pollos"]
+
+    resp = client.post(
+        "/proyeccion/semana2/mover-lote",
+        json={"lote_index": 0, "dia_origen": dia_con_lotes, "dia_destino": dia_destino},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    result = resp.json()["proyeccion"]
+
+    # El día de origen debe tener menos pollos
+    assert result["dias"][dia_con_lotes]["total_pollos"] < pollos_origen_antes
+    # El día destino debe tener más pollos
+    assert result["dias"][dia_destino]["total_pollos"] > pollos_destino_antes
+
+
+def test_eliminar_lote_s2(client, auth_headers):
+    """Eliminar un lote de la proyección de semana 2."""
+    s2_data = _generar_semana2(client, auth_headers)
+    s2 = s2_data["proyeccion"]
+
+    # Buscar un día con al menos un lote
+    dia_con_lotes = None
+    for idx, dia in enumerate(s2["dias"]):
+        if len(dia["lotes"]) > 0:
+            dia_con_lotes = idx
+            break
+    assert dia_con_lotes is not None
+
+    total_antes = s2["total_pollos_semana"]
+    lotes_antes = len(s2["dias"][dia_con_lotes]["lotes"])
+
+    resp = client.delete(
+        f"/proyeccion/semana2/lote/{dia_con_lotes}/0",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    result = resp.json()
+
+    # Debe haber un lote menos
+    assert len(result["dias"][dia_con_lotes]["lotes"]) == lotes_antes - 1
+    # Total pollos semana debe disminuir
+    assert result["total_pollos_semana"] < total_antes
+
+
+def test_enviar_lote_s2_a_s1(client, auth_headers):
+    """Enviar un lote de S2 de vuelta a S1."""
+    s2_data = _generar_semana2(client, auth_headers)
+    s2 = s2_data["proyeccion"]
+
+    # Obtener S1 antes
+    resp_s1 = client.get("/proyeccion", headers=auth_headers)
+    total_s1_antes = resp_s1.json()["total_pollos_semana"]
+
+    # Buscar un día con lotes en S2
+    dia_con_lotes = None
+    for idx, dia in enumerate(s2["dias"]):
+        if len(dia["lotes"]) > 0:
+            dia_con_lotes = idx
+            break
+    assert dia_con_lotes is not None
+
+    total_s2_antes = s2["total_pollos_semana"]
+
+    resp = client.post(
+        "/proyeccion/semana2/enviar-semana1",
+        json={"dia_index_s2": dia_con_lotes, "lote_index_s2": 0, "dia_destino_s1": 0},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # S1 debe tener más pollos
+    assert data["proyeccion_s1"]["total_pollos_semana"] > total_s1_antes
+    # S2 debe tener menos pollos
+    assert data["proyeccion_s2"]["total_pollos_semana"] < total_s2_antes
+
+
+def test_enviar_lote_s2_a_s1_auto(client, auth_headers):
+    """Enviar lote de S2 a S1 con auto-asignación."""
+    s2_data = _generar_semana2(client, auth_headers)
+    s2 = s2_data["proyeccion"]
+
+    dia_con_lotes = None
+    for idx, dia in enumerate(s2["dias"]):
+        if len(dia["lotes"]) > 0:
+            dia_con_lotes = idx
+            break
+    assert dia_con_lotes is not None
+
+    resp = client.post(
+        "/proyeccion/semana2/enviar-semana1",
+        json={"dia_index_s2": dia_con_lotes, "lote_index_s2": 0},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "dia_destino_s1" in data
+    assert data["dia_destino_s1"] >= 0
+
+
+def test_mover_lote_s2_sin_proyeccion(client, auth_headers):
+    """Mover en S2 sin haber generado proyección da 404."""
+    resp = client.post(
+        "/proyeccion/semana2/mover-lote",
+        json={"lote_index": 0, "dia_origen": 0, "dia_destino": 1},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404

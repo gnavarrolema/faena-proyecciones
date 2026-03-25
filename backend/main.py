@@ -484,6 +484,20 @@ class RestaurarLoteRequest(BaseModel):
     dia_destino: Optional[int] = None  # si None, auto-asigna al día con más déficit
 
 
+class MoverLoteS2Request(BaseModel):
+    """Para mover un lote entre días dentro de semana 2."""
+    lote_index: int
+    dia_origen: int
+    dia_destino: int
+
+
+class EnviarS1Request(BaseModel):
+    """Para enviar un lote de semana 2 a semana 1."""
+    dia_index_s2: int
+    lote_index_s2: int
+    dia_destino_s1: Optional[int] = None  # si None, auto-asigna al día con más déficit en S1
+
+
 # ─── Helpers: factibilidad producción ─────────────────────────────────────────
 
 def _calcular_factibilidad(
@@ -3314,6 +3328,9 @@ def get_semana2(current_user: TokenData = Depends(get_current_user)):
         feriados=feriados if feriados else None,
     )
 
+    # Persistir la proyección S2 para edición interactiva
+    storage.save_proyeccion_s2(semana2.model_dump())
+
     return {
         "tiene_datos": True,
         "proyeccion": semana2.model_dump(),
@@ -3342,6 +3359,239 @@ def clear_lotes_diferidos(current_user: TokenData = Depends(get_current_user)):
     """Limpia todos los lotes diferidos."""
     storage.delete_lotes_diferidos()
     return {"message": "Lotes diferidos limpiados."}
+
+
+# ─── Semana 2: Edición interactiva (mover, eliminar, enviar a S1) ───────────────
+
+def _get_proyeccion_s2() -> Optional[SemanaFaena]:
+    """Lee la proyección S2 persistida."""
+    data = storage.load_proyeccion_s2()
+    if data:
+        try:
+            return SemanaFaena(**data)
+        except Exception:
+            return None
+    return None
+
+
+@app.post("/proyeccion/semana2/mover-lote")
+def mover_lote_s2(req: MoverLoteS2Request, current_user: TokenData = Depends(get_current_user)):
+    """Mover un lote de un día a otro dentro de semana 2."""
+    semana2 = _get_proyeccion_s2()
+    if semana2 is None:
+        raise HTTPException(404, "No hay proyección de semana 2 generada. Genere primero la proyección.")
+
+    if req.dia_origen < 0 or req.dia_origen >= len(semana2.dias) \
+       or req.dia_destino < 0 or req.dia_destino >= len(semana2.dias):
+        raise HTTPException(400, "Índice de día inválido")
+
+    dia_origen = semana2.dias[req.dia_origen]
+    dia_destino = semana2.dias[req.dia_destino]
+
+    if req.lote_index < 0 or req.lote_index >= len(dia_origen.lotes):
+        raise HTTPException(400, "Índice de lote inválido")
+
+    lote = dia_origen.lotes.pop(req.lote_index)
+    params = _get_parametros()
+    nueva_fecha = dia_destino.fecha
+
+    fecha_peso = lote.fecha_peso_original or lote.fecha_fin_retiro
+    ganancia = lote.ganancia_diaria_original if lote.ganancia_diaria_original is not None else params.ganancia_diaria_macho
+    fecha_ingreso = lote.fecha_ingreso_original or fecha_peso
+
+    oferta_equiv = LoteOferta(
+        fecha_peso=fecha_peso,
+        granja=lote.granja,
+        galpon=lote.galpon,
+        nucleo=lote.nucleo,
+        cantidad=lote.cantidad,
+        sexo=lote.sexo,
+        edad_proyectada=lote.edad_actual,
+        peso_muestreo_proy=lote.peso_actual,
+        ganancia_diaria=ganancia,
+        dias_proyectados=0,
+        edad_real=lote.edad_actual,
+        peso_muestreo_real=lote.peso_actual,
+        fecha_ingreso=fecha_ingreso,
+    )
+
+    nuevo_lote = calcular_lote_proyectado(oferta_equiv, nueva_fecha, params)
+    dia_destino.lotes.append(nuevo_lote)
+
+    semana2.dias[req.dia_origen] = calcular_dia_faena(
+        dia_origen.fecha, dia_origen.lotes, params=params,
+        gallinas_cantidad=dia_origen.gallinas_cantidad,
+        gallinas_livianas=dia_origen.gallinas_livianas_cantidad,
+        gallinas_pesadas=dia_origen.gallinas_pesadas_cantidad,
+    )
+    semana2.dias[req.dia_destino] = calcular_dia_faena(
+        dia_destino.fecha, dia_destino.lotes, params=params,
+        gallinas_cantidad=dia_destino.gallinas_cantidad,
+        gallinas_livianas=dia_destino.gallinas_livianas_cantidad,
+        gallinas_pesadas=dia_destino.gallinas_pesadas_cantidad,
+    )
+
+    resultado = calcular_semana_faena(
+        semana2.fecha_inicio, semana2.dias, params,
+        lotes_no_asignados=semana2.lotes_no_asignados,
+        lotes_fuera_rango=semana2.lotes_fuera_rango,
+    )
+    resultado.feriados_aplicados = semana2.feriados_aplicados
+    resultado.eventos_gallinas = semana2.eventos_gallinas
+    storage.save_proyeccion_s2(resultado.model_dump())
+
+    return {"proyeccion": resultado.model_dump()}
+
+
+@app.delete("/proyeccion/semana2/lote/{dia_index}/{lote_index}")
+def eliminar_lote_s2(dia_index: int, lote_index: int, current_user: TokenData = Depends(get_current_user)):
+    """Eliminar un lote de la proyección de semana 2."""
+    semana2 = _get_proyeccion_s2()
+    if semana2 is None:
+        raise HTTPException(404, "No hay proyección de semana 2 generada.")
+
+    if dia_index < 0 or dia_index >= len(semana2.dias):
+        raise HTTPException(400, "Índice de día inválido")
+
+    dia = semana2.dias[dia_index]
+    if lote_index < 0 or lote_index >= len(dia.lotes):
+        raise HTTPException(400, "Índice de lote inválido")
+
+    dia.lotes.pop(lote_index)
+    params = _get_parametros()
+
+    semana2.dias[dia_index] = calcular_dia_faena(
+        dia.fecha, dia.lotes, params=params,
+        gallinas_cantidad=dia.gallinas_cantidad,
+        gallinas_livianas=dia.gallinas_livianas_cantidad,
+        gallinas_pesadas=dia.gallinas_pesadas_cantidad,
+    )
+    resultado = calcular_semana_faena(
+        semana2.fecha_inicio, semana2.dias, params,
+        lotes_no_asignados=semana2.lotes_no_asignados,
+        lotes_fuera_rango=semana2.lotes_fuera_rango,
+    )
+    resultado.feriados_aplicados = semana2.feriados_aplicados
+    resultado.eventos_gallinas = semana2.eventos_gallinas
+    storage.save_proyeccion_s2(resultado.model_dump())
+
+    return resultado.model_dump()
+
+
+@app.post("/proyeccion/semana2/enviar-semana1")
+def enviar_lote_s2_a_s1(req: EnviarS1Request, current_user: TokenData = Depends(get_current_user)):
+    """
+    Envía un lote desde semana 2 de vuelta a semana 1.
+    Lo remueve de la proyección S2 y lo agrega al día indicado de S1
+    (o al de mayor déficit si no se indica).
+    """
+    semana2 = _get_proyeccion_s2()
+    if semana2 is None:
+        raise HTTPException(404, "No hay proyección de semana 2 generada.")
+
+    semana1 = _get_proyeccion()
+    if semana1 is None:
+        raise HTTPException(404, "No hay proyección de semana 1 generada.")
+
+    if req.dia_index_s2 < 0 or req.dia_index_s2 >= len(semana2.dias):
+        raise HTTPException(400, "Índice de día S2 inválido")
+
+    dia_s2 = semana2.dias[req.dia_index_s2]
+    if req.lote_index_s2 < 0 or req.lote_index_s2 >= len(dia_s2.lotes):
+        raise HTTPException(400, "Índice de lote S2 inválido")
+
+    lote = dia_s2.lotes.pop(req.lote_index_s2)
+    params = _get_parametros()
+
+    # Reconstruir LoteOferta desde datos originales
+    fecha_peso = lote.fecha_peso_original or lote.fecha_fin_retiro
+    ganancia = lote.ganancia_diaria_original if lote.ganancia_diaria_original is not None else params.ganancia_diaria_macho
+    fecha_ingreso = lote.fecha_ingreso_original or fecha_peso
+
+    oferta_equiv = LoteOferta(
+        fecha_peso=fecha_peso,
+        granja=lote.granja,
+        galpon=lote.galpon,
+        nucleo=lote.nucleo,
+        cantidad=lote.cantidad,
+        sexo=lote.sexo,
+        edad_proyectada=lote.edad_actual,
+        peso_muestreo_proy=lote.peso_actual,
+        ganancia_diaria=ganancia,
+        dias_proyectados=0,
+        edad_real=lote.edad_actual,
+        peso_muestreo_real=lote.peso_actual,
+        fecha_ingreso=fecha_ingreso,
+    )
+
+    # Determinar día destino en S1
+    if req.dia_destino_s1 is not None:
+        if req.dia_destino_s1 < 0 or req.dia_destino_s1 >= len(semana1.dias):
+            raise HTTPException(400, "Índice de día destino S1 inválido")
+        dia_destino_idx = req.dia_destino_s1
+    else:
+        objetivo = params.pollos_diarios_objetivo_max
+        mejor_idx = 0
+        mayor_deficit = -1
+        for idx, d in enumerate(semana1.dias):
+            deficit = objetivo - d.total_pollos
+            if deficit > mayor_deficit:
+                mayor_deficit = deficit
+                mejor_idx = idx
+        dia_destino_idx = mejor_idx
+
+    dia_destino_s1 = semana1.dias[dia_destino_idx]
+    nuevo_lote = calcular_lote_proyectado(oferta_equiv, dia_destino_s1.fecha, params)
+    dia_destino_s1.lotes.append(nuevo_lote)
+
+    # Recalcular S1
+    semana1.dias[dia_destino_idx] = calcular_dia_faena(
+        dia_destino_s1.fecha, dia_destino_s1.lotes, params=params,
+        gallinas_cantidad=dia_destino_s1.gallinas_cantidad,
+        gallinas_livianas=dia_destino_s1.gallinas_livianas_cantidad,
+        gallinas_pesadas=dia_destino_s1.gallinas_pesadas_cantidad,
+    )
+    resultado_s1 = calcular_semana_faena(
+        semana1.fecha_inicio, semana1.dias, params,
+        lotes_no_asignados=semana1.lotes_no_asignados,
+        lotes_fuera_rango=semana1.lotes_fuera_rango,
+    )
+    resultado_s1.feriados_aplicados = semana1.feriados_aplicados
+    resultado_s1.eventos_gallinas = semana1.eventos_gallinas
+    storage.save_proyeccion(resultado_s1.model_dump())
+
+    # Recalcular S2
+    semana2.dias[req.dia_index_s2] = calcular_dia_faena(
+        dia_s2.fecha, dia_s2.lotes, params=params,
+        gallinas_cantidad=dia_s2.gallinas_cantidad,
+        gallinas_livianas=dia_s2.gallinas_livianas_cantidad,
+        gallinas_pesadas=dia_s2.gallinas_pesadas_cantidad,
+    )
+    resultado_s2 = calcular_semana_faena(
+        semana2.fecha_inicio, semana2.dias, params,
+        lotes_no_asignados=semana2.lotes_no_asignados,
+        lotes_fuera_rango=semana2.lotes_fuera_rango,
+    )
+    resultado_s2.feriados_aplicados = semana2.feriados_aplicados
+    resultado_s2.eventos_gallinas = semana2.eventos_gallinas
+    storage.save_proyeccion_s2(resultado_s2.model_dump())
+
+    # Limpiar el lote de diferidos si corresponde
+    diferidos = storage.load_lotes_diferidos() or []
+    diferidos_actualizados = [
+        d for d in diferidos
+        if not (d["granja"] == lote.granja and d["galpon"] == lote.galpon
+                and d["nucleo"] == lote.nucleo and d["cantidad"] == lote.cantidad)
+    ]
+    if len(diferidos_actualizados) != len(diferidos):
+        storage.save_lotes_diferidos(diferidos_actualizados)
+
+    return {
+        "proyeccion_s1": resultado_s1.model_dump(),
+        "proyeccion_s2": resultado_s2.model_dump(),
+        "dia_destino_s1": dia_destino_idx,
+        "total_diferidos": len(diferidos_actualizados),
+    }
 
 
 # ─── Sugerencias inteligentes de diferimiento ───────────────────────────────────

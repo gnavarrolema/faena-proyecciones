@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2, Factory, ArrowRight, Undo2, Clock, Lightbulb, Check, Eye, EyeOff } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, agregarLote, getAnalisisTerceros, cargarDeficit, getParametros, diferirLote, restaurarLoteSemana1, getSemana2, clearLotesDiferidos, getSugerenciasDiferimiento, getOfertaTrazabilidad } from '../services/api'
+import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, agregarLote, getAnalisisTerceros, cargarDeficit, getParametros, diferirLote, restaurarLoteSemana1, getSemana2, clearLotesDiferidos, getSugerenciasDiferimiento, getOfertaTrazabilidad, moverLoteS2, eliminarLoteS2, enviarLoteS2aS1 } from '../services/api'
 import { exportProyeccionPDF } from '../utils/pdfExport'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
@@ -115,6 +115,9 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
   const [semana2Loading, setSemana2Loading] = useState(false)
   const [semana2Open, setSemana2Open] = useState(false)
   const [diferirLoading, setDiferirLoading] = useState(null) // 'diaIdx-loteIdx'
+  const [movingLoteS2, setMovingLoteS2] = useState(null)  // {diaIdx, loteIdx, lote}
+  const [sendingToS1, setSendingToS1] = useState(null)     // {diaIdx, loteIdx, lote}
+  const [s2ActionLoading, setS2ActionLoading] = useState(false)
   const [sugerencias, setSugerencias] = useState(null)
   const [sugerenciasOpen, setSugerenciasOpen] = useState(false)
   const [sugerenciasLoading, setSugerenciasLoading] = useState(false)
@@ -192,6 +195,54 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
       toast.success('Lotes diferidos limpiados')
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Error al limpiar diferidos')
+    }
+  }
+
+  // ─── Semana 2: edición interactiva ─────────────────────────────────────────
+  const handleMoveS2 = async (diaOrigen, loteIdx, diaDestino) => {
+    setS2ActionLoading(true)
+    try {
+      const data = await moverLoteS2({
+        lote_index: loteIdx,
+        dia_origen: diaOrigen,
+        dia_destino: diaDestino,
+      })
+      setSemana2Data(prev => ({ ...prev, proyeccion: data.proyeccion }))
+      setMovingLoteS2(null)
+      toast.success('Lote movido en Semana 2')
+    } catch (err) {
+      toast.error('Error al mover en S2: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setS2ActionLoading(false)
+    }
+  }
+
+  const handleDeleteS2 = async (diaIdx, loteIdx) => {
+    if (!window.confirm('¿Eliminar este lote de la planificación de Semana 2?')) return
+    setS2ActionLoading(true)
+    try {
+      const data = await eliminarLoteS2(diaIdx, loteIdx)
+      setSemana2Data(prev => ({ ...prev, proyeccion: data }))
+      toast.success('Lote eliminado de Semana 2')
+    } catch (err) {
+      toast.error('Error al eliminar de S2: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setS2ActionLoading(false)
+    }
+  }
+
+  const handleEnviarAS1 = async (diaIdxS2, loteIdxS2, diaDestinoS1 = null) => {
+    setS2ActionLoading(true)
+    try {
+      const data = await enviarLoteS2aS1(diaIdxS2, loteIdxS2, diaDestinoS1)
+      setProyeccion(data.proyeccion_s1)
+      setSemana2Data(prev => ({ ...prev, proyeccion: data.proyeccion_s2, total_diferidos: data.total_diferidos }))
+      setSendingToS1(null)
+      toast.success(`Lote enviado a Semana 1 (${getDiaNombre(data.proyeccion_s1.dias[data.dia_destino_s1]?.fecha)})`)
+    } catch (err) {
+      toast.error('Error al enviar a S1: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setS2ActionLoading(false)
     }
   }
 
@@ -2191,7 +2242,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                       {s2.dias && s2.dias.length > 0 && (
                         <div className="proyeccion-grid">
                           {s2.dias.map((dia, diaIdx) => (
-                            <div className="day-column" key={diaIdx} style={{ opacity: 0.88, borderColor: '#6366f180' }}>
+                            <div className="day-column" key={diaIdx} style={{ borderColor: '#6366f180' }}>
                               <div className="day-header" style={{ background: 'rgba(99, 102, 241, 0.06)', color: '#4338ca', borderBottomColor: '#818cf8' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                   <span>{getDiaNombre(dia.fecha)}</span>
@@ -2213,9 +2264,16 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                                     >
                                       <div className="lote-header">
                                         <span>{lote.granja} G{lote.galpon}</span>
-                                        <span className={`badge badge-${lote.sexo === 'M' ? 'info' : lote.sexo === 'H' ? 'warning' : 'success'}`}>
-                                          {lote.sexo || '-'}
-                                        </span>
+                                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                          {lote.sobreedad && (
+                                            <span title="Lote sobreedad/sobrepeso" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '0.1rem 0.4rem', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 12, fontSize: '0.65rem', color: '#d97706', fontWeight: 600 }}>
+                                              <AlertTriangle size={10} /> Sobreedad
+                                            </span>
+                                          )}
+                                          <span className={`badge badge-${lote.sexo === 'M' ? 'info' : lote.sexo === 'H' ? 'warning' : 'success'}`}>
+                                            {lote.sexo || '-'}
+                                          </span>
+                                        </div>
                                       </div>
                                       <div className="lote-detail">
                                         <span>Pollos: {formatNumber(lote.cantidad)}</span>
@@ -2225,6 +2283,37 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                                         <span>Peso: {lote.peso_vivo_retiro?.toFixed(2)} kg</span>
                                         <span>Cajas: {formatNumber(lote.cajas)}</span>
                                       </div>
+                                      <div className="lote-detail">
+                                        <span>Faenado: {lote.peso_faenado?.toFixed(2)}</span>
+                                        <span style={{ color: `var(--${getEdadColor(lote.diferencia_edad_ideal)})` }}>
+                                          Dif: {lote.diferencia_edad_ideal > 0 ? '+' : ''}{lote.diferencia_edad_ideal}
+                                        </span>
+                                      </div>
+                                      <div className="lote-actions">
+                                        <button
+                                          className="btn btn-sm btn-outline"
+                                          onClick={() => setMovingLoteS2({ diaIdx, loteIdx, lote })}
+                                          disabled={s2ActionLoading}
+                                        >
+                                          <ArrowLeftRight size={12} style={{ marginRight: 2 }} /> Mover
+                                        </button>
+                                        <button
+                                          className="btn btn-sm btn-outline"
+                                          style={{ borderColor: '#10b981', color: '#10b981' }}
+                                          onClick={() => setSendingToS1({ diaIdx, loteIdx, lote })}
+                                          disabled={s2ActionLoading}
+                                          title="Enviar este lote a Semana 1"
+                                        >
+                                          <Undo2 size={12} style={{ marginRight: 2 }} /> S1
+                                        </button>
+                                        <button
+                                          className="btn btn-sm btn-danger"
+                                          onClick={() => handleDeleteS2(diaIdx, loteIdx)}
+                                          disabled={s2ActionLoading}
+                                        >
+                                          <X size={12} style={{ marginRight: 2 }} /> Eliminar
+                                        </button>
+                                      </div>
                                     </div>
                                   ))
                                 )}
@@ -2232,6 +2321,10 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                               <div className="day-summary">
                                 <span className="label">Peso prom.</span>
                                 <span className="value">{dia.peso_promedio_ponderado?.toFixed(2)} kg</span>
+                                <span className="label">Dif. edad prom.</span>
+                                <span className="value" style={{ color: `var(--${getEdadColor(dia.diferencia_edad_promedio)})` }}>
+                                  {dia.diferencia_edad_promedio?.toFixed(1)}
+                                </span>
                                 <span className="label">Cajas</span>
                                 <span className="value">{formatNumber(dia.cajas_totales)}</span>
                               </div>
@@ -2239,6 +2332,108 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                           ))}
                         </div>
                       )}
+
+                      {/* Modal de mover lote en S2 */}
+                      <AnimatePresence>
+                        {movingLoteS2 && (
+                          <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="modal-overlay"
+                            onClick={() => setMovingLoteS2(null)}
+                          >
+                            <motion.div
+                              initial={{ scale: 0.9, y: 20 }}
+                              animate={{ scale: 1, y: 0 }}
+                              exit={{ scale: 0.9, y: 20 }}
+                              className="modal"
+                              onClick={e => e.stopPropagation()}
+                            >
+                              <div className="modal-header">
+                                <h3><ArrowLeftRight size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Mover lote en Semana 2</h3>
+                                <button className="btn btn-sm btn-outline" onClick={() => setMovingLoteS2(null)}>
+                                  <X size={16} />
+                                </button>
+                              </div>
+                              <div className="modal-body">
+                                <p style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
+                                  Mover <strong>{movingLoteS2.lote.granja} G{movingLoteS2.lote.galpon}</strong> ({formatNumber(movingLoteS2.lote.cantidad)} pollos) desde {getDiaNombre(s2.dias[movingLoteS2.diaIdx]?.fecha)}:
+                                </p>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                  {s2.dias.map((d, idx) => (
+                                    idx !== movingLoteS2.diaIdx && (
+                                      <button
+                                        key={idx}
+                                        className="btn btn-outline"
+                                        onClick={() => handleMoveS2(movingLoteS2.diaIdx, movingLoteS2.loteIdx, idx)}
+                                        disabled={s2ActionLoading}
+                                        style={{ justifyContent: 'flex-start' }}
+                                      >
+                                        <Calendar size={16} style={{ marginRight: 6 }} /> {getDiaNombre(d.fecha)} ({formatDate(d.fecha)}) — {formatNumber(d.total_pollos)} pollos
+                                      </button>
+                                    )
+                                  ))}
+                                </div>
+                              </div>
+                            </motion.div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      {/* Modal de enviar lote de S2 a S1 */}
+                      <AnimatePresence>
+                        {sendingToS1 && (
+                          <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="modal-overlay"
+                            onClick={() => setSendingToS1(null)}
+                          >
+                            <motion.div
+                              initial={{ scale: 0.9, y: 20 }}
+                              animate={{ scale: 1, y: 0 }}
+                              exit={{ scale: 0.9, y: 20 }}
+                              className="modal"
+                              onClick={e => e.stopPropagation()}
+                            >
+                              <div className="modal-header">
+                                <h3><Undo2 size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Enviar lote a Semana 1</h3>
+                                <button className="btn btn-sm btn-outline" onClick={() => setSendingToS1(null)}>
+                                  <X size={16} />
+                                </button>
+                              </div>
+                              <div className="modal-body">
+                                <p style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
+                                  Enviar <strong>{sendingToS1.lote.granja} G{sendingToS1.lote.galpon}</strong> ({formatNumber(sendingToS1.lote.cantidad)} pollos) a Semana 1. Elegir día destino:
+                                </p>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                  <button
+                                    className="btn btn-outline"
+                                    onClick={() => handleEnviarAS1(sendingToS1.diaIdx, sendingToS1.loteIdx, null)}
+                                    disabled={s2ActionLoading}
+                                    style={{ justifyContent: 'flex-start', borderColor: '#10b981', color: '#10b981' }}
+                                  >
+                                    <CheckCircle2 size={16} style={{ marginRight: 6 }} /> Auto-asignar al día con mayor déficit
+                                  </button>
+                                  {dias.map((d, idx) => (
+                                    <button
+                                      key={idx}
+                                      className="btn btn-outline"
+                                      onClick={() => handleEnviarAS1(sendingToS1.diaIdx, sendingToS1.loteIdx, idx)}
+                                      disabled={s2ActionLoading}
+                                      style={{ justifyContent: 'flex-start' }}
+                                    >
+                                      <Calendar size={16} style={{ marginRight: 6 }} /> {getDiaNombre(d.fecha)} ({formatDate(d.fecha)}) — {formatNumber(d.total_pollos)} pollos
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            </motion.div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
 
                       {/* Lotes fuera de rango en S2 */}
                       {s2.lotes_fuera_rango?.length > 0 && (

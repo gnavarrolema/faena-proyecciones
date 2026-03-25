@@ -194,6 +194,21 @@ export const getLotesDiferidos = () =>
 export const clearLotesDiferidos = () =>
   api.delete('/proyeccion/lotes-diferidos').then(r => r.data);
 
+// ─── Semana 2: Edición interactiva ─────────────────────────────────────────────
+
+export const moverLoteS2 = (data) =>
+  api.post('/proyeccion/semana2/mover-lote', data).then(r => r.data);
+
+export const eliminarLoteS2 = (diaIndex, loteIndex) =>
+  api.delete(`/proyeccion/semana2/lote/${diaIndex}/${loteIndex}`).then(r => r.data);
+
+export const enviarLoteS2aS1 = (diaIndexS2, loteIndexS2, diaDestinoS1 = null) =>
+  api.post('/proyeccion/semana2/enviar-semana1', {
+    dia_index_s2: diaIndexS2,
+    lote_index_s2: loteIndexS2,
+    dia_destino_s1: diaDestinoS1,
+  }).then(r => r.data);
+
 // ─── Sugerencias de diferimiento ───────────────────────────────────────────────
 
 export const getSugerenciasDiferimiento = () =>

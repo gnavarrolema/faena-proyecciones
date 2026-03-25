@@ -453,3 +453,20 @@ def load_lotes_diferidos() -> Optional[list[dict]]:
 
 def delete_lotes_diferidos() -> None:
     get_storage().delete(LOTES_DIFERIDOS_KEY)
+
+
+# ─── Proyección Semana 2 (persistida para edición interactiva) ───────────────
+
+PROYECCION_S2_KEY = "proyeccion_s2"
+
+
+def save_proyeccion_s2(data: dict) -> None:
+    get_storage().save(PROYECCION_S2_KEY, data)
+
+
+def load_proyeccion_s2() -> Optional[dict]:
+    return get_storage().load(PROYECCION_S2_KEY)
+
+
+def delete_proyeccion_s2() -> None:
+    get_storage().delete(PROYECCION_S2_KEY)
