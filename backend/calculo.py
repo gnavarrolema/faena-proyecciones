@@ -963,6 +963,56 @@ def generar_proyeccion(
             _asignar(i, mejor_dia)
             del no_asignados[i]
 
+    # ── Fase 5.5: Rescate anti-diferimiento ─────────────────────────────────
+    # Lotes que aún no se asignaron serían diferidos a S2.  Si en S2 estarían
+    # AÚN MÁS fuera de rango (más sobreedad/sobrepeso) que en el mejor día
+    # de S1, es preferible forzar la asignación en S1 aceptando sobreedad
+    # leve, antes que empeorar el problema con una semana extra de ganancia.
+    fecha_inicio_s2 = fecha_inicio_semana + timedelta(days=7)
+    fecha_media_s2 = fecha_inicio_s2 + timedelta(days=2)  # miércoles S2
+
+    lotes_rescate = sorted(
+        [i for i in no_asignados if i in elegibilidad],
+        key=_prioridad_dinamica_lote,
+    )
+    for i in lotes_rescate:
+        oferta = ofertas[i]
+        dias_eleg = elegibilidad[i]
+
+        # Calcular desviación del lote en S2 (edad + peso fuera de rango)
+        edad_s2 = calcular_edad_fin_retiro_v2(
+            fecha_media_s2, oferta.fecha_peso, oferta.edad_proyectada,
+            dias_proyectados=oferta.dias_proyectados,
+        )
+        peso_s2 = _peso_proyectado_en_fecha(oferta, fecha_media_s2, params)
+        desv_edad_s2 = max(0, edad_s2 - params.edad_max_faena)
+        desv_peso_s2 = max(0.0, peso_s2 - params.peso_max_faena)
+
+        # Si S2 no empeora (ambas desviaciones cero), no hay urgencia
+        if desv_edad_s2 == 0 and desv_peso_s2 == 0:
+            continue
+
+        # Buscar el mejor día S1 donde quepa (bajo capacidad con horas extras)
+        mejor_dia = None
+        menor_desv = None  # (desv_edad, desv_peso, pollos_dia)
+
+        for d_idx, peso_proy, edad_fin, sobreedad in dias_eleg:
+            if not _puede_asignarse_extras(i, d_idx):
+                continue
+            desv_edad_s1 = max(0, edad_fin - params.edad_max_faena)
+            desv_peso_s1 = max(0.0, peso_proy - params.peso_max_faena)
+            # Solo rescatar si S1 es estrictamente mejor que S2
+            if (desv_edad_s1 + desv_peso_s1) >= (desv_edad_s2 + desv_peso_s2):
+                continue
+            score = (desv_edad_s1, desv_peso_s1, pollos_dia[d_idx])
+            if menor_desv is None or score < menor_desv:
+                menor_desv = score
+                mejor_dia = d_idx
+
+        if mejor_dia is not None:
+            _asignar(i, mejor_dia)
+            del no_asignados[i]
+
     # ── Construir DiaFaena con lotes proyectados ────────────────────────────
     dias_resultado: List[DiaFaena] = []
 
