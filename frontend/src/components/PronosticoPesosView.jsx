@@ -122,6 +122,7 @@ export default function PronosticoPesosView({ proyeccion }) {
   const [alertaLoading, setAlertaLoading] = useState(false)
   const [alertaFiltroNivel, setAlertaFiltroNivel] = useState('todos')
   const [alertaExpandedGranjas, setAlertaExpandedGranjas] = useState({})
+  const [alertaExpandedGalpones, setAlertaExpandedGalpones] = useState({})
 
   useEffect(() => {
     cargarPronostico()
@@ -204,6 +205,10 @@ export default function PronosticoPesosView({ proyeccion }) {
 
   const toggleAlertaGranja = (granja) => {
     setAlertaExpandedGranjas(prev => ({ ...prev, [granja]: !prev[granja] }))
+  }
+
+  const toggleAlertaGalpon = (key) => {
+    setAlertaExpandedGalpones(prev => ({ ...prev, [key]: !prev[key] }))
   }
 
   return (
@@ -683,6 +688,109 @@ export default function PronosticoPesosView({ proyeccion }) {
                         })}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* Resumen por galpón / núcleo */}
+              <div className="card" style={{ borderLeft: '4px solid #f97316', marginTop: '0.75rem' }}>
+                <div className="card-header">
+                  <h2><ShieldAlert size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Resumen por Galpón / Núcleo</h2>
+                </div>
+                <div className="card-body">
+                  <div className="table-container">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Granja</th>
+                          <th className="text-center">G/N</th>
+                          <th className="text-right">Lotes</th>
+                          <th className="text-right">Aves</th>
+                          <th className="text-right">% Riesgo Alto</th>
+                          <th className="text-right">% En Alerta</th>
+                          <th className="text-right">Peso Prom. Ideal</th>
+                          <th className="text-center" style={{ color: 'var(--success, #22c55e)' }}>OK</th>
+                          <th className="text-center" style={{ color: 'var(--warning, #fb923c)' }}>Moderado</th>
+                          <th className="text-center" style={{ color: '#ef4444' }}>Alto</th>
+                          <th className="text-center">Estado</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(alertaData.galpones_nucleos || []).map((gn, idx) => {
+                          const rowKey = `${gn.granja}-${gn.galpon}-${gn.nucleo}`
+                          const isExp = alertaExpandedGalpones[rowKey]
+                          const lotesGN = alertaData.lotes.filter(
+                            l => l.granja === gn.granja && l.galpon === gn.galpon && l.nucleo === gn.nucleo
+                          )
+                          const gnColor = gn.nivel === 'verde' ? 'var(--success, #22c55e)'
+                            : gn.nivel === 'amarillo' ? 'var(--warning, #fb923c)' : '#ef4444'
+                          const gnBg = gn.nivel === 'verde' ? 'rgba(34, 197, 94, 0.08)'
+                            : gn.nivel === 'amarillo' ? 'rgba(251, 146, 60, 0.08)'
+                            : 'rgba(239, 68, 68, 0.08)'
+                          const gnIcon = gn.nivel === 'verde'
+                            ? <CheckCircle2 size={16} color="var(--success, #22c55e)" />
+                            : gn.nivel === 'amarillo'
+                            ? <AlertTriangle size={16} color="var(--warning, #fb923c)" />
+                            : <ShieldAlert size={16} color="#ef4444" />
+
+                          return (
+                            <React.Fragment key={rowKey || idx}>
+                              <tr
+                                style={{ background: gnBg, cursor: 'pointer' }}
+                                onClick={() => toggleAlertaGalpon(rowKey)}
+                              >
+                                <td><strong>{gn.granja}</strong></td>
+                                <td className="text-center">{gn.galpon}/{gn.nucleo}</td>
+                                <td className="text-right">{gn.total_lotes}</td>
+                                <td className="text-right">{formatNumber(gn.pollos_total)}</td>
+                                <td className="text-right" style={{ color: '#ef4444', fontWeight: 600 }}>{gn.pct_pollos_rojo}%</td>
+                                <td className="text-right" style={{ color: gnColor, fontWeight: 600 }}>{gn.pct_pollos_alerta}%</td>
+                                <td className="text-right" style={{ fontWeight: 600 }}>{gn.peso_promedio_ideal?.toFixed(3)} kg</td>
+                                <td className="text-center" style={{ color: 'var(--success, #22c55e)', fontWeight: 600 }}>{gn.lotes_verde}</td>
+                                <td className="text-center" style={{ color: 'var(--warning, #fb923c)', fontWeight: 600 }}>{gn.lotes_amarillo}</td>
+                                <td className="text-center" style={{ color: '#ef4444', fontWeight: 600 }}>{gn.lotes_rojo}</td>
+                                <td className="text-center">{gnIcon}</td>
+                                <td className="text-center">
+                                  {isExp ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                </td>
+                              </tr>
+                              {isExp && lotesGN.map((lote, lidx) => {
+                                const lnColor = lote.nivel === 'verde' ? 'var(--success, #22c55e)'
+                                  : lote.nivel === 'amarillo' ? 'var(--warning, #fb923c)' : '#ef4444'
+                                const lnIcon = lote.nivel === 'verde'
+                                  ? <CheckCircle2 size={14} color="var(--success, #22c55e)" />
+                                  : lote.nivel === 'amarillo'
+                                  ? <AlertTriangle size={14} color="var(--warning, #fb923c)" />
+                                  : <ShieldAlert size={14} color="#ef4444" />
+                                return (
+                                  <tr key={`${rowKey}-${lidx}`} style={{
+                                    background: lote.nivel === 'verde' ? 'rgba(34, 197, 94, 0.04)'
+                                      : lote.nivel === 'amarillo' ? 'rgba(251, 146, 60, 0.04)'
+                                      : 'rgba(239, 68, 68, 0.04)',
+                                    fontSize: '0.85rem',
+                                  }}>
+                                    <td style={{ paddingLeft: '2rem', color: 'var(--text-light)' }}>{lote.granja}</td>
+                                    <td className="text-center">{lote.galpon}/{lote.nucleo}</td>
+                                    <td className="text-right" style={{ color: 'var(--text-light)' }}>{lote.sexo || '-'}</td>
+                                    <td className="text-right">{formatNumber(lote.cantidad)}</td>
+                                    <td className="text-right" style={{ color: 'var(--text-light)' }}>{lote.edad_actual}d</td>
+                                    <td className="text-right" style={{ color: 'var(--text-light)' }}>{lote.dias_restantes}d</td>
+                                    <td className="text-right" style={{ fontWeight: 600, color: lnColor }}>{lote.peso_en_edad_ideal?.toFixed(3)} kg</td>
+                                    <td colSpan={3} style={{ fontSize: '0.8rem', color: lnColor }}>{lote.mensaje}</td>
+                                    <td className="text-center">{lnIcon}</td>
+                                    <td></td>
+                                  </tr>
+                                )
+                              })}
+                            </React.Fragment>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ marginTop: '0.75rem', fontSize: '0.8rem', color: 'var(--text-light)' }}>
+                    Ordenado por severidad y porcentaje de aves en riesgo. Expanda una fila para ver los lotes que componen cada galpón/núcleo.
                   </div>
                 </div>
               </div>

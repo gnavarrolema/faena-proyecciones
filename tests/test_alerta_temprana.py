@@ -93,6 +93,28 @@ def test_resumen_granjas():
     assert granja_b["lotes_rojo"] > 0
 
 
+def test_resumen_galpon_nucleo():
+    """El resumen por granja/galpón/núcleo se agrega y ordena correctamente."""
+    params = Parametros()
+    lotes = [
+        _lote(galpon=1, granja="A", peso=2.81),
+        _lote(galpon=1, granja="A", peso=1.50, edad=30, ganancia=0.060),
+        _lote(galpon=2, granja="A", peso=2.90),
+    ]
+    result = calcular_alerta_temprana(lotes, params, fecha_referencia=FECHA_REF)
+    assert "galpones_nucleos" in result
+    assert len(result["galpones_nucleos"]) == 2
+
+    gn_1 = next(g for g in result["galpones_nucleos"] if g["granja"] == "A" and g["galpon"] == 1 and g["nucleo"] == 1)
+    gn_2 = next(g for g in result["galpones_nucleos"] if g["granja"] == "A" and g["galpon"] == 2 and g["nucleo"] == 1)
+
+    assert gn_1["total_lotes"] == 2
+    assert gn_1["lotes_rojo"] == 1
+    assert gn_1["lotes_verde"] == 1
+    assert gn_1["pct_pollos_rojo"] == 50.0
+    assert gn_2["nivel"] == "verde"
+
+
 def test_lotes_ya_en_edad_max_excluidos():
     """Lotes que ya pasaron la edad máxima no se analizan."""
     params = Parametros()

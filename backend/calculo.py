@@ -1360,6 +1360,7 @@ def calcular_alerta_temprana(
     alertas_amarillas = 0
     lotes_ok = 0
     granjas_stats: dict[str, dict] = {}
+    galpones_nucleos_stats: dict[tuple[str, int, int], dict] = {}
 
     for oferta in ofertas:
         # Edad actual real del lote en la fecha de referencia
@@ -1526,6 +1527,28 @@ def calcular_alerta_temprana(
         gs["pollos_total"] += oferta.cantidad
         gs["suma_peso_ideal"] += peso_en_ideal * oferta.cantidad
 
+        gn_key = (oferta.granja, oferta.galpon, oferta.nucleo)
+        if gn_key not in galpones_nucleos_stats:
+            galpones_nucleos_stats[gn_key] = {
+                "total": 0,
+                "verde": 0,
+                "amarillo": 0,
+                "rojo": 0,
+                "pollos_total": 0,
+                "pollos_alerta": 0,
+                "pollos_rojo": 0,
+                "suma_peso_ideal": 0.0,
+            }
+        gn = galpones_nucleos_stats[gn_key]
+        gn["total"] += 1
+        gn[nivel] += 1
+        gn["pollos_total"] += oferta.cantidad
+        gn["suma_peso_ideal"] += peso_en_ideal * oferta.cantidad
+        if nivel in ("amarillo", "rojo"):
+            gn["pollos_alerta"] += oferta.cantidad
+        if nivel == "rojo":
+            gn["pollos_rojo"] += oferta.cantidad
+
         lotes_resultado.append({
             "granja": oferta.granja,
             "galpon": oferta.galpon,
@@ -1573,6 +1596,52 @@ def calcular_alerta_temprana(
             "nivel": nivel_granja,
         })
 
+    galpones_nucleos_resumen = []
+    for (granja, galpon, nucleo), stats in galpones_nucleos_stats.items():
+        peso_prom = (
+            stats["suma_peso_ideal"] / stats["pollos_total"]
+            if stats["pollos_total"] > 0 else 0
+        )
+        if stats["rojo"] > 0:
+            nivel_gn = "rojo"
+        elif stats["amarillo"] > 0:
+            nivel_gn = "amarillo"
+        else:
+            nivel_gn = "verde"
+
+        pollos_total = stats["pollos_total"]
+        pct_alerta = round(stats["pollos_alerta"] / pollos_total * 100, 1) if pollos_total > 0 else 0
+        pct_rojo = round(stats["pollos_rojo"] / pollos_total * 100, 1) if pollos_total > 0 else 0
+
+        galpones_nucleos_resumen.append({
+            "granja": granja,
+            "galpon": galpon,
+            "nucleo": nucleo,
+            "total_lotes": stats["total"],
+            "lotes_verde": stats["verde"],
+            "lotes_amarillo": stats["amarillo"],
+            "lotes_rojo": stats["rojo"],
+            "pollos_total": pollos_total,
+            "pollos_alerta": stats["pollos_alerta"],
+            "pollos_rojo": stats["pollos_rojo"],
+            "pct_pollos_alerta": pct_alerta,
+            "pct_pollos_rojo": pct_rojo,
+            "peso_promedio_ideal": round(peso_prom, 3),
+            "nivel": nivel_gn,
+        })
+
+    galpones_nucleos_resumen.sort(
+        key=lambda item: (
+            {"rojo": 0, "amarillo": 1, "verde": 2}.get(item["nivel"], 3),
+            -item["pct_pollos_rojo"],
+            -item["pct_pollos_alerta"],
+            -item["pollos_total"],
+            item["granja"],
+            item["galpon"],
+            item["nucleo"],
+        )
+    )
+
     total_lotes = len(lotes_resultado)
 
     # Metadata de antigüedad: fecha efectiva de la oferta y días desde entonces
@@ -1594,6 +1663,7 @@ def calcular_alerta_temprana(
         "dias_antiguedad": dias_antiguedad,
         "lotes": lotes_resultado,
         "granjas": granjas_resumen,
+        "galpones_nucleos": galpones_nucleos_resumen,
     }
 
 
