@@ -749,13 +749,7 @@ function StatusBadge({ ok, label, detail, iconType }) {
         background: ok ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
         padding: 8, borderRadius: 10, display: 'flex'
       }}>
-        {ok && iconType === 'cruce' ? (
-          <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 10, ease: "linear" }}>
-            <ColorIcon size={20} color={ok ? "#16a34a" : "#ef4444"} />
-          </motion.div>
-        ) : (
-          <ColorIcon size={20} color={ok ? "#16a34a" : "#ef4444"} />
-        )}
+        <ColorIcon size={20} color={ok ? "#16a34a" : "#ef4444"} />
       </div>
       <div>
         <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text)' }}>{label}</div>
