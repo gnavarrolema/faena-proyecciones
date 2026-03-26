@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ShieldCheck, AlertTriangle, AlertCircle, Info, TrendingUp, Loader2, RefreshCw, CheckCircle2, XCircle, Search, GitMerge, Activity, BarChart3, Clock, Database, Target, Box } from 'lucide-react'
+import { AlertTriangle, AlertCircle, Info, TrendingUp, Loader2, RefreshCw, CheckCircle2, XCircle, Search, GitMerge, Activity, BarChart3, Clock, Database, Target, Box } from 'lucide-react'
 import { getValidacionCruzada } from '../services/api'
 
 // --- Premium Animation Variants ---
@@ -251,10 +251,8 @@ export default function ValidacionCruzadaView() {
   }
 
   const { validacion, insights, fuentes, tiene_oferta, tiene_produccion, total_ofertas, total_semanas_produccion } = data
-  const fact = validacion?.factibilidad
   const cohortes = validacion?.mortalidad_cohortes
   const consist = validacion?.consistencia_edad
-  const peorTasa = fact?.coberturas?.[fact.coberturas.length - 1]?.tasa
   const cohortesList = cohortes?.cohortes || []
   const cohortesEnVentana = cohortesList.filter(c => c.estado_fecha === 'alineada')
   const cohortesReprogramar = cohortesList.filter(c => c.nivel === 'anticipada' || c.nivel === 'mixta')
@@ -440,85 +438,6 @@ export default function ValidacionCruzadaView() {
                 )
               })}
             </AnimatePresence>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Factibilidad */}
-      {fact && fact.encontrada && (
-        <motion.div variants={itemVariants} className="card"
-          style={{
-            borderLeft: `4px solid ${fact.deficit_peor ? 'var(--danger)' : 'var(--success)'}`,
-            overflow: 'hidden'
-          }}>
-          <div className="card-header" style={{ background: fact.deficit_peor ? 'linear-gradient(to right, #fef2f2, #ffffff)' : 'linear-gradient(to right, #f0fdf4, #ffffff)' }}>
-            <h2 style={{ color: fact.deficit_peor ? '#991b1b' : '#166534' }}>
-              {fact.deficit_peor
-                ? <AlertCircle size={20} style={{ verticalAlign: 'middle', marginRight: 8, color: '#dc2626' }} />
-                : <ShieldCheck size={20} style={{ verticalAlign: 'middle', marginRight: 8, color: '#16a34a' }} />
-              }
-              Diagnóstico de Factibilidad Productiva
-            </h2>
-            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: fact.deficit_peor ? '#dc2626' : '#16a34a', background: 'white', padding: '0.2rem 0.8rem', borderRadius: 12, border: `1px solid ${fact.deficit_peor ? '#fca5a5' : '#86efac'}` }}>
-              {fact.cobertura_pct_peor}% Escenario Base
-            </div>
-          </div>
-          <div className="card-body">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-              <KpiCard label="Carga Poblacional" value={formatNumber(fact.pollitos_cargados)} />
-              <KpiCard label="Volumen en Oferta" value={formatNumber(fact.total_oferta)} />
-              <KpiCard label="Extracción Est. (Mín)" value={formatNumber(fact.disponibles_peor)} color="var(--orange)" />
-              <KpiCard label="Extracción Est. (Máx)" value={formatNumber(fact.disponibles_mejor)} color="var(--primary)" />
-              
-              {fact.deficit_peor ? (
-                <motion.div whileHover={{ scale: 1.02 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }}>
-                  <KpiCard label="Déficit Proyectado" value={formatNumber(fact.deficit_peor)} color="var(--danger)" style={{ border: '2px solid rgba(239,68,68,0.3)', background: 'var(--danger-light)' }} />
-                </motion.div>
-              ) : (
-                <KpiCard label="Margen Superávit" value={formatNumber(fact.disponibles_peor - fact.total_oferta)} color="var(--success)" style={{ background: 'var(--success-light)', border: '1px solid rgba(16,185,129,0.3)' }} />
-              )}
-            </div>
-
-            {/* Tabla de coberturas por tasa */}
-            {fact.coberturas && fact.coberturas.length > 0 && (
-              <>
-                <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.8rem', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Activity size={16} color="var(--primary-light)" /> Modelado de Escenarios Dinámicos
-                </h3>
-                <div className="table-container" style={{ borderRadius: 12, boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
-                  <table>
-                    <thead style={{ background: 'linear-gradient(to right, #f8fafc, #f1f5f9)' }}>
-                      <tr>
-                        <th style={{ color: 'var(--text)', fontWeight: 700 }}>Escenario de Rendimiento</th>
-                        <th className="text-right" style={{ color: 'var(--text)', fontWeight: 700 }}>Extracción Proyectada</th>
-                        <th className="text-right" style={{ color: 'var(--text)', fontWeight: 700 }}>Tasa Cobertura</th>
-                        <th style={{ color: 'var(--text)', fontWeight: 700 }}>Evaluación</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {fact.coberturas.map((c, idx) => (
-                        <motion.tr key={idx} whileHover={{ backgroundColor: 'rgba(241, 245, 249, 0.8)' }} style={{
-                          background: c.tasa === peorTasa ? 'rgba(251,146,60,0.08)' : 'white',
-                          borderLeft: c.tasa === peorTasa ? '4px solid #f97316' : '4px solid transparent'
-                        }}>
-                          <td style={{ fontWeight: c.tasa === peorTasa ? 700 : 500, color: c.tasa === peorTasa ? '#9a3412' : 'var(--text)' }}>
-                            {c.tasa === peorTasa ? 'Conservador (Mínimo)' : c.tasa === 4.5 ? 'Base (Promedio)' : `Modelado ${c.tasa}%`}
-                          </td>
-                          <td className="text-right" style={{ fontWeight: 600 }}>{formatNumber(c.disponibles)}</td>
-                          <td className="text-right" style={{ fontWeight: 700, fontSize: '0.9rem', color: c.cobertura_pct <= 100 ? '#059669' : '#dc2626' }}>{c.cobertura_pct}%</td>
-                          <td>
-                            {c.cobertura_pct <= 100
-                              ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#d1fae5', color: '#047857', padding: '2px 8px', borderRadius: 12, fontSize: '0.75rem', fontWeight: 600 }}><CheckCircle2 size={12} /> Factible</span>
-                              : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#fee2e2', color: '#b91c1c', padding: '2px 8px', borderRadius: 12, fontSize: '0.75rem', fontWeight: 600 }}><AlertTriangle size={12} /> Excedido</span>
-                            }
-                          </td>
-                        </motion.tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
           </div>
         </motion.div>
       )}
