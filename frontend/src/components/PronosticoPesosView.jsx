@@ -116,7 +116,7 @@ export default function PronosticoPesosView({ proyeccion }) {
   const [loading, setLoading] = useState(true)
   const [filtroNivel, setFiltroNivel] = useState('todos') // todos | critico | moderado | normal
   const [filtroDia, setFiltroDia] = useState('todos')
-  const [vistaActiva, setVistaActiva] = useState('lotes') // lotes | dias | granjas
+  const [vistaActiva, setVistaActiva] = useState('alerta') // alerta | lotes | dias | granjas
   const [expandedGranjas, setExpandedGranjas] = useState({})
   const [alertaData, setAlertaData] = useState(null)
   const [alertaLoading, setAlertaLoading] = useState(false)
