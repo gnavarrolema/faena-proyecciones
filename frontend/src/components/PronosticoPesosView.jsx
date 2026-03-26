@@ -7,13 +7,14 @@ import {
 import toast from 'react-hot-toast'
 import { getPronosticoPesos, getAlertaTemprana } from '../services/api'
 
+// --- Premium Animation Variants ---
 const containerVariants = {
   hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.08 } }
+  show: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.05, ease: 'easeOut' } }
 }
 const itemVariants = {
-  hidden: { opacity: 0, y: 15 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.3 } }
+  hidden: { opacity: 0, y: 20, filter: 'blur(8px)', scale: 0.98 },
+  show: { opacity: 1, y: 0, filter: 'blur(0px)', scale: 1, transition: { type: 'spring', stiffness: 120, damping: 20 } }
 }
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
@@ -575,9 +576,17 @@ export default function PronosticoPesosView({ proyeccion }) {
               </div>
 
               {/* Tabla de lotes alerta temprana */}
-              <div className="card" style={{ borderLeft: '4px solid var(--warning, #fb923c)', marginBottom: '0.75rem' }}>
-                <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  <h2><ShieldAlert size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Planificación Anticipada por Lote</h2>
+              <motion.div variants={itemVariants} className="card" style={{
+                borderTop: '4px solid var(--warning, #fb923c)',
+                borderRadius: 16,
+                boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05)',
+                marginBottom: '1.5rem'
+              }}>
+                <div className="card-header" style={{ padding: '1.25rem 1.5rem', background: '#ffffff', borderBottom: '1px solid rgba(226,232,240,0.6)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <h2 style={{ fontSize: '1.2rem', gap: '0.5rem', color: '#b45309', display: 'flex', alignItems: 'center' }}>
+                    <ShieldAlert size={20} style={{ filter: 'drop-shadow(0 2px 4px rgba(245, 158, 11, 0.3))', marginRight: 8 }} /> 
+                    Planificación Anticipada por Lote
+                  </h2>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     <Filter size={14} color="var(--text-light)" />
                     <select
@@ -596,10 +605,10 @@ export default function PronosticoPesosView({ proyeccion }) {
                     </select>
                   </div>
                 </div>
-                <div className="card-body">
-                  <div className="table-container">
+                <div className="card-body" style={{ padding: '0 1.5rem 1.5rem 1.5rem' }}>
+                  <div className="table-container" style={{ borderRadius: 12, boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', marginTop: '1rem' }}>
                     <table>
-                      <thead>
+                      <thead style={{ background: 'linear-gradient(to right, #f8fafc, #f1f5f9)' }}>
                         <tr>
                           <th>Granja</th>
                           <th className="text-center">Galpón / Núcleo</th>
@@ -638,12 +647,20 @@ export default function PronosticoPesosView({ proyeccion }) {
                               ? <AlertTriangle size={16} color="var(--warning, #fb923c)" />
                               : <ShieldAlert size={16} color="#ef4444" />
                             return (
-                              <tr key={idx} style={{ background: nivelBg }}>
-                                <td>{lote.granja}</td>
-                                <td className="text-center">{lote.galpon}/{lote.nucleo}</td>
-                                <td className="text-center">{lote.sexo || '-'}</td>
-                                <td className="text-right">{formatNumber(lote.cantidad)}</td>
-                                <td className="text-right">{lote.edad_actual}d</td>
+                              <motion.tr key={idx} 
+                                whileHover={{ backgroundColor: 'rgba(255, 255, 255, 0.9)', scale: 1.002, transformOrigin: 'left center' }}
+                                style={{ 
+                                  background: nivelBg.replace('0.08', '0.04'),
+                                  borderLeft: `3px solid ${nivelColor}`,
+                                  borderBottom: '1px solid rgba(226,232,240,0.5)',
+                                  transition: 'background 0.2s ease, border-left 0.2s ease'
+                                }}
+                              >
+                                <td style={{ fontWeight: 600, color: 'var(--text)' }}>{lote.granja}</td>
+                                <td className="text-center" style={{ color: 'var(--text-light)', fontSize: '0.85rem' }}>{lote.galpon}/{lote.nucleo}</td>
+                                <td className="text-center" style={{ color: 'var(--text-light)' }}>{lote.sexo || '-'}</td>
+                                <td className="text-right" style={{ fontWeight: 500 }}>{formatNumber(lote.cantidad)}</td>
+                                <td className="text-right" style={{ color: 'var(--text-light)' }}>{lote.edad_actual}d</td>
                                 <td className="text-right">{lote.peso_actual?.toFixed(3)} kg</td>
                                 <td className="text-right" style={{ fontWeight: 600, color: nivelColor }}>
                                   {lote.peso_en_edad_ideal?.toFixed(3)} kg
@@ -690,7 +707,7 @@ export default function PronosticoPesosView({ proyeccion }) {
                                 <td style={{ fontSize: '0.8rem', color: nivelColor, maxWidth: 220 }}>
                                   {lote.mensaje}
                                 </td>
-                              </tr>
+                              </motion.tr>
                             )
                           })
                         })()}
@@ -698,18 +715,20 @@ export default function PronosticoPesosView({ proyeccion }) {
                     </table>
                   </div>
                   {alertaData.lotes.length > 0 && (
-                    <div style={{ marginTop: '0.75rem', fontSize: '0.8rem', color: 'var(--text-light)' }}>
-                      Mostrando {alertaData.lotes.filter(l => alertaFiltroNivel === 'todos' || l.nivel === alertaFiltroNivel).length} de {alertaData.total_lotes} lotes.
-                      Rango ideal: {alertaData.peso_min_faena}–{alertaData.peso_max_faena} kg.
-                      Ventana faena: {alertaData.edad_min_faena}–{alertaData.edad_max_faena} días.
+                    <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--text-light)', background: 'rgba(0,0,0,0.015)', padding: '0.75rem 1rem', borderRadius: 8 }}>
+                      <strong>📝 Metadata:</strong> Mostrando {alertaData.lotes.filter(l => alertaFiltroNivel === 'todos' || l.nivel === alertaFiltroNivel).length} de {alertaData.total_lotes} lotes.
+                      Rango ideal: <span style={{fontWeight:500}}>{alertaData.peso_min_faena}–{alertaData.peso_max_faena} kg</span>.
+                      Ventana faena: <span style={{fontWeight:500}}>{alertaData.edad_min_faena}–{alertaData.edad_max_faena} días</span>.
                       <br />
-                      <em>Peso Real</em> corresponde a la columna "Peso Muestreo Real" del archivo de oferta (dato medido en campo).
-                      La <em>Ganancia Diaria Oferta</em> proviene de la columna "Ganancia Diaria" del mismo archivo.
-                      La <em>Edad Hoy</em> se calcula sumando los días transcurridos desde la fecha base de la oferta a la edad proyectada.
+                      <div style={{ marginTop: 6, opacity: 0.8 }}>
+                        <em>Peso Real</em> corresponde a la columna "Peso Muestreo Real" del archivo de oferta.
+                        La <em>Ganancia Diaria Oferta</em> proviene de la columna "Ganancia Diaria".
+                        La <em>Edad Hoy</em> se calcula sumando los días transcurridos desde la fecha base de la oferta a la edad proyectada.
+                      </div>
                     </div>
                   )}
                 </div>
-              </div>
+              </motion.div>
 
               {/* Resumen por granja - alerta temprana */}
               <div className="card" style={{ borderLeft: '4px solid var(--warning, #fb923c)' }}>
