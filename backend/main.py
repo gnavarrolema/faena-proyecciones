@@ -659,6 +659,60 @@ def _validar_cruce_oferta(ofertas: list[LoteOferta]) -> Optional[dict]:
             "total": len(alertas_edad),
         }
 
+    # 4. Concentración por granja
+    from collections import defaultdict
+    granjas_map: dict[str, dict] = defaultdict(lambda: {
+        "aves": 0, "lotes": 0, "sum_edad": 0, "sum_peso": 0, "n_edad": 0, "n_peso": 0,
+        "sexos": defaultdict(int), "nucleos": set(), "fechas_ingreso": set(),
+    })
+    total_aves = sum(o.cantidad for o in ofertas)
+    for o in ofertas:
+        g = granjas_map[o.granja]
+        g["aves"] += o.cantidad
+        g["lotes"] += 1
+        if o.edad_real and o.edad_real > 0:
+            g["sum_edad"] += o.edad_real * o.cantidad
+            g["n_edad"] += o.cantidad
+        if o.peso_muestreo_real and o.peso_muestreo_real > 0:
+            g["sum_peso"] += o.peso_muestreo_real * o.cantidad
+            g["n_peso"] += o.cantidad
+        if o.sexo:
+            g["sexos"][o.sexo] += o.cantidad
+        if o.nucleo:
+            g["nucleos"].add(o.nucleo)
+        if o.fecha_ingreso:
+            g["fechas_ingreso"].add(o.fecha_ingreso.isoformat())
+
+    # Vincular granjas con cohortes de producción si existen
+    cohortes_list = mortalidad.get("cohortes", []) if mortalidad else []
+    granja_cohorte: dict[str, list[str]] = defaultdict(list)
+    for coh in cohortes_list:
+        for gname in (coh.get("granjas") or []):
+            label = f"{coh.get('fecha_desde', '')} → {coh.get('fecha_hasta', '')}"
+            if label not in granja_cohorte[gname]:
+                granja_cohorte[gname].append(label)
+
+    concentracion = []
+    for nombre, g in sorted(granjas_map.items(), key=lambda x: x[1]["aves"], reverse=True):
+        concentracion.append({
+            "granja": nombre,
+            "aves": g["aves"],
+            "pct": round(g["aves"] / total_aves * 100, 1) if total_aves > 0 else 0,
+            "lotes": g["lotes"],
+            "edad_prom": round(g["sum_edad"] / g["n_edad"], 1) if g["n_edad"] > 0 else None,
+            "peso_prom": round(g["sum_peso"] / g["n_peso"], 2) if g["n_peso"] > 0 else None,
+            "sexo_predominante": max(g["sexos"], key=g["sexos"].get) if g["sexos"] else None,
+            "nucleos": len(g["nucleos"]),
+            "cohortes": granja_cohorte.get(nombre, []),
+        })
+    if concentracion:
+        result["concentracion_granjas"] = {
+            "granjas": concentracion,
+            "total_granjas": len(concentracion),
+            "total_aves": total_aves,
+            "max_pct": concentracion[0]["pct"] if concentracion else 0,
+        }
+
     return result if result else None
 
 

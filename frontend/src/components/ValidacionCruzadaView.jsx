@@ -253,6 +253,7 @@ export default function ValidacionCruzadaView() {
   const { validacion, insights, fuentes, tiene_oferta, tiene_produccion, total_ofertas, total_semanas_produccion } = data
   const cohortes = validacion?.mortalidad_cohortes
   const consist = validacion?.consistencia_edad
+  const concentracion = validacion?.concentracion_granjas
   const cohortesList = cohortes?.cohortes || []
   const cohortesEnVentana = cohortesList.filter(c => c.estado_fecha === 'alineada')
   const cohortesReprogramar = cohortesList.filter(c => c.nivel === 'anticipada' || c.nivel === 'mixta')
@@ -438,6 +439,81 @@ export default function ValidacionCruzadaView() {
                 )
               })}
             </AnimatePresence>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Concentración por Granja */}
+      {concentracion && concentracion.granjas?.length > 0 && (
+        <motion.div variants={itemVariants} className="card" style={{
+          borderLeft: `4px solid ${concentracion.max_pct >= 40 ? 'var(--warning)' : 'var(--primary-light)'}`,
+          overflow: 'hidden'
+        }}>
+          <div className="card-header" style={{ background: 'linear-gradient(to right, #f8fafc, #ffffff)' }}>
+            <h2 style={{ fontSize: '1.15rem' }}>
+              <Target size={18} style={{ marginRight: 8, color: 'var(--primary-light)' }} />
+              Perfil de Concentración por Granja
+            </h2>
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-light)', background: '#f1f5f9', padding: '0.2rem 0.6rem', borderRadius: 12 }}>
+              {concentracion.total_granjas} granja{concentracion.total_granjas !== 1 ? 's' : ''} · {formatNumber(concentracion.total_aves)} aves
+            </span>
+          </div>
+          <div className="card-body">
+            {concentracion.max_pct >= 40 && (
+              <div style={{ background: 'linear-gradient(135deg, #fffbeb 0%, #fef9c3 100%)', borderRadius: 10, padding: '0.8rem 1rem', marginBottom: '1rem', border: '1px solid #fde68a', fontSize: '0.82rem', color: '#78350f', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                <span>Alta concentración: <strong>{concentracion.granjas[0].granja}</strong> representa el <strong>{concentracion.max_pct}%</strong> de la oferta total. Considerar diversificación de proveedores.</span>
+              </div>
+            )}
+            <div className="table-container" style={{ borderRadius: 12, boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+              <table>
+                <thead style={{ background: 'linear-gradient(to right, #f8fafc, #f1f5f9)' }}>
+                  <tr>
+                    <th style={{ fontWeight: 700 }}>Granja</th>
+                    <th className="text-right" style={{ fontWeight: 700 }}>Aves</th>
+                    <th className="text-right" style={{ fontWeight: 700 }}>% Oferta</th>
+                    <th className="text-right" style={{ fontWeight: 700 }}>Lotes</th>
+                    <th className="text-right" style={{ fontWeight: 700 }}>Edad Prom.</th>
+                    <th className="text-right" style={{ fontWeight: 700 }}>Peso Prom.</th>
+                    <th style={{ fontWeight: 700 }}>Sexo</th>
+                    <th style={{ fontWeight: 700 }}>Cohorte Producción</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {concentracion.granjas.map((g, idx) => (
+                    <motion.tr key={idx} whileHover={{ backgroundColor: 'rgba(241, 245, 249, 0.8)' }}>
+                      <td style={{ fontWeight: 700, color: 'var(--text)' }}>{g.granja}</td>
+                      <td className="text-right" style={{ fontWeight: 600 }}>{formatNumber(g.aves)}</td>
+                      <td className="text-right">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                          <div style={{ width: 48, height: 6, borderRadius: 3, background: '#e2e8f0', overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.min(g.pct, 100)}%`, height: '100%', borderRadius: 3, background: g.pct >= 40 ? '#f59e0b' : g.pct >= 25 ? '#3b82f6' : '#94a3b8' }} />
+                          </div>
+                          <span style={{ fontWeight: 700, fontSize: '0.85rem', color: g.pct >= 40 ? '#b45309' : 'var(--text)' }}>{g.pct}%</span>
+                        </div>
+                      </td>
+                      <td className="text-right" style={{ color: 'var(--text-light)' }}>{g.lotes}</td>
+                      <td className="text-right" style={{ fontWeight: 500 }}>{g.edad_prom != null ? `${g.edad_prom} d` : '-'}</td>
+                      <td className="text-right" style={{ fontWeight: 500 }}>{g.peso_prom != null ? `${g.peso_prom.toFixed(2)} kg` : '-'}</td>
+                      <td>
+                        {g.sexo_predominante
+                          ? <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: g.sexo_predominante === 'M' ? '#dbeafe' : g.sexo_predominante === 'H' ? '#fce7f3' : '#f3e8ff', color: g.sexo_predominante === 'M' ? '#1e40af' : g.sexo_predominante === 'H' ? '#9d174d' : '#6b21a8' }}>
+                              {g.sexo_predominante === 'M' ? 'Macho' : g.sexo_predominante === 'H' ? 'Hembra' : 'Mixto'}
+                            </span>
+                          : <span style={{ color: 'var(--text-light)', fontSize: '0.8rem' }}>-</span>
+                        }
+                      </td>
+                      <td style={{ fontSize: '0.78rem', color: 'var(--text-light)', maxWidth: 180 }}>
+                        {g.cohortes.length > 0
+                          ? g.cohortes.map((c, i) => <div key={i} style={{ whiteSpace: 'nowrap' }}>{c}</div>)
+                          : <span style={{ fontStyle: 'italic' }}>Sin vínculo</span>
+                        }
+                      </td>
+                    </motion.tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </motion.div>
       )}
