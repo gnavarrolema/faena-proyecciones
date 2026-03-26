@@ -427,6 +427,24 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
       setAjusteResumen(data.resumen_ajuste)
       setAjusteFile(null)
       toast.success('Planificación ajustada con oferta del martes')
+      // Alertar si hubo filas descartadas en la oferta del martes
+      if (data.filas_descartadas?.length > 0) {
+        const granjas = [...new Set(data.filas_descartadas.map(f => f.granja))].join(', ')
+        const aves = data.pollos_descartados || data.filas_descartadas.reduce((s, f) => s + (f.cantidad || 0), 0)
+        toast(
+          `Oferta martes: ${data.total_descartadas} lote${data.total_descartadas !== 1 ? 's' : ''} descartados (${granjas}, ${aves.toLocaleString('es-AR')} aves). Sin fecha de peso → no se proyectan.`,
+          { icon: '⚠️', duration: 12000, style: { background: '#fffbeb', border: '1px solid #f59e0b', color: '#92400e', fontSize: '0.85rem' } }
+        )
+      }
+      if (data.resumen_filas) {
+        const rf = data.resumen_filas
+        if (rf.filas_vacias > 0) {
+          toast(
+            `Oferta martes: ${rf.filas_vacias} fila${rf.filas_vacias !== 1 ? 's' : ''} tenían granja vacía y fueron ignoradas.`,
+            { icon: '⚠️', duration: 10000, style: { background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b', fontSize: '0.85rem' } }
+          )
+        }
+      }
     } catch (err) {
       toast.error('Error al ajustar: ' + (err.response?.data?.detail || err.message))
     } finally {

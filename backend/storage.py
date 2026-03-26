@@ -248,6 +248,21 @@ PROYECCION_KEY = "proyeccion"
 UPLOADS_PREFIX = "uploads/"
 
 
+def backup_ofertas() -> Optional[str]:
+    """Crea un backup de la oferta actual antes de sobrescribirla.
+    Retorna la key del backup o None si no había oferta previa."""
+    s = get_storage()
+    data = s.load(OFERTAS_KEY)
+    if data is None:
+        return None
+    from datetime import datetime
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_key = f"ofertas_backup/{ts}"
+    s.save(backup_key, data)
+    logger.info(f"Backup de oferta creado: {backup_key} ({len(data)} lotes)")
+    return backup_key
+
+
 def save_ofertas(ofertas_data: list[dict]) -> None:
     get_storage().save(OFERTAS_KEY, ofertas_data)
 
@@ -262,6 +277,25 @@ def save_oferta_metadata(metadata: dict) -> None:
 
 def load_oferta_metadata() -> Optional[dict]:
     return get_storage().load(OFERTA_METADATA_KEY)
+
+
+# ─── Auditoría de ofertas (registro persistente de descartados) ──────────────
+
+OFERTA_AUDIT_KEY = "ofertas_audit"
+
+
+def save_oferta_audit(audit_data: dict) -> None:
+    """Guarda el registro de auditoría de la última carga de oferta."""
+    get_storage().save(OFERTA_AUDIT_KEY, audit_data)
+
+
+def load_oferta_audit() -> Optional[dict]:
+    """Carga el registro de auditoría de la última carga de oferta."""
+    return get_storage().load(OFERTA_AUDIT_KEY)
+
+
+def delete_oferta_audit() -> None:
+    get_storage().delete(OFERTA_AUDIT_KEY)
 
 
 def save_parametros(parametros_data: dict) -> None:

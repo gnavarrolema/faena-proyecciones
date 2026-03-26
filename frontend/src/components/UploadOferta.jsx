@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { UploadCloud, CheckCircle2, FileSpreadsheet, AlertCircle, Trash2, FolderUp, TriangleAlert, ShieldCheck, ShieldAlert } from 'lucide-react'
+import { UploadCloud, CheckCircle2, FileSpreadsheet, AlertCircle, Trash2, FolderUp, TriangleAlert, ShieldCheck, ShieldAlert, ChevronDown, ChevronUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { uploadOferta } from '../services/api'
 
@@ -15,6 +15,8 @@ export default function UploadOferta({ onUpload, hayDatosExistentes, deficitGuar
   const [error, setError] = useState(null)
   const [dragging, setDragging] = useState(false)
   const [confirmado, setConfirmado] = useState(false)
+  const [auditInfo, setAuditInfo] = useState(null)
+  const [descartadasExpandido, setDescartadasExpandido] = useState(false)
   const inputRef = useRef(null)
 
   const handleFile = (f) => {
@@ -31,8 +33,21 @@ export default function UploadOferta({ onUpload, hayDatosExistentes, deficitGuar
     if (hayDatosExistentes && !confirmado) return
     setLoading(true)
     setError(null)
+    setAuditInfo(null)
     try {
       const data = await uploadOferta(file)
+
+      // Guardar info de auditoría para panel persistente
+      setAuditInfo({
+        resumenFilas: data.resumen_filas || null,
+        descartadas: data.filas_descartadas || [],
+        totalDescartadas: data.total_descartadas || 0,
+        pollosDescartados: data.pollos_descartados || 0,
+        backupKey: data.backup_key || null,
+        totalLotes: data.total_lotes,
+        totalPollos: data.total_pollos,
+      })
+
       if (data.filas_descartadas?.length > 0) {
         const granjas = [...new Set(data.filas_descartadas.map(f => f.granja))].join(', ')
         const aves = data.filas_descartadas.reduce((s, f) => s + (f.cantidad || 0), 0)
@@ -239,6 +254,125 @@ export default function UploadOferta({ onUpload, hayDatosExistentes, deficitGuar
           </div>
         </div>
       </div>
+
+      {/* Panel persistente de auditoría de carga */}
+      <AnimatePresence>
+        {auditInfo && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="card"
+            style={{ borderLeft: auditInfo.totalDescartadas > 0 ? '4px solid #f59e0b' : '4px solid #22c55e' }}
+          >
+            <div className="card-header">
+              <h2>
+                {auditInfo.totalDescartadas > 0
+                  ? <><TriangleAlert size={16} style={{ verticalAlign: 'middle', marginRight: 6, color: '#f59e0b' }} /> Resultado de la carga — Atención requerida</>
+                  : <><CheckCircle2 size={16} style={{ verticalAlign: 'middle', marginRight: 6, color: '#22c55e' }} /> Resultado de la carga — Sin pérdidas</>
+                }
+              </h2>
+            </div>
+            <div className="card-body">
+              {/* Resumen de filas del Excel */}
+              {auditInfo.resumenFilas && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                  gap: '0.75rem',
+                  marginBottom: '1rem',
+                }}>
+                  <div style={{ padding: '0.6rem', background: '#f8fafc', borderRadius: 8, textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>{formatNumber(auditInfo.resumenFilas.filas_totales)}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Filas con datos</div>
+                  </div>
+                  <div style={{ padding: '0.6rem', background: '#f0fdf4', borderRadius: 8, textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#166534' }}>{formatNumber(auditInfo.resumenFilas.filas_parseadas)}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Lotes cargados</div>
+                  </div>
+                  <div style={{ padding: '0.6rem', background: auditInfo.resumenFilas.filas_descartadas > 0 ? '#fffbeb' : '#f8fafc', borderRadius: 8, textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 700, color: auditInfo.resumenFilas.filas_descartadas > 0 ? '#92400e' : '#64748b' }}>{formatNumber(auditInfo.resumenFilas.filas_descartadas)}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Lotes descartados</div>
+                  </div>
+                  <div style={{ padding: '0.6rem', background: auditInfo.resumenFilas.filas_vacias > 0 ? '#fef2f2' : '#f8fafc', borderRadius: 8, textAlign: 'center' }}>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 700, color: auditInfo.resumenFilas.filas_vacias > 0 ? '#991b1b' : '#64748b' }}>{formatNumber(auditInfo.resumenFilas.filas_vacias)}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Filas sin granja</div>
+                  </div>
+                </div>
+              )}
+
+              {/* Validación de totales */}
+              <div style={{ padding: '0.6rem 0.9rem', background: '#f0f9ff', borderRadius: 8, marginBottom: '1rem', fontSize: '0.85rem', color: '#0369a1' }}>
+                <strong>Cargados:</strong> {formatNumber(auditInfo.totalLotes)} lotes ({formatNumber(auditInfo.totalPollos)} aves)
+                {auditInfo.totalDescartadas > 0 && (
+                  <span style={{ color: '#92400e' }}>
+                    {' '}· <strong>Descartados:</strong> {formatNumber(auditInfo.totalDescartadas)} lotes ({formatNumber(auditInfo.pollosDescartados)} aves)
+                  </span>
+                )}
+                {auditInfo.backupKey && (
+                  <span style={{ color: '#64748b' }}> · Backup automático creado</span>
+                )}
+              </div>
+
+              {/* Detalle de descartadas */}
+              {auditInfo.descartadas.length > 0 && (
+                <div>
+                  <button
+                    onClick={() => setDescartadasExpandido(!descartadasExpandido)}
+                    style={{
+                      background: 'none', border: '1px solid #f59e0b', borderRadius: 6,
+                      padding: '0.4rem 0.8rem', cursor: 'pointer', fontSize: '0.85rem',
+                      color: '#92400e', display: 'flex', alignItems: 'center', gap: 4,
+                      marginBottom: descartadasExpandido ? '0.75rem' : 0,
+                    }}
+                  >
+                    {descartadasExpandido ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    Ver {auditInfo.descartadas.length} lote{auditInfo.descartadas.length !== 1 ? 's' : ''} descartado{auditInfo.descartadas.length !== 1 ? 's' : ''}
+                  </button>
+                  <AnimatePresence>
+                    {descartadasExpandido && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                      >
+                        <div className="table-container" style={{ maxHeight: 300, overflow: 'auto' }}>
+                          <table style={{ fontSize: '0.8rem' }}>
+                            <thead>
+                              <tr>
+                                <th>Fila</th>
+                                <th>Granja</th>
+                                <th>Galpón</th>
+                                <th>Núcleo</th>
+                                <th>Cantidad</th>
+                                <th>Sexo</th>
+                                <th>Motivo</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {auditInfo.descartadas.map((d, i) => (
+                                <tr key={i} style={{ background: '#fffbeb' }}>
+                                  <td>{d.fila_excel || '-'}</td>
+                                  <td>{d.granja}</td>
+                                  <td>{d.galpon}</td>
+                                  <td>{d.nucleo}</td>
+                                  <td>{formatNumber(d.cantidad)}</td>
+                                  <td>{d.sexo || '-'}</td>
+                                  <td style={{ color: '#92400e' }}>{d.motivo}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="card">
         <div className="card-header">

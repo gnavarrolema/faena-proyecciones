@@ -3,6 +3,7 @@ Parser de archivos Excel de oferta de granjas.
 Lee el formato de la pestaña 'OFERTA JUEV' y lo convierte en LoteOferta.
 Soporta tanto .xlsx (openpyxl) como .xls (xlrd).
 """
+import logging
 import openpyxl
 import xlrd
 from datetime import date, datetime
@@ -10,6 +11,8 @@ from typing import List, Optional, BinaryIO
 from io import BytesIO
 
 from .calculo import LoteOferta
+
+logger = logging.getLogger(__name__)
 
 
 # Mapeo de columnas esperadas en la oferta (pestaña OFERTA JUEV / hoja de oferta)
@@ -92,17 +95,22 @@ def _parse_sexo(val) -> str:
 def leer_oferta_excel(
     file_content: bytes,
     sheet_name: Optional[str] = None
-) -> tuple[List[LoteOferta], List[dict]]:
+) -> tuple[List[LoteOferta], List[dict], dict]:
     """
     Lee un archivo Excel de oferta y devuelve la lista de LoteOferta
-    junto con las filas descartadas (lotes con granja pero sin datos completos).
+    junto con las filas descartadas y un resumen de conteo de filas.
 
     Args:
         file_content: contenido binario del archivo Excel
         sheet_name: nombre de la pestaña (si None, usa la primera o busca 'OFERTA')
 
     Returns:
-        Tupla (lotes_parseados, filas_descartadas)
+        Tupla (lotes_parseados, filas_descartadas, resumen_filas)
+        resumen_filas contiene:
+          - filas_totales: total de filas con datos recorridas
+          - filas_vacias: filas ignoradas por tener granja vacía
+          - filas_parseadas: lotes parseados correctamente
+          - filas_descartadas: lotes con granja pero sin datos completos
     """
     # Detectar formato: intentar primero con openpyxl (.xlsx)
     # Si falla, intentar con xlrd (.xls)
@@ -118,12 +126,29 @@ def leer_oferta_excel(
             raise ValueError(f"No se pudo abrir el archivo Excel: {e}")
 
     if is_xls:
-        return _leer_oferta_xlrd(wb, sheet_name)
+        lotes, descartadas, resumen = _leer_oferta_xlrd(wb, sheet_name)
     else:
-        return _leer_oferta_openpyxl(wb, sheet_name)
+        lotes, descartadas, resumen = _leer_oferta_openpyxl(wb, sheet_name)
+
+    if descartadas:
+        pollos_descartados = sum(d.get("cantidad", 0) for d in descartadas)
+        granjas_descartadas = sorted({d.get("granja", "?") for d in descartadas})
+        logger.warning(
+            f"ALERTA OFERTA: {len(descartadas)} lotes descartados "
+            f"({pollos_descartados} aves) de granjas: {', '.join(granjas_descartadas)}. "
+            f"Motivo: datos incompletos (sin fecha_peso). "
+            f"Resumen: {resumen}"
+        )
+    if resumen.get("filas_vacias", 0) > 0:
+        logger.info(
+            f"Parser oferta: {resumen['filas_vacias']} filas con granja vacía ignoradas "
+            f"de {resumen['filas_totales']} filas totales recorridas."
+        )
+
+    return lotes, descartadas, resumen
 
 
-def _leer_oferta_openpyxl(wb, sheet_name: Optional[str]) -> tuple[List[LoteOferta], List[dict]]:
+def _leer_oferta_openpyxl(wb, sheet_name: Optional[str]) -> tuple[List[LoteOferta], List[dict], dict]:
     """Lee oferta desde un workbook de openpyxl (.xlsx)."""
     # Buscar la pestaña adecuada
     if sheet_name and sheet_name in wb.sheetnames:
@@ -142,17 +167,31 @@ def _leer_oferta_openpyxl(wb, sheet_name: Optional[str]) -> tuple[List[LoteOfert
 
     lotes: List[LoteOferta] = []
     descartadas: List[dict] = []
+    filas_totales = 0
+    filas_vacias = 0
 
     for row_idx in range(FILA_INICIO_DATOS, ws.max_row + 1):
         row = [ws.cell(row=row_idx, column=c + 1).value for c in range(14)]
+        # Contar solo filas que tienen al menos un valor no nulo
+        if any(v is not None for v in row):
+            filas_totales += 1
         lote, descartada = _parse_row_to_lote(row)
         if lote:
             lotes.append(lote)
         elif descartada:
+            descartada["fila_excel"] = row_idx
             descartadas.append(descartada)
+        elif any(v is not None for v in row):
+            filas_vacias += 1
 
     wb.close()
-    return lotes, descartadas
+    resumen = {
+        "filas_totales": filas_totales,
+        "filas_vacias": filas_vacias,
+        "filas_parseadas": len(lotes),
+        "filas_descartadas": len(descartadas),
+    }
+    return lotes, descartadas, resumen
 
 
 def _xlrd_cell_value(sheet, row, col):
@@ -172,7 +211,7 @@ def _xlrd_cell_value(sheet, row, col):
     return cell.value
 
 
-def _leer_oferta_xlrd(wb, sheet_name: Optional[str]) -> tuple[List[LoteOferta], List[dict]]:
+def _leer_oferta_xlrd(wb, sheet_name: Optional[str]) -> tuple[List[LoteOferta], List[dict], dict]:
     """Lee oferta desde un workbook de xlrd (.xls)."""
     # Buscar la pestaña adecuada
     if sheet_name and sheet_name in wb.sheet_names():
@@ -190,17 +229,30 @@ def _leer_oferta_xlrd(wb, sheet_name: Optional[str]) -> tuple[List[LoteOferta], 
 
     lotes: List[LoteOferta] = []
     descartadas: List[dict] = []
+    filas_totales = 0
+    filas_vacias = 0
 
     # xlrd usa índices 0-based; FILA_INICIO_DATOS es 4 (1-indexed) → fila 3 en 0-indexed
     for row_idx in range(FILA_INICIO_DATOS - 1, ws.nrows):
         row = [_xlrd_cell_value(ws, row_idx, c) for c in range(14)]
+        if any(v is not None for v in row):
+            filas_totales += 1
         lote, descartada = _parse_row_to_lote(row)
         if lote:
             lotes.append(lote)
         elif descartada:
+            descartada["fila_excel"] = row_idx + 1  # 1-indexed para el usuario
             descartadas.append(descartada)
+        elif any(v is not None for v in row):
+            filas_vacias += 1
 
-    return lotes, descartadas
+    resumen = {
+        "filas_totales": filas_totales,
+        "filas_vacias": filas_vacias,
+        "filas_parseadas": len(lotes),
+        "filas_descartadas": len(descartadas),
+    }
+    return lotes, descartadas, resumen
 
 
 def _parse_row_to_lote(row: list) -> tuple[Optional[LoteOferta], Optional[dict]]:

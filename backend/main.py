@@ -787,9 +787,12 @@ async def upload_oferta(file: UploadFile = File(...), sheet_name: Optional[str] 
 
     content = await file.read()
     try:
-        ofertas, filas_descartadas = leer_oferta_excel(content, sheet_name)
+        ofertas, filas_descartadas, resumen_filas = leer_oferta_excel(content, sheet_name)
     except Exception as e:
         raise HTTPException(400, f"Error al leer el archivo: {str(e)}")
+
+    # Backup automático antes de sobrescribir
+    backup_key = storage.backup_ofertas()
 
     # Persistir ofertas y archivo original
     storage.save_ofertas([o.model_dump() for o in ofertas])
@@ -798,6 +801,7 @@ async def upload_oferta(file: UploadFile = File(...), sheet_name: Optional[str] 
         "filename": file.filename,
         "uploaded_at": datetime.now().isoformat(),
         "upload_key": upload_key,
+        "backup_key": backup_key,
         "sheet_name": sheet_name,
         "total_lotes": len(ofertas),
         "total_pollos": sum(o.cantidad for o in ofertas),
@@ -806,6 +810,21 @@ async def upload_oferta(file: UploadFile = File(...), sheet_name: Optional[str] 
         "fecha_ingreso_desde": min((o.fecha_ingreso for o in ofertas if o.fecha_ingreso), default=None),
         "fecha_ingreso_hasta": max((o.fecha_ingreso for o in ofertas if o.fecha_ingreso), default=None),
         "total_descartadas": len(filas_descartadas),
+    })
+
+    # Guardar auditoría persistente de la carga
+    pollos_descartados = sum(d.get("cantidad", 0) for d in filas_descartadas)
+    storage.save_oferta_audit({
+        "timestamp": datetime.now().isoformat(),
+        "archivo": file.filename,
+        "tipo": "jueves",
+        "backup_key": backup_key,
+        "resumen_filas": resumen_filas,
+        "total_lotes_parseados": len(ofertas),
+        "total_pollos_parseados": sum(o.cantidad for o in ofertas),
+        "total_descartadas": len(filas_descartadas),
+        "pollos_descartados": pollos_descartados,
+        "filas_descartadas": filas_descartadas,
     })
 
     # Resumen por granja
@@ -821,10 +840,14 @@ async def upload_oferta(file: UploadFile = File(...), sheet_name: Optional[str] 
         "total_pollos": sum(o.cantidad for o in ofertas),
         "granjas": resumen,
         "ofertas": [o.model_dump() for o in ofertas],
+        "resumen_filas": resumen_filas,
     }
+    if backup_key:
+        resultado["backup_key"] = backup_key
     if filas_descartadas:
         resultado["filas_descartadas"] = filas_descartadas
         resultado["total_descartadas"] = len(filas_descartadas)
+        resultado["pollos_descartados"] = pollos_descartados
 
     # Validación cruzada contra producción (si existe)
     try:
@@ -835,6 +858,16 @@ async def upload_oferta(file: UploadFile = File(...), sheet_name: Optional[str] 
         logger.warning(f"Error en validación cruzada oferta: {e}")
 
     return resultado
+
+
+@app.get("/oferta/audit")
+def get_oferta_audit(current_user: TokenData = Depends(get_current_user)):
+    """Retorna el registro de auditoría de la última carga de oferta,
+    incluyendo filas descartadas, resumen de filas y backup."""
+    audit = storage.load_oferta_audit()
+    if not audit:
+        raise HTTPException(404, "No hay registro de auditoría. Cargue una oferta primero.")
+    return audit
 
 
 @app.get("/oferta")
@@ -872,6 +905,7 @@ def clear_oferta(current_user: TokenData = Depends(get_current_user)):
     storage.delete_oferta_metadata()
     storage.delete_ofertas_martes()
     storage.delete_proyeccion()
+    storage.delete_oferta_audit()
     return {"message": "Oferta limpiada"}
 
 
@@ -896,12 +930,20 @@ async def upload_ajuste_martes(
 
     content = await file.read()
     try:
-        ofertas_martes, _ = leer_oferta_excel(content, sheet_name)
+        ofertas_martes, filas_descartadas_martes, resumen_filas_martes = leer_oferta_excel(content, sheet_name)
     except Exception as e:
         raise HTTPException(400, f"Error al leer el archivo: {str(e)}")
 
     if not ofertas_martes:
         raise HTTPException(400, "El archivo no contiene lotes válidos.")
+
+    # Log de descartadas del martes
+    if filas_descartadas_martes:
+        pollos_desc = sum(d.get("cantidad", 0) for d in filas_descartadas_martes)
+        logger.warning(
+            f"Ajuste martes: {len(filas_descartadas_martes)} lotes descartados "
+            f"({pollos_desc} aves) del archivo {file.filename}"
+        )
 
     # Guardar oferta martes y archivo original
     storage.save_ofertas_martes([o.model_dump() for o in ofertas_martes])
@@ -914,10 +956,16 @@ async def upload_ajuste_martes(
     # Guardar proyección actualizada
     storage.save_proyeccion(resultado.model_dump())
 
-    return {
+    resp = {
         "proyeccion": resultado.model_dump(),
         "resumen_ajuste": resumen.model_dump(),
+        "resumen_filas": resumen_filas_martes,
     }
+    if filas_descartadas_martes:
+        resp["filas_descartadas"] = filas_descartadas_martes
+        resp["total_descartadas"] = len(filas_descartadas_martes)
+        resp["pollos_descartados"] = sum(d.get("cantidad", 0) for d in filas_descartadas_martes)
+    return resp
 
 
 @app.post("/proyeccion/generar")
