@@ -643,15 +643,15 @@ def _validar_cruce_oferta(ofertas: list[LoteOferta]) -> Optional[dict]:
     for i, o in enumerate(ofertas):
         if o.fecha_peso and o.fecha_ingreso and o.edad_real:
             dias_calculados = (o.fecha_peso - o.fecha_ingreso).days
-            diferencia = abs(dias_calculados - o.edad_real)
-            if diferencia > 3:
+            diferencia_abs = abs(dias_calculados - o.edad_real)
+            if diferencia_abs > 3:
                 alertas_edad.append({
                     "lote": i + 1,
                     "granja": o.granja,
                     "galpon": o.galpon,
                     "edad_real": o.edad_real,
                     "dias_calculados": dias_calculados,
-                    "diferencia": diferencia,
+                    "diferencia": dias_calculados - o.edad_real,
                 })
     if alertas_edad:
         result["consistencia_edad"] = {

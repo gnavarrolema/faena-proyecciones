@@ -547,9 +547,23 @@ export default function ValidacionCruzadaView() {
             </div>
           </div>
           <div className="card-body" style={{ padding: '0 1.5rem 1.5rem' }}>
-            <p style={{ fontSize: '0.9rem', color: 'var(--text-light)', marginBottom: '1.5rem', maxWidth: '80%' }}>
-              Traducción del cruce operativo en decisiones precisas de planificación temporal. Cada bloque muestra su ventana biológica estimada, el encuadre temporal sugerido y la mejor acción heurística.
-            </p>
+            <div style={{ background: 'linear-gradient(135deg, #fffbeb 0%, #fef9c3 50%, #fffbeb 100%)', borderRadius: 10, padding: '1rem 1.25rem', marginBottom: '1.25rem', border: '1px solid #fde68a', fontSize: '0.82rem', color: '#78350f', lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6, color: '#b45309' }}>
+                <Info size={14} /> ¿Cómo interpretar esta matriz?
+              </div>
+              <p style={{ margin: '0 0 6px 0' }}>
+                Esta matriz cruza la <strong>oferta de faena</strong> (aves propuestas por las granjas) con los <strong>datos de producción de pollitos BB</strong> (cargas semanales). Cada fila representa un <em>bloque biológico</em> (cohorte): un grupo de lotes cuya fecha de ingreso cae en la misma semana de producción.
+              </p>
+              <ul style={{ margin: '4px 0 0 0', paddingLeft: '1.2rem', listStyle: 'disc' }}>
+                <li><strong>Bloque Biológico</strong>: Rango de la semana de producción (ej. 10 mar → 16 mar). Debajo se listan las granjas y la cantidad de lotes vinculados.</li>
+                <li><strong>Horizonte Sugerido</strong>: Semana de planificación sugerida para faena. El "Target Inicial" es el rango de fechas objetivo de la oferta.</li>
+                <li><strong>Ventana Biológica</strong>: Fecha esperada de faena = semana de producción + 42 días (edad de referencia para faena). "Base" indica cuántos pollitos fueron cargados esa semana según el Excel de producción.</li>
+                <li><strong>Aves / Proyección</strong>: Arriba, las aves ofertadas para este bloque. Abajo, el rango proyectado de aves esperadas en faena descontando merma (4,5% a 7,5% de mortalidad). La "Cob" (cobertura) indica qué porcentaje de la proyección cubre la oferta.</li>
+                <li><strong>Desvío</strong>: Diferencia entre aves ofertadas y el rango proyectado. Muestra si la oferta está por encima, dentro o por debajo de lo esperado.</li>
+                <li><strong>Status</strong>: <em>Alineada</em> = fechas y cantidad coherentes; <em>Anticipada/Atrasada</em> = la oferta se desfasa temporalmente; <em>Excedida</em> = más aves de las esperadas; <em>Parcial</em> = menos aves de las esperadas.</li>
+                <li><strong>Heurística</strong>: Acción recomendada según el estado (ej. "Usar como base", "Reprogramar", "Completar con compras").</li>
+              </ul>
+            </div>
             <div className="table-container" style={{ borderRadius: 12, boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
               <table className="validacion-cohortes-table">
                 <colgroup>
@@ -676,6 +690,24 @@ export default function ValidacionCruzadaView() {
             </span>
           </div>
           <div className="card-body">
+            <div style={{ background: 'linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%)', borderRadius: 10, padding: '1rem 1.25rem', marginBottom: '1.25rem', border: '1px solid #bfdbfe', fontSize: '0.82rem', color: '#1e3a5f', lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6, color: '#1d4ed8' }}>
+                <Info size={14} /> ¿Cómo interpretar esta tabla?
+              </div>
+              <p style={{ margin: '0 0 6px 0' }}>
+                Esta sección detecta <strong>inconsistencias</strong> entre la edad que la granja declara para un lote (<em>Edad Declarada</em>) y la edad que resulta de restar la fecha de ingreso del pollito BB a la granja de la fecha en que fue pesado (<em>Edad Modélica</em>). Si ambos datos fueran perfectos, deberían coincidir.
+              </p>
+              <ul style={{ margin: '4px 0 0 0', paddingLeft: '1.2rem', listStyle: 'disc' }}>
+                <li><strong>Lote #</strong>: Número de fila del lote en el archivo de oferta cargado (1 = primera fila de datos).</li>
+                <li><strong>Sector Productivo / Galpón</strong>: Granja y galpón de origen del lote.</li>
+                <li><strong>Edad Declarada (Oferta)</strong>: Valor del campo EDAD REAL (col. K) del Excel de oferta — la edad en días informada por la granja al momento del pesaje.</li>
+                <li><strong>Edad Modélica (BB)</strong>: Edad calculada como <code style={{ background: '#dbeafe', padding: '1px 4px', borderRadius: 3 }}>Fecha de Peso − Fecha de Ingreso</code> (cols. A y M del Excel). Representa cuántos días debería tener el ave según sus fechas de registro.</li>
+                <li><strong>Delta</strong>: Diferencia = Edad Modélica − Edad Declarada. Un valor <strong>positivo</strong> (ej. +8) indica que las fechas sugieren un ave <em>más vieja</em> de lo declarado; un valor <strong>negativo</strong> indicaría lo contrario. Solo se muestran diferencias mayores a 3 días.</li>
+              </ul>
+              <p style={{ margin: '6px 0 0 0', fontStyle: 'italic', opacity: 0.85 }}>
+                💡 Acción sugerida: verificar en el Excel original si la Fecha de Ingreso o la Edad Real del lote señalado tienen un error de carga.
+              </p>
+            </div>
             <div className="table-container" style={{ borderRadius: 12, boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
               <table>
                 <thead style={{ background: '#f8fafc' }}>
@@ -689,20 +721,23 @@ export default function ValidacionCruzadaView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {consist.alertas.map((a, idx) => (
-                    <motion.tr key={idx} whileHover={{ backgroundColor: '#f1f5f9' }}>
-                      <td><strong style={{ color: 'var(--primary-dark)', fontSize: '0.95rem' }}>{a.lote}</strong></td>
-                      <td style={{ fontWeight: 500 }}>{a.granja}</td>
-                      <td style={{ color: 'var(--text-light)' }}>{a.galpon}</td>
-                      <td className="text-right" style={{ fontWeight: 600 }}>{a.edad_real} días</td>
-                      <td className="text-right" style={{ color: 'var(--text-light)' }}>{a.dias_calculados} días</td>
-                      <td className="text-right">
-                        <span style={{ background: '#fee2e2', color: '#b91c1c', padding: '2px 8px', borderRadius: 6, fontWeight: 700, fontSize: '0.85rem' }}>
-                          {a.diferencia > 0 ? '+' : ''}{a.diferencia} días
-                        </span>
-                      </td>
-                    </motion.tr>
-                  ))}
+                  {consist.alertas.map((a, idx) => {
+                    const deltaPositivo = a.diferencia > 0
+                    return (
+                      <motion.tr key={idx} whileHover={{ backgroundColor: '#f1f5f9' }}>
+                        <td><strong style={{ color: 'var(--primary-dark)', fontSize: '0.95rem' }}>{a.lote}</strong></td>
+                        <td style={{ fontWeight: 500 }}>{a.granja}</td>
+                        <td style={{ color: 'var(--text-light)' }}>{a.galpon}</td>
+                        <td className="text-right" style={{ fontWeight: 600 }}>{a.edad_real} días</td>
+                        <td className="text-right" style={{ color: 'var(--text-light)' }}>{a.dias_calculados} días</td>
+                        <td className="text-right">
+                          <span style={{ background: deltaPositivo ? '#fee2e2' : '#fef3c7', color: deltaPositivo ? '#b91c1c' : '#92400e', padding: '2px 8px', borderRadius: 6, fontWeight: 700, fontSize: '0.85rem' }}>
+                            {a.diferencia > 0 ? '+' : ''}{a.diferencia} días
+                          </span>
+                        </td>
+                      </motion.tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
