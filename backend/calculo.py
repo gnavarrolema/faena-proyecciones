@@ -1389,15 +1389,17 @@ def calcular_alerta_temprana(
         ganancia_lote = oferta.ganancia_diaria if oferta.ganancia_diaria > 0 else ganancia_esperada
 
         # --- Proyección a la edad ideal ---
-        # Usar la misma lógica de peso_vivo_retiro para consistencia
+        # Usar peso_muestreo_real y edad_real como ancla (dato medido real)
+        # para mayor transparencia y robustez frente a posibles diferencias
+        # entre el peso proyectado y el real + días × gdp.
         fecha_faena_ideal = fecha_referencia + timedelta(days=max(dias_restantes, 0))
         edad_fin_ideal = calcular_edad_fin_retiro_v2(
             fecha_faena_ideal, oferta.fecha_peso, oferta.edad_proyectada,
             dias_proyectados=oferta.dias_proyectados,
         )
         peso_en_ideal = peso_vivo_retiro(
-            oferta.sexo, edad_fin_ideal, oferta.edad_proyectada,
-            oferta.peso_muestreo_proy, params,
+            oferta.sexo, edad_fin_ideal, oferta.edad_real,
+            oferta.peso_muestreo_real, params,
             ganancia_diaria_lote=oferta.ganancia_diaria,
         )
 
@@ -1411,8 +1413,8 @@ def calcular_alerta_temprana(
             dias_proyectados=oferta.dias_proyectados,
         )
         peso_en_min = peso_vivo_retiro(
-            oferta.sexo, edad_fin_min, oferta.edad_proyectada,
-            oferta.peso_muestreo_proy, params,
+            oferta.sexo, edad_fin_min, oferta.edad_real,
+            oferta.peso_muestreo_real, params,
             ganancia_diaria_lote=oferta.ganancia_diaria,
         )
 
@@ -1422,8 +1424,8 @@ def calcular_alerta_temprana(
             dias_proyectados=oferta.dias_proyectados,
         )
         peso_en_max = peso_vivo_retiro(
-            oferta.sexo, edad_fin_max, oferta.edad_proyectada,
-            oferta.peso_muestreo_proy, params,
+            oferta.sexo, edad_fin_max, oferta.edad_real,
+            oferta.peso_muestreo_real, params,
             ganancia_diaria_lote=oferta.ganancia_diaria,
         )
 
@@ -1436,8 +1438,9 @@ def calcular_alerta_temprana(
             peso_target = params.peso_min_faena
 
         # Peso estimado de crecimiento hoy (sin descuento de faena)
-        dias_transcurridos = edad_actual - oferta.edad_proyectada
-        peso_estimado_hoy = oferta.peso_muestreo_proy + dias_transcurridos * ganancia_lote
+        # Anclar sobre peso_muestreo_real para usar dato medido
+        dias_transcurridos = edad_actual - oferta.edad_real
+        peso_estimado_hoy = oferta.peso_muestreo_real + dias_transcurridos * ganancia_lote
 
         # Días efectivos de crecimiento restantes (último día solo medio_dia)
         dias_efectivos_restantes = max(dias_restantes - 1, 0)
@@ -1560,7 +1563,7 @@ def calcular_alerta_temprana(
             "edad_actual": edad_actual,
             "edad_ideal": edad_ideal,
             "dias_restantes": max(dias_restantes, 0),
-            "peso_actual": oferta.peso_muestreo_proy,
+            "peso_actual": oferta.peso_muestreo_real,
             "peso_en_edad_ideal": round(peso_en_ideal, 3),
             "peso_en_edad_min": round(peso_en_min, 3),
             "peso_en_edad_max": round(peso_en_max, 3),

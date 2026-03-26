@@ -76,10 +76,10 @@ def test_ganancia_necesaria_desde_hoy():
 
     Caso: MARTINA galpón 8, núcleo 2, sexo M.
     - fecha_peso: 14/3, dias_proy: 5, fecha_base: 19/3
-    - edad_proyectada: 26, peso_muestreo_proy: 1.56, gdp: 0.070
-    - fecha_referencia: 26/3 (7 días después)
+    - edad_real: 21, peso_muestreo_real: 1.21, gdp: 0.070
+    - fecha_referencia: 26/3 (7 días después de la oferta)
     - edad_actual: 33, dias_restantes a edad_ideal_macho(40): 7
-    - peso_estimado_hoy: 1.56 + 7*0.070 = 2.05
+    - peso_estimado_hoy: 1.21 + (33-21)*0.070 = 1.21 + 0.84 = 2.05
     - dias_efectivos_restantes: 7 - 1 = 6
     - peso_target (M): 2.80/0.96 = 2.91667
     - gan_necesaria: (2.91667 - 2.05 - 0.045) / 6 ≈ 0.1369
@@ -106,6 +106,7 @@ def test_ganancia_necesaria_desde_hoy():
     r = result["lotes"][0]
     assert r["edad_actual"] == 33
     assert r["dias_restantes"] == 7  # 40 - 33
+    assert r["peso_actual"] == 1.21  # peso real medido, no el proyectado
 
     # Ganancia necesaria debe ser ~0.1369 (desde HOY), no ~0.100 (desde oferta)
     assert r["ganancia_necesaria"] > 0.13, (

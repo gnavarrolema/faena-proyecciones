@@ -357,9 +357,9 @@ export default function PronosticoPesosView({ proyeccion }) {
               <strong>Peso Vivo Proyectado al retiro / a edad ideal</strong>
               <p style={{ margin: '0.3rem 0', color: 'var(--text-light)' }}>
                 <code style={{ background: 'rgba(0,0,0,0.05)', padding: '1px 4px', borderRadius: 3 }}>
-                  Peso Vivo = (Días Extra × Ganancia Diaria) + Peso Muestreo Proy. + Medio Día
+                  Peso Vivo = (Días Extra × Ganancia Diaria) + Peso Muestreo Real + Medio Día
                 </code><br />
-                • <em>Días Extra</em> = Edad al retiro − Edad Proyectada − 1<br />
+                • <em>Días Extra</em> = Edad al retiro − Edad Real − 1<br />
                 • <em>Ganancia Diaria</em>: se usa la del lote (columna "Ganancia Diaria" de la oferta); si no está disponible, 
                 se usa la global por sexo (Macho: 0.090, Hembra: 0.079 kg/día)<br />
                 • <em>Medio Día</em> = 0.090 × 0.5 = 0.045 kg (ajuste de medio día, siempre con ganancia macho)<br />
@@ -371,11 +371,14 @@ export default function PronosticoPesosView({ proyeccion }) {
             <div style={{ marginBottom: '0.75rem' }}>
               <strong>Ganancia Mínima Necesaria</strong>
               <p style={{ margin: '0.3rem 0', color: 'var(--text-light)' }}>
-                Es la ganancia diaria mínima que debería tener el lote para alcanzar el peso mínimo de faena 
-                ({data.peso_min_faena} kg) a su edad ideal. Se calcula como la inversa de la fórmula de peso vivo:
+                Es la ganancia diaria mínima que debería tener el lote <strong>desde hoy</strong> para alcanzar el peso mínimo de faena 
+                ({data.peso_min_faena} kg) a su edad ideal. Se calcula a partir del peso estimado actual:
                 <br />
                 <code style={{ background: 'rgba(0,0,0,0.05)', padding: '1px 4px', borderRadius: 3 }}>
-                  Gan. Necesaria = (Peso Objetivo − Peso Muestreo Proy. − Medio Día) / Días Extra
+                  Peso Estimado Hoy = Peso Real + (Edad Hoy − Edad Real) × Gan. Diaria Lote
+                </code><br />
+                <code style={{ background: 'rgba(0,0,0,0.05)', padding: '1px 4px', borderRadius: 3 }}>
+                  Gan. Necesaria = (Peso Objetivo − Peso Estimado Hoy − Medio Día) / (Días Restantes − 1)
                 </code><br />
                 Para M/MIX, el peso objetivo se ajusta por el descuento: Peso Mín / 0.96
               </p>
@@ -603,7 +606,7 @@ export default function PronosticoPesosView({ proyeccion }) {
                           <th className="text-center">Sexo</th>
                           <th className="text-right">Cantidad de Aves</th>
                           <th className="text-right">Edad Hoy (días)</th>
-                          <th className="text-right">Peso Muestreo (kg)</th>
+                          <th className="text-right">Peso Real (kg)</th>
                           <th className="text-right">Peso Proy. a Edad Ideal (kg)</th>
                           <th style={{ minWidth: 130 }}>Rango Aceptable</th>
                           <th className="text-right">Gan. Diaria Oferta</th>
@@ -700,7 +703,7 @@ export default function PronosticoPesosView({ proyeccion }) {
                       Rango ideal: {alertaData.peso_min_faena}–{alertaData.peso_max_faena} kg.
                       Ventana faena: {alertaData.edad_min_faena}–{alertaData.edad_max_faena} días.
                       <br />
-                      <em>Peso Muestreo</em> corresponde a la columna "Peso Muestreo Proy" del archivo de oferta.
+                      <em>Peso Real</em> corresponde a la columna "Peso Muestreo Real" del archivo de oferta (dato medido en campo).
                       La <em>Ganancia Diaria Oferta</em> proviene de la columna "Ganancia Diaria" del mismo archivo.
                       La <em>Edad Hoy</em> se calcula sumando los días transcurridos desde la fecha base de la oferta a la edad proyectada.
                     </div>
