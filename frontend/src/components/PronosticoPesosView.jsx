@@ -704,7 +704,7 @@ export default function PronosticoPesosView({ proyeccion }) {
                                   </span>
                                 </td>
                                 <td className="text-center">{nivelIconEl}</td>
-                                <td style={{ fontSize: '0.8rem', color: nivelColor, maxWidth: 220 }}>
+                                <td style={{ fontSize: '0.8rem', color: nivelColor, minWidth: 200, maxWidth: 300, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.4 }}>
                                   {lote.mensaje}
                                 </td>
                               </motion.tr>
