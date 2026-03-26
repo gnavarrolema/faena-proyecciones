@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Factory, UploadCloud, FileSpreadsheet, Trash2, Calendar, TrendingDown, TrendingUp, Loader2, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { uploadProduccion, getProduccion, getSimulacionMortalidad, deleteProduccion, getForecastProduccion } from '../services/api'
+import { uploadProduccion, getProduccion, getSimulacionMortalidad, deleteProduccion, getForecastProduccion, getValidacionCruzada } from '../services/api'
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -34,6 +34,7 @@ export default function ProduccionView() {
   const [produccion, setProduccion] = useState(null)
   const [simulacion, setSimulacion] = useState(null)
   const [forecast, setForecast] = useState(null)
+  const [ofertaPorSemana, setOfertaPorSemana] = useState({})
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [file, setFile] = useState(null)
@@ -42,6 +43,24 @@ export default function ProduccionView() {
   useEffect(() => {
     cargarDatos()
   }, [])
+
+  const cargarOfertaCruzada = async () => {
+    try {
+      const vc = await getValidacionCruzada()
+      const cohortes = vc?.validacion?.mortalidad_cohortes?.cohortes || []
+      const mapa = {}
+      for (const c of cohortes) {
+        mapa[c.fecha_desde] = {
+          aves_en_oferta: c.aves_en_oferta || 0,
+          lotes: c.lotes || 0,
+          granjas: c.granjas || [],
+        }
+      }
+      setOfertaPorSemana(mapa)
+    } catch {
+      // No offer data available
+    }
+  }
 
   const cargarDatos = async () => {
     setLoading(true)
@@ -59,6 +78,7 @@ export default function ProduccionView() {
     } finally {
       setLoading(false)
     }
+    cargarOfertaCruzada()
   }
 
   const handleUpload = async () => {
@@ -93,7 +113,7 @@ export default function ProduccionView() {
           )
         }
       }
-      // Recargar simulación
+      // Recargar simulación y cruce
       try {
         const sim = await getSimulacionMortalidad()
         setSimulacion(sim)
@@ -102,6 +122,7 @@ export default function ProduccionView() {
         const fc = await getForecastProduccion()
         setForecast(fc)
       } catch {}
+      cargarOfertaCruzada()
     } catch (err) {
       toast.error('Error: ' + (err.response?.data?.detail || err.message))
     } finally {
@@ -242,6 +263,9 @@ export default function ProduccionView() {
             <p style={{ marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-light)' }}>
               Planificación estimada de pollitos disponibles para faena (+42 días) descontando diferentes tasas de mortalidad.
               La fecha de faena es <strong>fecha de carga + 42 días</strong>.
+              {Object.keys(ofertaPorSemana).length > 0 && (
+                <span> Las columnas <strong>Oferta Actual</strong> y <strong>Cobertura</strong> muestran las aves vinculadas desde el archivo de oferta para cada semana.</span>
+              )}
             </p>
             <div className="table-container" style={{ overflowX: 'auto' }}>
               <table>
@@ -258,31 +282,66 @@ export default function ProduccionView() {
                         Mort. {t}%
                       </th>
                     ))}
+                    {Object.keys(ofertaPorSemana).length > 0 && (
+                      <>
+                        <th className="text-right" style={{ background: 'rgba(59, 130, 246, 0.08)', fontWeight: 700, borderLeft: '2px solid rgba(59, 130, 246, 0.3)' }}>Oferta Actual</th>
+                        <th className="text-right" style={{ background: 'rgba(59, 130, 246, 0.08)', fontWeight: 700 }}>Cobertura</th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
-                  {simulacion.simulacion.map((sem, idx) => (
-                    <tr key={idx}>
-                      <td>
-                        <strong>{formatDateShort(sem.fecha_desde)}</strong>
-                        <span style={{ color: 'var(--text-light)', fontSize: '0.8rem' }}> – {formatDateShort(sem.fecha_hasta)}</span>
-                      </td>
-                      <td style={{ color: 'var(--primary)', fontWeight: 500 }}>
-                        {formatDate(sem.fecha_faena_estimada)}
-                      </td>
-                      <td className="text-right">
-                        <strong>{formatNumber(sem.pollitos_cargados)}</strong>
-                      </td>
-                      {sem.simulaciones.map((sim, sIdx) => (
-                        <td key={sIdx} className="text-right" style={{
-                          background: simulacion.tasas[sIdx] === simulacion.tasas[simulacion.tasas.length - 1] ? 'rgba(251, 146, 60, 0.08)' : undefined,
-                          fontWeight: simulacion.tasas[sIdx] === simulacion.tasas[simulacion.tasas.length - 1] ? 600 : undefined,
-                        }}>
-                          {formatNumber(sim.pollitos_disponibles)}
+                  {simulacion.simulacion.map((sem, idx) => {
+                    const oferta = ofertaPorSemana[sem.fecha_desde]
+                    const peorCaso = sem.simulaciones[sem.simulaciones.length - 1]?.pollitos_disponibles || 0
+                    const mejorCaso = sem.simulaciones[0]?.pollitos_disponibles || 0
+                    const tieneOferta = Object.keys(ofertaPorSemana).length > 0
+                    const coberturaPct = oferta && peorCaso > 0 ? Math.round(oferta.aves_en_oferta / peorCaso * 1000) / 10 : null
+                    const enRango = oferta && oferta.aves_en_oferta >= peorCaso && oferta.aves_en_oferta <= mejorCaso
+                    const excede = oferta && oferta.aves_en_oferta > mejorCaso
+                    return (
+                      <tr key={idx}>
+                        <td>
+                          <strong>{formatDateShort(sem.fecha_desde)}</strong>
+                          <span style={{ color: 'var(--text-light)', fontSize: '0.8rem' }}> – {formatDateShort(sem.fecha_hasta)}</span>
                         </td>
-                      ))}
-                    </tr>
-                  ))}
+                        <td style={{ color: 'var(--primary)', fontWeight: 500 }}>
+                          {formatDate(sem.fecha_faena_estimada)}
+                        </td>
+                        <td className="text-right">
+                          <strong>{formatNumber(sem.pollitos_cargados)}</strong>
+                        </td>
+                        {sem.simulaciones.map((sim, sIdx) => (
+                          <td key={sIdx} className="text-right" style={{
+                            background: simulacion.tasas[sIdx] === simulacion.tasas[simulacion.tasas.length - 1] ? 'rgba(251, 146, 60, 0.08)' : undefined,
+                            fontWeight: simulacion.tasas[sIdx] === simulacion.tasas[simulacion.tasas.length - 1] ? 600 : undefined,
+                          }}>
+                            {formatNumber(sim.pollitos_disponibles)}
+                          </td>
+                        ))}
+                        {tieneOferta && (
+                          <>
+                            <td className="text-right" style={{ borderLeft: '2px solid rgba(59, 130, 246, 0.3)', fontWeight: 700, fontSize: '0.95rem' }}>
+                              {oferta ? formatNumber(oferta.aves_en_oferta) : <span style={{ color: 'var(--text-light)', fontWeight: 400, fontSize: '0.8rem' }}>Sin oferta</span>}
+                            </td>
+                            <td className="text-right">
+                              {coberturaPct != null ? (
+                                <span style={{
+                                  display: 'inline-block', padding: '2px 8px', borderRadius: 10, fontWeight: 700, fontSize: '0.8rem',
+                                  background: enRango ? '#d1fae5' : excede ? '#fee2e2' : '#fef3c7',
+                                  color: enRango ? '#047857' : excede ? '#b91c1c' : '#92400e',
+                                }}>
+                                  {coberturaPct}%
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--text-light)', fontSize: '0.8rem' }}>-</span>
+                              )}
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
