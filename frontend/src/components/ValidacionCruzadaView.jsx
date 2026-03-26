@@ -74,91 +74,11 @@ function formatWeekRange(dateStr) {
   return `${start.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })} - ${end.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}`
 }
 
-function getPlanningAction(cohorte) {
-  switch (cohorte.nivel) {
-    case 'anticipada':
-      return {
-        titulo: 'Mover a ventana esperada',
-        detalle: `Programar desde la semana ${formatWeekRange(cohorte.fecha_faena_esperada_desde)}.`
-      }
-    case 'atrasada':
-      return {
-        titulo: 'Revisar prioridad de faena',
-        detalle: 'La cohorte aparece tarde respecto a +42 dias; validar sobreedad o atraso del dato.'
-      }
-    case 'excedida':
-      return {
-        titulo: 'Validar exceso de aves',
-        detalle: 'Separar por granja o lote para confirmar que no haya duplicidad o mezcla de semanas.'
-      }
-    case 'mixta':
-      return {
-        titulo: 'Desagregar la cohorte',
-        detalle: 'Hay lotes dentro y fuera de la ventana esperada; conviene partir la planificación.'
-      }
-    case 'parcial':
-      return {
-        titulo: 'Planificar como cohorte parcial',
-        detalle: 'Usar esta base para la semana y complementar con otras cohortes o compras.'
-      }
-    default:
-      return {
-        titulo: 'Planificar en la ventana actual',
-        detalle: `La cohorte calza con la semana ${formatWeekRange(cohorte.fecha_objetivo_desde || cohorte.fecha_faena_esperada_desde)}.`
-      }
-  }
-}
-
-function getPlanningWeekLabel(cohorte) {
-  if (cohorte.nivel === 'atrasada') return 'Revisión Inmediata'
-  return formatWeekRange(cohorte.fecha_objetivo_desde || cohorte.fecha_faena_esperada_desde)
-}
-
-function getBrechaConfig(cohorte) {
-  if (cohorte.estado_cantidad === 'por_encima') {
-    return {
-      label: `${formatSignedNumber(cohorte.diferencia_vs_max)} vs máx`,
-      color: 'var(--danger)',
-      bg: 'var(--danger-light)'
-    }
-  }
-  if (cohorte.diferencia_vs_min == null) {
-    return { label: '-', color: 'var(--text-light)', bg: 'rgba(0,0,0,0.05)' }
-  }
-  const esNegativo = cohorte.diferencia_vs_min < 0
-  return {
-    label: `${formatSignedNumber(cohorte.diferencia_vs_min)} vs mín`,
-    color: esNegativo ? 'var(--warning)' : 'var(--success)',
-    bg: esNegativo ? 'var(--warning-light)' : 'var(--success-light)'
-  }
-}
-
-const NIVEL_CONFIG = {
-  alineada: { label: 'Alineada', color: '#059669', bg: '#d1fae5', bgGradient: 'linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%)', icon: <CheckCircle2 size={14} /> },
-  parcial: { label: 'Parcial', color: '#475569', bg: '#f1f5f9', bgGradient: 'linear-gradient(135deg, #f1f5f9 0%, #f8fafc 100%)', icon: <Target size={14} /> },
-  anticipada: { label: 'Anticipada', color: '#b45309', bg: '#fef3c7', bgGradient: 'linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%)', icon: <Clock size={14} /> },
-  atrasada: { label: 'Atrasada', color: '#c2410c', bg: '#ffedd5', bgGradient: 'linear-gradient(135deg, #ffedd5 0%, #fff7ed 100%)', icon: <AlertTriangle size={14} /> },
-  mixta: { label: 'Mixta', color: '#1d4ed8', bg: '#dbeafe', bgGradient: 'linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%)', icon: <GitMerge size={14} /> },
-  excedida: { label: 'Excedida', color: '#b91c1c', bg: '#fee2e2', bgGradient: 'linear-gradient(135deg, #fee2e2 0%, #fef2f2 100%)', icon: <XCircle size={14} /> },
-  sin_dato: { label: 'Sin dato', color: '#64748b', bg: '#f1f5f9', bgGradient: 'linear-gradient(135deg, #f1f5f9 0%, #f8fafc 100%)', icon: <Info size={14} /> },
-}
-
 const INSIGHT_STYLES = {
   critico: { border: '#fca5a5', bg: 'linear-gradient(135deg, rgba(254, 242, 242, 0.9) 0%, rgba(255, 255, 255, 0.9) 100%)', color: '#991b1b', icon: <XCircle size={22} color="#dc2626" /> },
   advertencia: { border: '#fcd34d', bg: 'linear-gradient(135deg, rgba(255, 251, 235, 0.9) 0%, rgba(255, 255, 255, 0.9) 100%)', color: '#92400e', icon: <AlertTriangle size={22} color="#d97706" /> },
   positivo: { border: '#86efac', bg: 'linear-gradient(135deg, rgba(240, 253, 244, 0.9) 0%, rgba(255, 255, 255, 0.9) 100%)', color: '#166534', icon: <CheckCircle2 size={22} color="#16a34a" /> },
   info: { border: '#93c5fd', bg: 'linear-gradient(135deg, rgba(239, 246, 255, 0.9) 0%, rgba(255, 255, 255, 0.9) 100%)', color: '#1e40af', icon: <Info size={22} color="#2563eb" /> },
-}
-
-const COHORTE_WRAP_CELL_STYLE = {
-  whiteSpace: 'normal',
-  verticalAlign: 'top',
-}
-
-const COHORTE_META_TEXT_STYLE = {
-  color: 'var(--text-light)',
-  whiteSpace: 'normal',
-  wordBreak: 'break-word',
 }
 
 export default function ValidacionCruzadaView() {
@@ -535,152 +455,102 @@ export default function ValidacionCruzadaView() {
         </motion.div>
       )}
 
-      {/* Planificacion por cohortes */}
-      {cohortes && cohortes.cohortes && cohortes.cohortes.length > 0 && (
+      {/* Validación Producción → Faena */}
+      {cohortesList.length > 0 && (
         <motion.div variants={itemVariants} className="card" style={{
-          borderTop: '4px solid var(--warning)',
+          borderLeft: '4px solid var(--primary)',
           borderRadius: 16,
           boxShadow: '0 10px 25px -5px rgba(0,0,0,0.05)'
         }}>
           <div className="card-header" style={{ padding: '1.25rem 1.5rem', background: 'white' }}>
             <h2 style={{ fontSize: '1.2rem', gap: '0.5rem' }}>
-              <GitMerge size={20} color="var(--warning)" style={{ filter: 'drop-shadow(0 2px 4px rgba(245, 158, 11, 0.3))' }} /> 
-              Matriz de Planificación por Cohortes
+              <GitMerge size={20} color="var(--primary)" style={{ filter: 'drop-shadow(0 2px 4px rgba(26,86,50,0.2))' }} />
+              Validación de Coherencia: Producción → Faena
             </h2>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-light)', background: '#f1f5f9', padding: '0.2rem 0.6rem', borderRadius: 12 }}>
-                {cohortes.total_cohortes} Bloques
-              </span>
-              {cohortes.alertas > 0 && (
-                <motion.span whileHover={{ scale: 1.05 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }} style={{ fontSize: '0.8rem', fontWeight: 600, color: '#991b1b', background: '#fee2e2', padding: '0.2rem 0.6rem', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4, cursor: 'default' }}>
-                  <AlertCircle size={12} /> {cohortes.alertas} Alertas
-                </motion.span>
-              )}
-            </div>
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-light)', background: '#f1f5f9', padding: '0.2rem 0.6rem', borderRadius: 12 }}>
+              {cohortesList.length} semana{cohortesList.length !== 1 ? 's' : ''} cruzada{cohortesList.length !== 1 ? 's' : ''}
+            </span>
           </div>
           <div className="card-body" style={{ padding: '0 1.5rem 1.5rem' }}>
-            <div style={{ background: 'linear-gradient(135deg, #fffbeb 0%, #fef9c3 50%, #fffbeb 100%)', borderRadius: 10, padding: '1rem 1.25rem', marginBottom: '1.25rem', border: '1px solid #fde68a', fontSize: '0.82rem', color: '#78350f', lineHeight: 1.6 }}>
-              <div style={{ fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6, color: '#b45309' }}>
-                <Info size={14} /> ¿Cómo interpretar esta matriz?
+            <div style={{ background: 'linear-gradient(135deg, #eff6ff 0%, #f0f9ff 50%, #eff6ff 100%)', borderRadius: 10, padding: '1rem 1.25rem', marginBottom: '1.25rem', border: '1px solid #bfdbfe', fontSize: '0.82rem', color: '#1e3a5f', lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6, color: '#1d4ed8' }}>
+                <Info size={14} /> ¿Cómo leer esta tabla?
               </div>
               <p style={{ margin: '0 0 6px 0' }}>
-                Esta matriz cruza la <strong>oferta de faena</strong> (aves propuestas por las granjas) con los <strong>datos de producción de pollitos BB</strong> (cargas semanales). Cada fila representa un <em>bloque biológico</em> (cohorte): un grupo de lotes cuya fecha de ingreso cae en la misma semana de producción.
+                Cada fila representa una <strong>semana de producción</strong> del archivo de Pollitos BB. Se toman los pollitos cargados en granjas propias esa semana, se proyectan <strong>42 días de engorde</strong> y se descuenta una merma estimada del 4,5% al 7,5% para obtener el rango de aves que deberían llegar a faena. Luego se compara contra las aves que efectivamente aparecen en la oferta (vinculadas por su fecha de ingreso).
               </p>
               <ul style={{ margin: '4px 0 0 0', paddingLeft: '1.2rem', listStyle: 'disc' }}>
-                <li><strong>Bloque Biológico</strong>: Rango de la semana de producción (ej. 10 mar → 16 mar). Debajo se listan las granjas y la cantidad de lotes vinculados.</li>
-                <li><strong>Horizonte Sugerido</strong>: Semana de planificación sugerida para faena. El "Target Inicial" es el rango de fechas objetivo de la oferta.</li>
-                <li><strong>Ventana Biológica</strong>: Fecha esperada de faena = semana de producción + 42 días (edad de referencia para faena). "Base" indica cuántos pollitos fueron cargados esa semana según el Excel de producción.</li>
-                <li><strong>Aves / Proyección</strong>: Arriba, las aves ofertadas para este bloque. Abajo, el rango proyectado de aves esperadas en faena descontando merma (4,5% a 7,5% de mortalidad). La "Cob" (cobertura) indica qué porcentaje de la proyección cubre la oferta.</li>
-                <li><strong>Desvío</strong>: Diferencia entre aves ofertadas y el rango proyectado. Muestra si la oferta está por encima, dentro o por debajo de lo esperado.</li>
-                <li><strong>Status</strong>: <em>Alineada</em> = fechas y cantidad coherentes; <em>Anticipada/Atrasada</em> = la oferta se desfasa temporalmente; <em>Excedida</em> = más aves de las esperadas; <em>Parcial</em> = menos aves de las esperadas.</li>
-                <li><strong>Heurística</strong>: Acción recomendada según el estado (ej. "Usar como base", "Reprogramar", "Completar con compras").</li>
+                <li><strong>Pollitos Cargados</strong>: Cantidad de pollitos BB enviados a granjas propias esa semana (dato del archivo de producción).</li>
+                <li><strong>Esperados en Faena</strong>: Rango de aves que deberían llegar a planta tras 42 días, descontando entre 4,5% (mejor caso) y 7,5% (peor caso) de mortalidad.</li>
+                <li><strong>Aves en Oferta</strong>: Cantidad de aves que las granjas efectivamente ofrecen para faena, cuyos lotes tienen fecha de ingreso dentro de esa semana de producción.</li>
+                <li><strong>Diferencia</strong>: Aves en oferta menos el límite inferior del rango esperado. Un valor positivo indica que se ofrecen más aves de las esperadas; uno negativo, menos.</li>
+                <li><strong>Veredicto</strong>: <em>Coherente</em> si la oferta cae dentro del rango esperado; <em>Excede</em> si supera el máximo; <em>Insuficiente</em> si no alcanza el mínimo.</li>
               </ul>
             </div>
             <div className="table-container" style={{ borderRadius: 12, boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
-              <table className="validacion-cohortes-table">
-                <colgroup>
-                  <col style={{ width: '16%' }} />
-                  <col style={{ width: '16%' }} />
-                  <col style={{ width: '16%' }} />
-                  <col style={{ width: '15%' }} />
-                  <col style={{ width: '11%' }} />
-                  <col style={{ width: '12%' }} />
-                  <col style={{ width: '14%' }} />
-                </colgroup>
+              <table>
                 <thead style={{ background: 'linear-gradient(to right, #f8fafc, #f1f5f9)' }}>
                   <tr>
-                    <th>Bloque Biológico</th>
-                    <th>Horizonte Sugerido</th>
-                    <th>Ventana Biológica</th>
-                    <th className="text-right">Aves / Proyección</th>
-                    <th className="text-right">Desvío</th>
-                    <th>Status</th>
-                    <th>Heurística</th>
+                    <th style={{ fontWeight: 700 }}>Semana Producción</th>
+                    <th className="text-right" style={{ fontWeight: 700 }}>Pollitos Cargados</th>
+                    <th className="text-right" style={{ fontWeight: 700 }}>Esperados en Faena</th>
+                    <th className="text-right" style={{ fontWeight: 700 }}>Aves en Oferta</th>
+                    <th className="text-right" style={{ fontWeight: 700 }}>Diferencia</th>
+                    <th style={{ fontWeight: 700 }}>Veredicto</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {cohortes.cohortes.map((c, idx) => {
-                    const cfg = NIVEL_CONFIG[c.nivel] || NIVEL_CONFIG.sin_dato
-                    const accion = getPlanningAction(c)
-                    const brecha = getBrechaConfig(c)
-                    const coberturaEsperada = c.cobertura_pct_min != null && c.cobertura_pct_max != null
-                      ? `${c.cobertura_pct_max}% a ${c.cobertura_pct_min}%`
-                      : '-'
+                  {cohortesList.map((c, idx) => {
+                    const enRango = c.aves_en_oferta >= (c.esperados_faena_min || 0) && c.aves_en_oferta <= (c.esperados_faena_max || Infinity)
+                    const excede = c.aves_en_oferta > (c.esperados_faena_max || Infinity)
+                    const insuficiente = c.aves_en_oferta < (c.esperados_faena_min || 0)
+                    const diff = c.aves_en_oferta - (c.esperados_faena_min || 0)
                     return (
-                      <motion.tr key={idx} whileHover={{ backgroundColor: 'rgba(248, 250, 252, 0.9)' }} style={{ borderBottom: '1px solid rgba(226,232,240,0.5)' }}>
-                        <td style={COHORTE_WRAP_CELL_STYLE}>
+                      <motion.tr key={idx} whileHover={{ backgroundColor: 'rgba(241, 245, 249, 0.8)' }} style={{ borderBottom: '1px solid rgba(226,232,240,0.5)' }}>
+                        <td>
                           <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text)' }}>
-                            {formatDate(c.fecha_desde)} <span style={{ color: 'var(--text-light)', fontWeight: 400 }}>→</span> {formatDate(c.fecha_hasta)}
+                            {formatDate(c.fecha_desde)} → {formatDate(c.fecha_hasta)}
                           </div>
-                          <div style={{ ...COHORTE_META_TEXT_STYLE, fontSize: '0.75rem', marginTop: 6, opacity: 0.85 }}>
-                            {c.granjas?.join(', ') || '-'}
-                            {c.lotes > 0 && <span style={{ display: 'block', marginTop: 2, fontWeight: 600, color: 'var(--primary)' }}>{c.lotes} lotes vinculados</span>}
+                          <div style={{ fontSize: '0.73rem', color: 'var(--text-light)', marginTop: 4 }}>
+                            Faena esperada: {formatDate(c.fecha_faena_esperada_desde)} → {formatDate(c.fecha_faena_esperada_hasta)}
                           </div>
-                        </td>
-                        <td style={{ ...COHORTE_WRAP_CELL_STYLE, fontSize: '0.85rem' }}>
-                          <div style={{ fontWeight: 700, color: 'var(--primary-dark)', fontSize: '0.9rem' }}>{getPlanningWeekLabel(c)}</div>
-                          <div style={{ ...COHORTE_META_TEXT_STYLE, marginTop: 4, fontSize: '0.75rem' }}>
-                            Target Inicial:<br/>{formatRange(c.fecha_objetivo_desde || c.fecha_oferta_desde, c.fecha_objetivo_hasta || c.fecha_oferta_hasta)}
-                          </div>
-                        </td>
-                        <td style={{ ...COHORTE_WRAP_CELL_STYLE, fontSize: '0.85rem' }}>
-                          <div style={{ fontWeight: 600, color: 'var(--text)' }}>{formatRange(c.fecha_faena_esperada_desde, c.fecha_faena_esperada_hasta)}</div>
-                          <div style={{ ...COHORTE_META_TEXT_STYLE, marginTop: 4, display: 'inline-block', background: 'rgba(0,0,0,0.03)', padding: '2px 6px', borderRadius: 4, fontSize: '0.7rem' }}>
-                            Base: {formatNumber(c.pollitos_cargados)} pollitos
-                          </div>
-                        </td>
-                        <td className="text-right" style={{ verticalAlign: 'top' }}>
-                          <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text)' }}>{formatNumber(c.aves_en_oferta)}</div>
-                          <div style={{ color: 'var(--text-light)', fontSize: '0.7rem', marginTop: 4 }}>
-                            Proyección: {formatNumber(c.esperados_faena_min)} - {formatNumber(c.esperados_faena_max)}
-                          </div>
-                          <div style={{ color: cfg.color, fontSize: '0.75rem', fontWeight: 700, marginTop: 4, background: cfg.bg, display: 'inline-block', padding: '2px 6px', borderRadius: 4 }}>
-                            Cob: {coberturaEsperada}
-                          </div>
-                        </td>
-                        <td className="text-right" style={{ verticalAlign: 'top' }}>
-                          <span style={{
-                            display: 'inline-block',
-                            padding: '4px 8px',
-                            background: brecha.bg || 'transparent',
-                            color: brecha.color,
-                            borderRadius: 6,
-                            fontWeight: 700,
-                            fontSize: '0.8rem',
-                            border: `1px solid ${brecha.color}33`
-                          }}>
-                            {brecha.label}
-                          </span>
-                        </td>
-                        <td style={COHORTE_WRAP_CELL_STYLE}>
-                          <span style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            padding: '4px 10px',
-                            borderRadius: 20,
-                            fontSize: '0.75rem',
-                            fontWeight: 700,
-                            background: cfg.bgGradient || cfg.bg,
-                            color: cfg.color,
-                            border: `1px solid ${cfg.color}15`,
-                            boxShadow: `0 2px 4px ${cfg.color}15`,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.04em'
-                          }}>
-                            {cfg.icon} {cfg.label}
-                          </span>
-                          {c.motivo && (
-                            <div style={{ ...COHORTE_META_TEXT_STYLE, fontSize: '0.7rem', marginTop: 8, lineHeight: 1.4, opacity: 0.9, padding: '4px', background: 'rgba(0,0,0,0.015)', borderRadius: 4 }}>
-                              {c.motivo}
+                          {c.granjas && c.granjas.length > 0 && (
+                            <div style={{ fontSize: '0.72rem', color: 'var(--primary)', marginTop: 2, fontWeight: 500 }}>
+                              {c.granjas.join(', ')} · {c.lotes} lote{c.lotes !== 1 ? 's' : ''}
                             </div>
                           )}
                         </td>
-                        <td style={{ ...COHORTE_WRAP_CELL_STYLE, fontSize: '0.8rem', background: 'rgba(248,250,252,0.4)', borderLeft: '1px solid rgba(226,232,240,0.5)' }}>
-                          <div style={{ fontWeight: 700, color: 'var(--text)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Box size={14} style={{opacity: 0.5}} /> {accion.titulo}
-                          </div>
-                          <div style={{ ...COHORTE_META_TEXT_STYLE, fontSize: '0.75rem', lineHeight: 1.4, opacity: 0.85 }}>{accion.detalle}</div>
+                        <td className="text-right" style={{ fontWeight: 700, fontSize: '1rem' }}>
+                          {formatNumber(c.pollitos_cargados)}
+                        </td>
+                        <td className="text-right">
+                          <div style={{ fontWeight: 600 }}>{formatNumber(c.esperados_faena_min)} – {formatNumber(c.esperados_faena_max)}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-light)', marginTop: 2 }}>merma 4,5% a 7,5%</div>
+                        </td>
+                        <td className="text-right" style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text)' }}>
+                          {formatNumber(c.aves_en_oferta)}
+                        </td>
+                        <td className="text-right">
+                          <span style={{
+                            display: 'inline-block', padding: '3px 8px', borderRadius: 6, fontWeight: 700, fontSize: '0.85rem',
+                            background: enRango ? '#d1fae5' : excede ? '#fee2e2' : '#fef3c7',
+                            color: enRango ? '#047857' : excede ? '#b91c1c' : '#92400e',
+                            border: `1px solid ${enRango ? '#6ee7b7' : excede ? '#fca5a5' : '#fcd34d'}33`
+                          }}>
+                            {diff > 0 ? '+' : ''}{formatNumber(diff)}
+                          </span>
+                        </td>
+                        <td>
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px',
+                            borderRadius: 20, fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
+                            background: enRango ? '#d1fae5' : excede ? '#fee2e2' : '#fef3c7',
+                            color: enRango ? '#047857' : excede ? '#b91c1c' : '#92400e',
+                          }}>
+                            {enRango && <><CheckCircle2 size={12} /> Coherente</>}
+                            {excede && <><AlertTriangle size={12} /> Excede</>}
+                            {insuficiente && <><AlertCircle size={12} /> Insuficiente</>}
+                          </span>
                         </td>
                       </motion.tr>
                     )
