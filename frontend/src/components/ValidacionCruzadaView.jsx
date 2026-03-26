@@ -3,21 +3,21 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { ShieldCheck, AlertTriangle, AlertCircle, Info, TrendingUp, Loader2, RefreshCw, CheckCircle2, XCircle, Search, GitMerge, Activity, BarChart3, Clock, Database, Target, Box } from 'lucide-react'
 import { getValidacionCruzada } from '../services/api'
 
-// --- Sophisticated Animation Variants ---
+// --- Premium Animation Variants ---
 const containerVariants = {
   hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.12, delayChildren: 0.1 } }
+  show: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.05, ease: 'easeOut' } }
 }
 const itemVariants = {
-  hidden: { opacity: 0, y: 30, filter: 'blur(10px)', scale: 0.98 },
-  show: { opacity: 1, y: 0, filter: 'blur(0px)', scale: 1, transition: { type: 'spring', stiffness: 90, damping: 16 } }
+  hidden: { opacity: 0, y: 20, filter: 'blur(8px)', scale: 0.98 },
+  show: { opacity: 1, y: 0, filter: 'blur(0px)', scale: 1, transition: { type: 'spring', stiffness: 120, damping: 20 } }
 }
 const floatHover = {
   scale: 1.015,
   y: -4,
-  boxShadow: '0 25px 30px -5px rgba(0, 0, 0, 0.1), 0 10px 15px -5px rgba(0, 0, 0, 0.04)',
-  borderColor: 'rgba(255,255,255,0.8)',
-  transition: { type: 'spring', stiffness: 400, damping: 25 }
+  boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+  borderColor: 'rgba(255,255,255,0.9)',
+  transition: { type: 'spring', stiffness: 300, damping: 20 }
 }
 
 function formatNumber(n) {
@@ -189,16 +189,16 @@ export default function ValidacionCruzadaView() {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', flexDirection: 'column', gap: '1rem' }}>
         <motion.div
-          animate={{ rotate: 360, scale: [1, 1.1, 1] }}
-          transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
+          style={{ background: 'var(--primary-light)', padding: '1rem', borderRadius: '50%', boxShadow: '0 0 20px rgba(45,138,78,0.3)', color: 'white' }}
         >
-          <Activity size={32} color="var(--primary)" />
+          <Activity size={32} />
         </motion.div>
         <motion.span
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut", repeatType: "reverse" }}
-          style={{ color: 'var(--text-light)', fontWeight: 600, letterSpacing: '0.05em' }}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{ color: 'var(--primary-dark)', fontSize: '1.1rem', fontWeight: 600, letterSpacing: '0.02em', marginTop: '0.5rem' }}
         >
           Sincronizando operaciones...
         </motion.span>
@@ -229,10 +229,12 @@ export default function ValidacionCruzadaView() {
       }}>
         <div className="card-body" style={{ textAlign: 'center', padding: '4rem 2rem' }}>
           <motion.div
-            animate={{ y: [0, -10, 0] }}
-            transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 100, damping: 20 }}
+            style={{ marginBottom: 20, display: 'inline-block', background: 'var(--bg)', padding: '1.5rem', borderRadius: '50%', boxShadow: '0 10px 25px rgba(0,0,0,0.05)' }}
           >
-            <GitMerge size={56} color="var(--primary-light)" style={{ marginBottom: 20, filter: 'drop-shadow(0 4px 6px rgba(45,138,78,0.3))' }} />
+            <GitMerge size={56} color="var(--primary-light)" style={{ filter: 'drop-shadow(0 4px 6px rgba(45,138,78,0.2))' }} />
           </motion.div>
           <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text)', marginBottom: '0.5rem' }}>
             Sincronización Operativa Inactiva
@@ -286,7 +288,7 @@ export default function ValidacionCruzadaView() {
             <GitMerge size={22} color="var(--primary)" style={{ filter: 'drop-shadow(0 2px 4px rgba(26,86,50,0.2))' }} />
             Sincronización Operativa: Oferta ↔ Producción
           </h2>
-          <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} className="btn btn-sm btn-outline" onClick={cargar} style={{ borderRadius: 20 }}>
+          <motion.button whileHover={{ scale: 1.05, y: -1, boxShadow: '0 4px 10px rgba(0,0,0,0.1)' }} whileTap={{ scale: 0.95 }} className="btn btn-sm btn-outline" onClick={cargar} style={{ borderRadius: 20, transition: 'background 0.2s, color 0.2s, border 0.2s' }}>
             <RefreshCw size={14} /> Actualizar
           </motion.button>
         </div>
@@ -383,8 +385,8 @@ export default function ValidacionCruzadaView() {
                     key={idx}
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    whileHover={{ scale: 1.02, y: -2, boxShadow: '0 10px 20px rgba(0,0,0,0.06)' }}
-                    transition={{ type: 'spring', stiffness: 200, delay: idx * 0.05 }}
+                    whileHover={{ scale: 1.02, y: -4, boxShadow: '0 15px 30px -5px rgba(0,0,0,0.1)' }}
+                    transition={{ type: 'spring', stiffness: 250, damping: 25, delay: idx * 0.05 }}
                     style={{
                       border: `1px solid ${style.border}`,
                       borderRadius: 16,
@@ -469,7 +471,7 @@ export default function ValidacionCruzadaView() {
               <KpiCard label="Extracción Est. (Máx)" value={formatNumber(fact.disponibles_mejor)} color="var(--primary)" />
               
               {fact.deficit_peor ? (
-                <motion.div animate={{ scale: [1, 1.02, 1] }} transition={{ repeat: Infinity, duration: 2 }}>
+                <motion.div whileHover={{ scale: 1.02 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }}>
                   <KpiCard label="Déficit Proyectado" value={formatNumber(fact.deficit_peor)} color="var(--danger)" style={{ border: '2px solid rgba(239,68,68,0.3)', background: 'var(--danger-light)' }} />
                 </motion.div>
               ) : (
@@ -538,7 +540,7 @@ export default function ValidacionCruzadaView() {
                 {cohortes.total_cohortes} Bloques
               </span>
               {cohortes.alertas > 0 && (
-                <motion.span animate={{ scale: [1, 1.05, 1] }} transition={{ repeat: Infinity, duration: 2 }} style={{ fontSize: '0.8rem', fontWeight: 600, color: '#991b1b', background: '#fee2e2', padding: '0.2rem 0.6rem', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <motion.span whileHover={{ scale: 1.05 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }} style={{ fontSize: '0.8rem', fontWeight: 600, color: '#991b1b', background: '#fee2e2', padding: '0.2rem 0.6rem', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4, cursor: 'default' }}>
                   <AlertCircle size={12} /> {cohortes.alertas} Alertas
                 </motion.span>
               )}
@@ -733,7 +735,8 @@ function StatusBadge({ ok, label, detail, iconType }) {
 
   return (
     <motion.div 
-      whileHover={{ y: -2, boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}
+      whileHover={{ scale: 1.02, y: -2, boxShadow: '0 8px 15px -3px rgba(0,0,0,0.08)' }}
+      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
       style={{
         display: 'flex', alignItems: 'center', gap: 12,
         padding: '0.75rem 1.25rem',
@@ -762,25 +765,26 @@ function StatusBadge({ ok, label, detail, iconType }) {
 function KpiCard({ icon, label, value, color, style = {} }) {
   return (
     <motion.div 
-      whileHover={{ scale: 1.03, y: -2, boxShadow: '0 8px 12px rgba(0,0,0,0.05)' }}
+      whileHover={{ scale: 1.02, y: -4, boxShadow: '0 12px 20px -5px rgba(0,0,0,0.08), 0 8px 10px -6px rgba(0,0,0,0.04)' }}
+      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
       style={{
-        background: '#ffffff',
+        background: 'linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(250,252,254,1) 100%)',
         border: '1px solid var(--border)',
-        borderRadius: 12,
-        padding: '1rem',
+        borderRadius: 14,
+        padding: '1.2rem',
         display: 'flex', flexDirection: 'column',
         position: 'relative',
         overflow: 'hidden',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.01)',
+        boxShadow: '0 4px 6px -1px rgba(0,0,0,0.03)',
         ...style
       }}
     >
-      <div style={{ position: 'absolute', top: 0, left: 0, width: 4, height: '100%', background: color || 'var(--primary)' }} />
-      <div style={{ fontSize: '0.75rem', color: 'var(--text-light)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-        {icon && <span style={{ opacity: 0.7, color: color || 'var(--text-light)' }}>{icon}</span>}
+      <div style={{ position: 'absolute', top: 0, left: 0, width: 4, height: '100%', background: color || 'var(--primary)', opacity: 0.85 }} />
+      <div style={{ fontSize: '0.75rem', color: 'var(--text-light)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+        {icon && <span style={{ opacity: 0.8, color: color || 'var(--text-light)', display: 'flex', background: 'rgba(0,0,0,0.03)', padding: '4px', borderRadius: '6px' }}>{icon}</span>}
         {label}
       </div>
-      <div style={{ fontSize: '1.4rem', fontWeight: 800, color: color || 'var(--text)', letterSpacing: '-0.02em', marginTop: 'auto' }}>
+      <div style={{ fontSize: '1.55rem', fontWeight: 800, color: color || 'var(--text)', letterSpacing: '-0.02em', marginTop: 'auto', textShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
         {value}
       </div>
     </motion.div>
@@ -792,7 +796,8 @@ function DataSourceCard({ title, icon, source, rows, emptyText }) {
 
   return (
     <motion.div 
-      whileHover={{ boxShadow: '0 10px 15px -3px rgba(0,0,0,0.05)' }}
+      whileHover={{ scale: 1.01, y: -2, boxShadow: '0 15px 25px -5px rgba(0,0,0,0.08)' }}
+      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
       style={{
         border: `1px solid ${mismatch ? 'rgba(245, 158, 11, 0.45)' : 'rgba(226, 232, 240, 0.8)'}`,
         borderRadius: 16,
