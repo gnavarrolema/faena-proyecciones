@@ -459,6 +459,23 @@ export default function ValidacionCruzadaView() {
             </span>
           </div>
           <div className="card-body">
+            <div style={{ background: 'linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 50%, #f0fdf4 100%)', borderRadius: 10, padding: '1rem 1.25rem', marginBottom: '1.25rem', border: '1px solid #bbf7d0', fontSize: '0.82rem', color: '#14532d', lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6, color: '#166534' }}>
+                <Info size={14} /> ¿Cómo interpretar esta tabla?
+              </div>
+              <p style={{ margin: '0 0 6px 0' }}>
+                Esta tabla desglosa la <strong>oferta de faena por granja</strong>, mostrando cómo se distribuye el volumen total entre los distintos proveedores. Permite identificar dependencias operativas y planificar la logística de retiro.
+              </p>
+              <ul style={{ margin: '4px 0 0 0', paddingLeft: '1.2rem', listStyle: 'disc' }}>
+                <li><strong>Aves</strong>: Total de aves que la granja ofrece para faena en esta carga.</li>
+                <li><strong>% Oferta</strong>: Proporción sobre el total de aves ofertadas. Si una sola granja supera el 40%, existe riesgo de concentración — cualquier problema en esa granja impactaría fuertemente la planificación.</li>
+                <li><strong>Lotes</strong>: Cantidad de galpones o lotes distintos que la granja pone a disposición. Más lotes implica mayor flexibilidad para escalonar retiros.</li>
+                <li><strong>Edad Prom.</strong>: Edad real promedio (en días) de las aves de esa granja, ponderada por cantidad. Aves más viejas tienen prioridad de faena; edades dispares entre granjas sugieren que se pueden secuenciar los retiros.</li>
+                <li><strong>Peso Prom.</strong>: Peso de muestreo real promedio (en kg), ponderado por cantidad. Indica la categoría de producto esperada y ayuda a proyectar el rendimiento en planta.</li>
+                <li><strong>Sexo</strong>: Sexo predominante en los lotes de la granja. Machos y hembras tienen rendimientos de faena distintos, lo que afecta la planificación de línea.</li>
+                <li><strong>Cohorte Producción</strong>: Semana(s) de producción BB de donde provienen las aves. Vincula la oferta con el origen biológico y permite rastrear trazabilidad.</li>
+              </ul>
+            </div>
             {concentracion.max_pct >= 40 && (
               <div style={{ background: 'linear-gradient(135deg, #fffbeb 0%, #fef9c3 100%)', borderRadius: 10, padding: '0.8rem 1rem', marginBottom: '1rem', border: '1px solid #fde68a', fontSize: '0.82rem', color: '#78350f', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <AlertTriangle size={16} style={{ flexShrink: 0 }} />
