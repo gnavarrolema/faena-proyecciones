@@ -69,6 +69,52 @@ def test_ganancia_necesaria_positiva():
     assert result["lotes"][0]["ganancia_necesaria"] >= 0
 
 
+def test_ganancia_necesaria_desde_hoy():
+    """
+    Cuando la oferta tiene días de antigüedad, ganancia_necesaria debe
+    calcularse desde la fecha actual, no desde la fecha de la oferta.
+
+    Caso: MARTINA galpón 8, núcleo 2, sexo M.
+    - fecha_peso: 14/3, dias_proy: 5, fecha_base: 19/3
+    - edad_proyectada: 26, peso_muestreo_proy: 1.56, gdp: 0.070
+    - fecha_referencia: 26/3 (7 días después)
+    - edad_actual: 33, dias_restantes a edad_ideal_macho(40): 7
+    - peso_estimado_hoy: 1.56 + 7*0.070 = 2.05
+    - dias_efectivos_restantes: 7 - 1 = 6
+    - peso_target (M): 2.80/0.96 = 2.91667
+    - gan_necesaria: (2.91667 - 2.05 - 0.045) / 6 ≈ 0.1369
+    """
+    params = Parametros()  # edad_ideal_macho=40, peso_min_faena=2.80
+    lote = LoteOferta(
+        fecha_peso=date(2026, 3, 14),
+        granja="MARTINA",
+        galpon=8,
+        nucleo=2,
+        cantidad=12751,
+        sexo="M",
+        edad_proyectada=26,
+        peso_muestreo_proy=1.56,
+        ganancia_diaria=0.070,
+        dias_proyectados=5,
+        edad_real=21,
+        peso_muestreo_real=1.21,
+        fecha_ingreso=date(2026, 2, 20),
+    )
+    fecha_ref = date(2026, 3, 26)  # 7 días después de la oferta
+    result = calcular_alerta_temprana([lote], params, fecha_referencia=fecha_ref)
+
+    r = result["lotes"][0]
+    assert r["edad_actual"] == 33
+    assert r["dias_restantes"] == 7  # 40 - 33
+
+    # Ganancia necesaria debe ser ~0.1369 (desde HOY), no ~0.100 (desde oferta)
+    assert r["ganancia_necesaria"] > 0.13, (
+        f"ganancia_necesaria={r['ganancia_necesaria']:.4f} debería ser ~0.137 "
+        f"(calculada desde hoy), no ~0.100 (promedio desde la oferta)"
+    )
+    assert round(r["ganancia_necesaria"], 2) == 0.14
+
+
 def test_lista_vacia():
     """Con lista vacía, devuelve resultado vacío."""
     result = calcular_alerta_temprana([], Parametros())

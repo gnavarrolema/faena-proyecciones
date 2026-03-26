@@ -1427,20 +1427,22 @@ def calcular_alerta_temprana(
             ganancia_diaria_lote=oferta.ganancia_diaria,
         )
 
-        # --- Ganancia mínima necesaria para alcanzar peso_min_faena a edad ideal ---
-        # Inversa de la fórmula peso_vivo_retiro
-        dias_extra_ideal = max(edad_fin_ideal - oferta.edad_proyectada - 1, 0)
+        # --- Ganancia mínima necesaria DESDE HOY para alcanzar peso_min_faena a edad ideal ---
         medio_dia = params.ganancia_diaria_macho * params.medio_dia_ganancia
         if oferta.sexo.upper() != "H":
-            # peso_min = ((dias_extra * gan) + peso_actual + medio_dia) * (1 - desc)
-            # gan_necesaria = (peso_min / (1 - desc) - peso_actual - medio_dia) / dias_extra
             factor_desc = 1 - params.descuento_sin_sexar
             peso_target = params.peso_min_faena / factor_desc
         else:
             peso_target = params.peso_min_faena
 
-        if dias_extra_ideal > 0:
-            ganancia_necesaria = (peso_target - oferta.peso_muestreo_proy - medio_dia) / dias_extra_ideal
+        # Peso estimado de crecimiento hoy (sin descuento de faena)
+        dias_transcurridos = edad_actual - oferta.edad_proyectada
+        peso_estimado_hoy = oferta.peso_muestreo_proy + dias_transcurridos * ganancia_lote
+
+        # Días efectivos de crecimiento restantes (último día solo medio_dia)
+        dias_efectivos_restantes = max(dias_restantes - 1, 0)
+        if dias_efectivos_restantes > 0:
+            ganancia_necesaria = (peso_target - peso_estimado_hoy - medio_dia) / dias_efectivos_restantes
         else:
             ganancia_necesaria = 0.0
 
