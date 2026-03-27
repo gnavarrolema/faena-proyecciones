@@ -1784,7 +1784,16 @@ def validar_mortalidad_oferta(
         fecha_desde = date.fromisoformat(c["fecha_desde"])
         fecha_hasta = date.fromisoformat(c["fecha_hasta"])
         faena_esperada_desde = fecha_desde + timedelta(days=DIAS_HASTA_FAENA_REFERENCIA)
+        # Si cae sábado o domingo, mover al lunes siguiente
+        if faena_esperada_desde.weekday() == 5:
+            faena_esperada_desde += timedelta(days=2)
+        elif faena_esperada_desde.weekday() == 6:
+            faena_esperada_desde += timedelta(days=1)
         faena_esperada_hasta = fecha_hasta + timedelta(days=DIAS_HASTA_FAENA_REFERENCIA)
+        if faena_esperada_hasta.weekday() == 5:
+            faena_esperada_hasta += timedelta(days=2)
+        elif faena_esperada_hasta.weekday() == 6:
+            faena_esperada_hasta += timedelta(days=1)
 
         if cargados > 0:
             esperados_faena_max = int(cargados * (1 - MERMA_REFERENCIA_MIN))

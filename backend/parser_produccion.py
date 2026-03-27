@@ -253,6 +253,11 @@ def simular_mortalidad(
 
     for sem in semanas:
         fecha_faena = sem.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
+        # Si cae sábado o domingo, mover al lunes siguiente
+        if fecha_faena.weekday() == 5:  # sábado
+            fecha_faena += timedelta(days=2)
+        elif fecha_faena.weekday() == 6:  # domingo
+            fecha_faena += timedelta(days=1)
 
         simulaciones = []
         for tasa in tasas:
