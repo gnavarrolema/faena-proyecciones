@@ -21,7 +21,6 @@ class Parametros(BaseModel):
     """Parámetros globales de cálculo."""
     ganancia_diaria_macho: float = 0.090
     ganancia_diaria_hembra: float = 0.079
-    medio_dia_ganancia: float = 0.5
     rendimiento_canal: float = 0.87
     kg_por_caja: float = 20.0
     edad_ideal_macho: int = 40
@@ -253,8 +252,8 @@ def peso_vivo_retiro(
     else:
         ganancia = params.ganancia_diaria_hembra if sexo.upper() == "H" else params.ganancia_diaria_macho
 
-    # medio_dia siempre usa ganancia macho (0.09*0.5=0.045), según la fórmula del Excel
-    medio_dia = params.ganancia_diaria_macho * params.medio_dia_ganancia
+    # medio_dia siempre usa ganancia macho * 0.5 (0.09*0.5=0.045), según la fórmula del Excel
+    medio_dia = params.ganancia_diaria_macho * 0.5
 
     peso = (dias_extra * ganancia) + peso_actual + medio_dia
 
@@ -1430,7 +1429,7 @@ def calcular_alerta_temprana(
         )
 
         # --- Ganancia mínima necesaria DESDE HOY para alcanzar peso_min_faena a edad ideal ---
-        medio_dia = params.ganancia_diaria_macho * params.medio_dia_ganancia
+        medio_dia = params.ganancia_diaria_macho * 0.5
         if oferta.sexo.upper() != "H":
             factor_desc = 1 - params.descuento_sin_sexar
             peso_target = params.peso_min_faena / factor_desc

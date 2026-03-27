@@ -623,7 +623,6 @@ export function exportParametrosPDF(params) {
       items: [
         ['Ganancia diaria machos (kg)', params.ganancia_diaria_macho],
         ['Ganancia diaria hembras (kg)', params.ganancia_diaria_hembra],
-        ['Factor medio día', params.medio_dia_ganancia],
       ],
     },
     {
@@ -631,7 +630,7 @@ export function exportParametrosPDF(params) {
       items: [
         ['Rendimiento canal (%)', params.rendimiento_canal],
         ['Kg por caja', params.kg_por_caja],
-        ['Descuento sin sexar (%)', params.descuento_sin_sexar],
+        ['Ajuste peso machos/sin sexar (%)', params.descuento_sin_sexar],
       ],
     },
     {

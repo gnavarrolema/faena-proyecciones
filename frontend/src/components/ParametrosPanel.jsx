@@ -58,14 +58,13 @@ export default function ParametrosPanel({ onParametrosUpdated } = {}) {
       section: 'Ganancia de Peso', items: [
         { key: 'ganancia_diaria_macho', label: 'Ganancia diaria machos (kg)', step: 0.001 },
         { key: 'ganancia_diaria_hembra', label: 'Ganancia diaria hembras (kg)', step: 0.001 },
-        { key: 'medio_dia_ganancia', label: 'Factor medio día', step: 0.1 },
       ]
     },
     {
       section: 'Rendimiento', items: [
         { key: 'rendimiento_canal', label: 'Rendimiento canal (%)', step: 0.01 },
         { key: 'kg_por_caja', label: 'Kg por caja', step: 0.5 },
-        { key: 'descuento_sin_sexar', label: 'Descuento sin sexar (%)', step: 0.01 },
+        { key: 'descuento_sin_sexar', label: 'Ajuste peso machos/sin sexar (%)', step: 0.01 },
       ]
     },
     {
