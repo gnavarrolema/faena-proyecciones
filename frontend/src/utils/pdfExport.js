@@ -655,7 +655,6 @@ export function exportParametrosPDF(params) {
       items: [
         ['Pollos diarios mín.', formatNumber(params.pollos_diarios_objetivo_min)],
         ['Pollos diarios máx.', formatNumber(params.pollos_diarios_objetivo_max)],
-        ['Descuento Sofía', formatNumber(params.descuento_sofia)],
       ],
     },
   ]
