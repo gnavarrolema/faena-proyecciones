@@ -1980,11 +1980,13 @@ def forecast_produccion(
     hoy = date.today()
     tolerancia = 3
 
-    # Pre-calcular rangos de cada semana de forecast
+    # Pre-calcular rangos de cada semana de forecast (lunes a domingo)
+    # Buscar el lunes de la semana actual (weekday(): 0=lunes, 6=domingo)
+    lunes_actual = hoy - timedelta(days=hoy.weekday())
     rangos = []
     for i in range(semanas):
-        inicio_sem = hoy + timedelta(weeks=i)
-        fin_sem = inicio_sem + timedelta(days=6)
+        inicio_sem = lunes_actual + timedelta(weeks=i)
+        fin_sem = inicio_sem + timedelta(days=6)  # domingo
         centro = inicio_sem + timedelta(days=3)
         rangos.append((inicio_sem, fin_sem, centro))
 
