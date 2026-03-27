@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Factory, UploadCloud, FileSpreadsheet, Trash2, Calendar, TrendingDown, TrendingUp, Loader2, X } from 'lucide-react'
+import { Factory, UploadCloud, FileSpreadsheet, Trash2, Calendar, TrendingDown, TrendingUp, Loader2, X, ArrowDown, ArrowUp } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { uploadProduccion, getProduccion, getSimulacionMortalidad, deleteProduccion, getForecastProduccion, getValidacionCruzada } from '../services/api'
 
@@ -38,6 +38,7 @@ export default function ProduccionView() {
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [file, setFile] = useState(null)
+  const [ordenDesc, setOrdenDesc] = useState(true)
   const inputRef = useRef(null)
 
   useEffect(() => {
@@ -253,11 +254,24 @@ export default function ProduccionView() {
       {/* Simulación de mortalidad */}
       {simulacion && simulacion.simulacion && simulacion.simulacion.length > 0 && (
         <motion.div variants={itemVariants} className="card" style={{ borderLeft: '4px solid var(--warning)' }}>
-          <div className="card-header">
-            <h2><TrendingDown size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Simulación de Mortalidad</h2>
-            <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
-              Disponibilidad estimada en {simulacion.simulacion.length} semanas
-            </span>
+          <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+            <div>
+              <h2><TrendingDown size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Simulación de Mortalidad</h2>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
+                Disponibilidad estimada en {simulacion.simulacion.length} semanas
+              </span>
+            </div>
+            <button 
+              className="btn btn-sm btn-outline" 
+              onClick={() => setOrdenDesc(!ordenDesc)}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-card)', whiteSpace: 'nowrap' }}
+            >
+              {ordenDesc ? (
+                <><ArrowUp size={14} /> <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Ver Primeros</span></>
+              ) : (
+                <><ArrowDown size={14} /> <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Ver Últimos</span></>
+              )}
+            </button>
           </div>
           <div className="card-body">
             <p style={{ marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-light)' }}>
@@ -267,21 +281,24 @@ export default function ProduccionView() {
                 <span> Las columnas <strong>Oferta Actual</strong> y <strong>Cobertura</strong> muestran las aves vinculadas desde el archivo de oferta para cada semana.</span>
               )}
             </p>
-            <div className="table-container" style={{ overflowX: 'auto' }}>
-              <table>
-                <thead>
+            <div className="table-container" style={{ maxHeight: '60vh', overflowY: 'auto', overflowX: 'auto', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <table style={{ position: 'relative', width: '100%', borderCollapse: 'collapse' }}>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#f8fafc', boxShadow: '0 2px 4px rgba(0,0,0,0.06)' }}>
                   <tr>
                     <th>Semana Carga</th>
                     <th>Faena Estimada</th>
                     <th className="text-right">Cargados</th>
-                    {simulacion.tasas.map(t => (
-                      <th key={t} className="text-right" style={{
-                        background: t === simulacion.tasas[simulacion.tasas.length - 1] ? 'rgba(251, 146, 60, 0.1)' : undefined,
-                        fontWeight: t === simulacion.tasas[simulacion.tasas.length - 1] ? 700 : undefined,
-                      }}>
-                        Mort. {t}%
-                      </th>
-                    ))}
+                    {simulacion.tasas.map(t => {
+                      const formattedT = Number(t).toLocaleString('es-AR', { maximumFractionDigits: 1 })
+                      return (
+                        <th key={t} className="text-right" style={{
+                          background: t === simulacion.tasas[simulacion.tasas.length - 1] ? 'rgba(251, 146, 60, 0.1)' : undefined,
+                          fontWeight: t === simulacion.tasas[simulacion.tasas.length - 1] ? 700 : undefined,
+                        }}>
+                          Mort. {formattedT}%
+                        </th>
+                      )
+                    })}
                     {Object.keys(ofertaPorSemana).length > 0 && (
                       <>
                         <th className="text-right" style={{ background: 'rgba(59, 130, 246, 0.08)', fontWeight: 700, borderLeft: '2px solid rgba(59, 130, 246, 0.3)' }}>Oferta Actual</th>
@@ -291,7 +308,7 @@ export default function ProduccionView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {simulacion.simulacion.map((sem, idx) => {
+                  {(ordenDesc ? [...simulacion.simulacion].reverse() : simulacion.simulacion).map((sem, idx) => {
                     const oferta = ofertaPorSemana[sem.fecha_desde]
                     const peorCaso = sem.simulaciones[sem.simulaciones.length - 1]?.pollitos_disponibles || 0
                     const mejorCaso = sem.simulaciones[0]?.pollitos_disponibles || 0
@@ -352,14 +369,32 @@ export default function ProduccionView() {
       {/* Forecast de producción */}
       {forecast && forecast.semanas && forecast.semanas.length > 0 && (
         <motion.div variants={itemVariants} className="card">
+          <div className="card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+            <div>
+              <h2><TrendingUp size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Forecast de Producción ({forecast.semanas.length} semanas)</h2>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
+                Planificación estimada según escenarios de mortalidad.
+              </span>
+            </div>
+            <button 
+              className="btn btn-sm btn-outline" 
+              onClick={() => setOrdenDesc(!ordenDesc)}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'var(--bg-card)', whiteSpace: 'nowrap' }}
+            >
+              {ordenDesc ? (
+                <><ArrowUp size={14} /> <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Ver Primeros</span></>
+              ) : (
+                <><ArrowDown size={14} /> <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>Ver Últimos</span></>
+              )}
+            </button>
+          </div>
           <div className="card-body">
-            <h2><TrendingUp size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Forecast de Producción ({forecast.semanas.length} semanas)</h2>
             <p style={{ color: 'var(--text-light)', fontSize: '0.85rem', marginBottom: '1rem' }}>
               Planificación estimada de pollitos disponibles para faena según las cargas registradas y distintos escenarios de mortalidad.
             </p>
-            <div className="table-responsive">
-              <table className="data-table">
-                <thead>
+            <div className="table-responsive" style={{ maxHeight: '60vh', overflowY: 'auto', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <table className="data-table" style={{ position: 'relative', width: '100%', borderCollapse: 'collapse' }}>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#f8fafc', boxShadow: '0 2px 4px rgba(0,0,0,0.06)' }}>
                   <tr>
                     <th>Semana de Faena</th>
                     <th className="text-right">Cargas Incluidas</th>
@@ -369,7 +404,7 @@ export default function ProduccionView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {forecast.semanas.map((sem, idx) => {
+                  {(ordenDesc ? [...forecast.semanas].reverse() : forecast.semanas).map((sem, idx) => {
                     const mejor = sem.mejor_caso?.pollitos_disponibles ?? 0
                     const peor = sem.peor_caso?.pollitos_disponibles ?? 0
                     return (
