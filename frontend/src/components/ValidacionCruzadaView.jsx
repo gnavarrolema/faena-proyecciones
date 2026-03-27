@@ -107,21 +107,69 @@ export default function ValidacionCruzadaView() {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', flexDirection: 'column', gap: '1rem' }}>
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-          style={{ background: 'var(--primary-light)', padding: '1rem', borderRadius: '50%', boxShadow: '0 0 20px rgba(45,138,78,0.3)', color: 'white' }}
-        >
-          <Activity size={32} />
-        </motion.div>
-        <motion.span
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          style={{ color: 'var(--primary-dark)', fontSize: '1.1rem', fontWeight: 600, letterSpacing: '0.02em', marginTop: '0.5rem' }}
-        >
-          Sincronizando operaciones...
-        </motion.span>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '65vh', flexDirection: 'column', gap: '2.5rem' }}>
+        <div style={{ position: 'relative', width: 120, height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {/* Anillos exteriores animados */}
+          <motion.div
+            animate={{ scale: [1, 1.25, 1], opacity: [0.3, 0.05, 0.3] }}
+            transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+            style={{ position: 'absolute', width: '100%', height: '100%', borderRadius: '50%', border: '4px solid var(--primary-light)' }}
+          />
+          <motion.div
+            animate={{ scale: [1, 1.5, 1], opacity: [0.15, 0, 0.15] }}
+            transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
+            style={{ position: 'absolute', width: '100%', height: '100%', borderRadius: '50%', border: '4px solid var(--primary-light)' }}
+          />
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
+            style={{ position: 'absolute', width: '110%', height: '110%', borderRadius: '50%', border: '2px dashed var(--primary)', opacity: 0.4 }}
+          />
+          <motion.div
+            animate={{ rotate: -360 }}
+            transition={{ duration: 16, repeat: Infinity, ease: "linear" }}
+            style={{ position: 'absolute', width: '125%', height: '125%', borderRadius: '50%', border: '1px dashed var(--primary-light)', opacity: 0.3 }}
+          />
+          
+          {/* Icono central */}
+          <motion.div
+            animate={{ scale: [1, 1.05, 1], boxShadow: ['0 10px 25px rgba(26,86,50,0.3)', '0 15px 35px rgba(26,86,50,0.5)', '0 10px 25px rgba(26,86,50,0.3)'] }}
+            transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+            style={{ 
+              background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%)', 
+              width: 72, height: 72, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              zIndex: 10,
+              border: '3px solid white'
+            }}
+          >
+            <GitMerge size={34} color="white" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.2))' }} />
+          </motion.div>
+        </div>
+
+        <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+          <motion.h3
+            animate={{ opacity: [0.8, 1, 0.8] }}
+            transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+            style={{ 
+              fontSize: '1.4rem', fontWeight: 800, letterSpacing: '-0.01em', margin: 0,
+              background: 'linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%)',
+              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'
+            }}
+          >
+            Sincronizando Operativa
+          </motion.h3>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.5 }}
+            style={{ color: 'var(--text-light)', fontSize: '0.95rem', fontWeight: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem' }}
+          >
+            <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 2, ease: "linear" }} style={{ display: 'flex', alignItems: 'center' }}>
+              <Loader2 size={16} style={{ opacity: 0.7 }} />
+            </motion.div>
+            Cruzando datos de Oferta y Producción BB...
+          </motion.div>
+        </div>
       </div>
     )
   }
