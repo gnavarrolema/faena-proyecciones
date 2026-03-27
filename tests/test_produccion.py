@@ -33,12 +33,27 @@ def test_simulacion_mortalidad_calcula_correctamente():
 
 
 def test_fecha_faena_estimada_42_dias():
-    """La fecha de faena estimada debe ser fecha_desde + 42 días."""
-    desde = date(2026, 2, 1)
-    semanas = [_semana(desde, date(2026, 2, 7), 5000)]
+    """La fecha de faena estimada debe ser fecha_desde + 42 días, ajustada a día hábil."""
+    # 2026-02-02 es lunes → +42 = 2026-03-16 (lunes), sin ajuste
+    desde = date(2026, 2, 2)
+    semanas = [_semana(desde, date(2026, 2, 8), 5000)]
     resultado = simular_mortalidad(semanas)
+    assert resultado[0].fecha_faena_estimada == date(2026, 3, 16)  # lunes
 
-    assert resultado[0].fecha_faena_estimada == desde + timedelta(days=DIAS_HASTA_FAENA)
+
+def test_fecha_faena_estimada_ajusta_fin_de_semana():
+    """Si fecha_desde + 42 cae sábado o domingo, se ajusta al lunes siguiente."""
+    # 2026-02-07 es sábado → +42 = 2026-03-21 (sábado) → ajusta a lunes 23
+    desde_sab = date(2026, 2, 7)
+    semanas = [_semana(desde_sab, date(2026, 2, 13), 5000)]
+    resultado = simular_mortalidad(semanas)
+    assert resultado[0].fecha_faena_estimada == date(2026, 3, 23)
+
+    # 2026-02-01 es domingo → +42 = 2026-03-15 (domingo) → ajusta a lunes 16
+    desde_dom = date(2026, 2, 1)
+    semanas = [_semana(desde_dom, date(2026, 2, 7), 5000)]
+    resultado = simular_mortalidad(semanas)
+    assert resultado[0].fecha_faena_estimada == date(2026, 3, 16)
 
 
 def test_multiples_tasas_mortalidad():
