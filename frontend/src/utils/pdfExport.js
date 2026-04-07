@@ -221,7 +221,7 @@ export function exportProyeccionPDF(proyeccion) {
   const bodyRows = []
 
   dias.forEach((dia, diaIdx) => {
-    dia.lotes.forEach((lote) => {
+    dia.lotes.filter(l => !l.excluido).forEach((lote) => {
       bodyRows.push({
         content: [
           getDiaNombre(dia.fecha),
@@ -448,7 +448,7 @@ export function exportResumenPDF(proyeccion) {
     getDiaNombre(dia.fecha),
     dia.fecha || '-',
     formatNumber(dia.total_pollos),
-    dia.lotes.filter(l => l.cantidad > 0).length,
+    dia.lotes.filter(l => l.cantidad > 0 && !l.excluido).length,
     `${dia.peso_promedio_ponderado?.toFixed(2)} kg`,
     dia.diferencia_edad_promedio?.toFixed(1) ?? '-',
     dia.calibre_promedio_ponderado?.toFixed(2) ?? '-',
@@ -501,7 +501,7 @@ export function exportResumenPDF(proyeccion) {
 
   const porGranja = {}
   dias.forEach((dia, diaIdx) => {
-    dia.lotes.forEach(lote => {
+    dia.lotes.filter(l => !l.excluido).forEach(lote => {
       if (!porGranja[lote.granja]) {
         porGranja[lote.granja] = { dias: new Array(dias.length).fill(0), total: 0, cajas: 0 }
       }

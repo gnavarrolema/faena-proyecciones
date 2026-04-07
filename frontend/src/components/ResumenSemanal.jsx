@@ -95,7 +95,7 @@ export default function ResumenSemanal({ proyeccion }) {
   // Calcular datos por granja
   const porGranja = {}
   dias.forEach((dia, diaIdx) => {
-    dia.lotes.forEach(lote => {
+    dia.lotes.filter(l => !l.excluido).forEach(lote => {
       if (!porGranja[lote.granja]) {
         porGranja[lote.granja] = {
           dias: new Array(dias.length).fill(0),
@@ -194,7 +194,7 @@ export default function ResumenSemanal({ proyeccion }) {
                   <td colSpan={2}><strong>TOTAL SEMANA</strong></td>
                   <td className="text-right"><strong>{formatNumber(proyeccion.total_pollos_semana)}</strong></td>
                   <td className="text-right">
-                    <strong>{dias.reduce((sum, d) => sum + d.lotes.filter(l => l.cantidad > 0).length, 0)}</strong>
+                    <strong>{dias.reduce((sum, d) => sum + d.lotes.filter(l => l.cantidad > 0 && !l.excluido).length, 0)}</strong>
                   </td>
                   <td colSpan={2}></td>
                   <td></td>
@@ -263,7 +263,7 @@ export default function ResumenSemanal({ proyeccion }) {
 
         const lotesFR = proyeccion.lotes_fuera_rango || []
         const lotesNA = proyeccion.lotes_no_asignados || []
-        const lotesAsignados = dias.reduce((sum, d) => sum + d.lotes.filter(l => l.cantidad > 0).length, 0)
+        const lotesAsignados = dias.reduce((sum, d) => sum + d.lotes.filter(l => l.cantidad > 0 && !l.excluido).length, 0)
         const pctAsignados = totalOfertados > 0 ? ((pollosAsignados / totalOfertados) * 100).toFixed(1) : '0.0'
 
         return (
@@ -351,7 +351,7 @@ export default function ResumenSemanal({ proyeccion }) {
       {(() => {
         const lotesTerceros = []
         dias.forEach((dia) => {
-          dia.lotes.forEach(lote => {
+          dia.lotes.filter(l => !l.excluido).forEach(lote => {
             if (lote.es_compra_terceros) {
               lotesTerceros.push({ ...lote, fecha: dia.fecha })
             }
