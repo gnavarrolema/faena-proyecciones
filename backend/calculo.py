@@ -732,7 +732,7 @@ def generar_proyeccion(
         return max(0, objetivo_preferido - gall)
 
     # ── Fase 1: Matriz de elegibilidad ──────────────────────────────────────
-    elegibilidad: dict[int, list[tuple[int, float, int]]] = {}
+    elegibilidad: dict[int, list[tuple[int, float, int, bool]]] = {}
     fuera_rango_data: dict[int, list[dict]] = {}  # idx → detalle por día
 
     for i, oferta in enumerate(ofertas):
