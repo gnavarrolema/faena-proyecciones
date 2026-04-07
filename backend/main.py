@@ -1417,6 +1417,230 @@ def eliminar_lote(dia_index: int, lote_index: int, current_user: TokenData = Dep
     return resultado.model_dump()
 
 
+# ─── Exclusión / inclusión de lotes ─────────────────────────────────────────────
+
+class ExcluirLoteRequest(BaseModel):
+    motivo: str = ""
+
+
+@app.patch("/proyeccion/lote/{dia_index}/{lote_index}/excluir")
+def excluir_lote(dia_index: int, lote_index: int, req: ExcluirLoteRequest, current_user: TokenData = Depends(get_current_user)):
+    """Marcar o desmarcar un lote como excluido (tachado)."""
+    semana = _get_proyeccion()
+    if semana is None:
+        raise HTTPException(404, "No hay proyección generada aún.")
+
+    if dia_index < 0 or dia_index >= len(semana.dias):
+        raise HTTPException(400, "Índice de día inválido")
+
+    dia = semana.dias[dia_index]
+    if lote_index < 0 or lote_index >= len(dia.lotes):
+        raise HTTPException(400, "Índice de lote inválido")
+
+    lote = dia.lotes[lote_index]
+    # Toggle: si ya estaba excluido, lo restaura
+    lote.excluido = not lote.excluido
+    lote.motivo_exclusion = req.motivo if lote.excluido else None
+
+    # Recalcular día y semana (los excluidos no computan)
+    params = _get_parametros()
+    semana.dias[dia_index] = calcular_dia_faena(
+        dia.fecha, dia.lotes, params=params,
+        gallinas_cantidad=dia.gallinas_cantidad,
+        gallinas_livianas=dia.gallinas_livianas_cantidad,
+        gallinas_pesadas=dia.gallinas_pesadas_cantidad,
+    )
+    resultado = calcular_semana_faena(
+        semana.fecha_inicio, semana.dias, params,
+        lotes_no_asignados=semana.lotes_no_asignados,
+        lotes_fuera_rango=semana.lotes_fuera_rango,
+    )
+    storage.save_proyeccion(resultado.model_dump())
+
+    return resultado.model_dump()
+
+
+@app.get("/proyeccion/lotes-disponibles")
+def lotes_disponibles(current_user: TokenData = Depends(get_current_user)):
+    """Pool de lotes disponibles para incluir: no asignados + excluidos."""
+    semana = _get_proyeccion()
+    if semana is None:
+        raise HTTPException(404, "No hay proyección generada aún.")
+
+    disponibles = []
+
+    # Lotes excluidos (tachados) — incluir día de origen
+    for dia_idx, dia in enumerate(semana.dias):
+        for lote_idx, lote in enumerate(dia.lotes):
+            if lote.excluido:
+                disponibles.append({
+                    "origen": "excluido",
+                    "dia_index": dia_idx,
+                    "lote_index": lote_idx,
+                    "fecha_dia": dia.fecha.isoformat(),
+                    "granja": lote.granja,
+                    "galpon": lote.galpon,
+                    "nucleo": lote.nucleo,
+                    "cantidad": lote.cantidad,
+                    "sexo": lote.sexo,
+                    "edad_fin_retiro": lote.edad_fin_retiro,
+                    "peso_vivo_retiro": lote.peso_vivo_retiro,
+                    "motivo_exclusion": lote.motivo_exclusion,
+                })
+
+    # Lotes no asignados por capacidad
+    for idx, lote in enumerate(semana.lotes_no_asignados or []):
+        disponibles.append({
+            "origen": "no_asignado",
+            "pool_index": idx,
+            "granja": lote.granja,
+            "galpon": lote.galpon,
+            "nucleo": lote.nucleo,
+            "cantidad": lote.cantidad,
+            "sexo": lote.sexo,
+            "dias_elegibles": [d.isoformat() for d in lote.dias_elegibles],
+            "motivo": lote.motivo,
+        })
+
+    return {"disponibles": disponibles, "total": len(disponibles)}
+
+
+class IncluirLoteDisponibleRequest(BaseModel):
+    origen: str  # "excluido" | "no_asignado"
+    dia_index: Optional[int] = None     # para excluidos: día donde está
+    lote_index: Optional[int] = None    # para excluidos: índice del lote
+    pool_index: Optional[int] = None    # para no_asignados: índice en el pool
+    dia_destino: int                     # día al que se quiere incorporar
+
+
+@app.post("/proyeccion/incluir-lote-disponible")
+def incluir_lote_disponible(req: IncluirLoteDisponibleRequest, current_user: TokenData = Depends(get_current_user)):
+    """Incluir un lote del pool de disponibles en un día de faena."""
+    semana = _get_proyeccion()
+    if semana is None:
+        raise HTTPException(404, "No hay proyección generada aún.")
+
+    if req.dia_destino < 0 or req.dia_destino >= len(semana.dias):
+        raise HTTPException(400, "Índice de día destino inválido")
+
+    params = _get_parametros()
+
+    if req.origen == "excluido":
+        if req.dia_index is None or req.lote_index is None:
+            raise HTTPException(400, "Se requiere dia_index y lote_index para lotes excluidos")
+        if req.dia_index < 0 or req.dia_index >= len(semana.dias):
+            raise HTTPException(400, "Índice de día origen inválido")
+        dia_origen = semana.dias[req.dia_index]
+        if req.lote_index < 0 or req.lote_index >= len(dia_origen.lotes):
+            raise HTTPException(400, "Índice de lote inválido")
+
+        lote = dia_origen.lotes[req.lote_index]
+        if not lote.excluido:
+            raise HTTPException(400, "El lote no está excluido")
+
+        # Si se mueve a otro día, quitarlo del día origen y recalcular en el destino
+        if req.dia_index == req.dia_destino:
+            lote.excluido = False
+            lote.motivo_exclusion = None
+        else:
+            # Sacar del día origen
+            dia_origen.lotes.pop(req.lote_index)
+            # Recalcular en el día destino con la nueva fecha
+            fecha_destino = semana.dias[req.dia_destino].fecha
+            oferta = LoteOferta(
+                fecha_peso=lote.fecha_peso_original or fecha_destino,
+                granja=lote.granja,
+                galpon=lote.galpon,
+                nucleo=lote.nucleo,
+                cantidad=lote.cantidad,
+                sexo=lote.sexo,
+                edad_proyectada=lote.edad_actual,
+                peso_muestreo_proy=lote.peso_actual,
+                ganancia_diaria=lote.ganancia_diaria_original or 0.09,
+                dias_proyectados=lote.dias_proyectados_original,
+                edad_real=lote.edad_actual,
+                peso_muestreo_real=lote.peso_actual,
+                fecha_ingreso=lote.fecha_ingreso_original or fecha_destino,
+            )
+            nuevo_lote = calcular_lote_proyectado(oferta, fecha_destino, params)
+            if lote.es_compra_terceros:
+                nuevo_lote.es_compra_terceros = True
+                nuevo_lote.motivo_compra = lote.motivo_compra
+            semana.dias[req.dia_destino].lotes.append(nuevo_lote)
+
+            # Recalcular el día origen
+            semana.dias[req.dia_index] = calcular_dia_faena(
+                dia_origen.fecha, dia_origen.lotes, params=params,
+                gallinas_cantidad=dia_origen.gallinas_cantidad,
+                gallinas_livianas=dia_origen.gallinas_livianas_cantidad,
+                gallinas_pesadas=dia_origen.gallinas_pesadas_cantidad,
+            )
+
+    elif req.origen == "no_asignado":
+        if req.pool_index is None:
+            raise HTTPException(400, "Se requiere pool_index para lotes no asignados")
+        no_asignados = semana.lotes_no_asignados or []
+        if req.pool_index < 0 or req.pool_index >= len(no_asignados):
+            raise HTTPException(400, "Índice de lote no asignado inválido")
+
+        lote_na = no_asignados[req.pool_index]
+        fecha_destino = semana.dias[req.dia_destino].fecha
+
+        # Buscar en la oferta original o reconstruir desde datos disponibles
+        oferta = LoteOferta(
+            fecha_peso=lote_na.fecha_ingreso or fecha_destino,
+            granja=lote_na.granja,
+            galpon=lote_na.galpon,
+            nucleo=lote_na.nucleo,
+            cantidad=lote_na.cantidad,
+            sexo=lote_na.sexo,
+            edad_proyectada=0,
+            peso_muestreo_proy=0.0,
+            ganancia_diaria=params.ganancia_diaria_macho if lote_na.sexo == 'M' else params.ganancia_diaria_hembra,
+            dias_proyectados=0,
+            edad_real=0,
+            peso_muestreo_real=0.0,
+            fecha_ingreso=lote_na.fecha_ingreso or fecha_destino,
+        )
+
+        # Intentar recuperar datos completos de la oferta guardada
+        ofertas_cargadas = storage.load_ofertas()
+        for of in ofertas_cargadas:
+            if of.get("granja") == lote_na.granja and of.get("galpon") == lote_na.galpon and of.get("nucleo") == lote_na.nucleo:
+                oferta = LoteOferta(**of)
+                break
+
+        nuevo_lote = calcular_lote_proyectado(oferta, fecha_destino, params)
+        semana.dias[req.dia_destino].lotes.append(nuevo_lote)
+
+        # Quitar del pool de no asignados
+        no_asignados.pop(req.pool_index)
+        semana.lotes_no_asignados = no_asignados
+        semana.total_pollos_no_asignados = sum(l.cantidad for l in no_asignados)
+
+    else:
+        raise HTTPException(400, f"Origen inválido: {req.origen}")
+
+    # Recalcular día destino
+    dia_dest = semana.dias[req.dia_destino]
+    semana.dias[req.dia_destino] = calcular_dia_faena(
+        dia_dest.fecha, dia_dest.lotes, params=params,
+        gallinas_cantidad=dia_dest.gallinas_cantidad,
+        gallinas_livianas=dia_dest.gallinas_livianas_cantidad,
+        gallinas_pesadas=dia_dest.gallinas_pesadas_cantidad,
+    )
+
+    # Recalcular semana
+    resultado = calcular_semana_faena(
+        semana.fecha_inicio, semana.dias, params,
+        lotes_no_asignados=semana.lotes_no_asignados,
+        lotes_fuera_rango=semana.lotes_fuera_rango,
+    )
+    storage.save_proyeccion(resultado.model_dump())
+
+    return resultado.model_dump()
+
+
 @app.post("/calcular/lote-individual")
 def calcular_lote_individual(
     granja: str,

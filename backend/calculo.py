@@ -87,6 +87,9 @@ class LoteProyectado(BaseModel):
     # Compra a terceros
     es_compra_terceros: bool = False
     motivo_compra: Optional[str] = None
+    # Exclusión manual (lote "tachado" por el usuario)
+    excluido: bool = False
+    motivo_exclusion: Optional[str] = None
 
 
 class DiaFaena(BaseModel):
@@ -415,8 +418,8 @@ def calcular_dia_faena(
     gallinas_pesadas: int = 0,
 ) -> DiaFaena:
     """Calcula los agregados de un día de faena, incluyendo alertas de carga."""
-    lotes_reales = [l for l in lotes if l.cantidad > 0]
-    total = sum(l.cantidad for l in lotes_reales)
+    lotes_activos = [l for l in lotes if l.cantidad > 0 and not l.excluido]
+    total = sum(l.cantidad for l in lotes_activos)
 
     es_sabado = fecha.weekday() == 5  # 5 = sábado
 
@@ -451,11 +454,11 @@ def calcular_dia_faena(
         gallinas_pesadas_cantidad=gallinas_pesadas,
     )
 
-    if lotes_reales:
-        dia.peso_promedio_ponderado = peso_promedio_ponderado_dia(lotes)
-        dia.diferencia_edad_promedio = dif_edad_promedio_ponderada(lotes)
-        dia.calibre_promedio_ponderado = calibre_promedio_ponderado(lotes)
-        dia.cajas_totales = sum(l.cajas for l in lotes_reales)
+    if lotes_activos:
+        dia.peso_promedio_ponderado = peso_promedio_ponderado_dia(lotes_activos)
+        dia.diferencia_edad_promedio = dif_edad_promedio_ponderada(lotes_activos)
+        dia.calibre_promedio_ponderado = calibre_promedio_ponderado(lotes_activos)
+        dia.cajas_totales = sum(l.cajas for l in lotes_activos)
 
     return dia
 
@@ -472,7 +475,7 @@ def calcular_semana_faena(
 
     todos_lotes = []
     for d in dias:
-        todos_lotes.extend(d.lotes)
+        todos_lotes.extend([l for l in d.lotes if not l.excluido])
 
     total = sum(d.total_pollos for d in dias)
     prom_edad = promedio_edades_semana(todos_lotes)

@@ -91,6 +91,15 @@ export const agregarLote = (data) =>
 export const eliminarLote = (diaIndex, loteIndex) =>
   api.delete(`/proyeccion/lote/${diaIndex}/${loteIndex}`).then(r => r.data);
 
+export const excluirLote = (diaIndex, loteIndex, motivo = '') =>
+  api.patch(`/proyeccion/lote/${diaIndex}/${loteIndex}/excluir`, { motivo }).then(r => r.data);
+
+export const getLotesDisponibles = () =>
+  api.get('/proyeccion/lotes-disponibles').then(r => r.data);
+
+export const incluirLoteDisponible = (data) =>
+  api.post('/proyeccion/incluir-lote-disponible', data).then(r => r.data);
+
 // ─── Feriados ──────────────────────────────────────────────────────────────────
 
 export const getFeriados = (anio) => api.get(`/feriados?anio=${anio}`).then(r => r.data);

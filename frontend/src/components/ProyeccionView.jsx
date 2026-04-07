@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2, Factory, ArrowRight, Undo2, Clock, Lightbulb, Check, Eye, EyeOff } from 'lucide-react'
+import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, PackageOpen, Download, RefreshCw, UploadCloud, CheckCircle2, AlertTriangle, PlusCircle, FileSpreadsheet, ChevronDown, ChevronRight, Ban, AlertOctagon, ShoppingCart, Loader2, Factory, ArrowRight, Undo2, Clock, Lightbulb, Check, Eye, EyeOff, Slash } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, agregarLote, getAnalisisTerceros, cargarDeficit, getParametros, diferirLote, restaurarLoteSemana1, getSemana2, clearLotesDiferidos, getSugerenciasDiferimiento, getOfertaTrazabilidad, moverLoteS2, eliminarLoteS2, enviarLoteS2aS1 } from '../services/api'
+import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, agregarLote, getAnalisisTerceros, cargarDeficit, getParametros, diferirLote, restaurarLoteSemana1, getSemana2, clearLotesDiferidos, getSugerenciasDiferimiento, getOfertaTrazabilidad, moverLoteS2, eliminarLoteS2, enviarLoteS2aS1, excluirLote, getLotesDisponibles, incluirLoteDisponible } from '../services/api'
 import { exportProyeccionPDF } from '../utils/pdfExport'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
@@ -125,6 +125,13 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
   const [trazabilidad, setTrazabilidad] = useState(null)
   const [trazabilidadLoading, setTrazabilidadLoading] = useState(false)
   const [trazabilidadOpen, setTrazabilidadOpen] = useState(true)
+  const [excluirMotivo, setExcluirMotivo] = useState('')
+  const [excluirTarget, setExcluirTarget] = useState(null) // {diaIdx, loteIdx}
+  const [disponiblesModal, setDisponiblesModal] = useState(false)
+  const [disponibles, setDisponibles] = useState([])
+  const [disponiblesLoading, setDisponiblesLoading] = useState(false)
+  const [incluyendoLote, setIncluyendoLote] = useState(null)
+  const [incluirDiaDestino, setIncluirDiaDestino] = useState(0)
   const ajusteInputRef = React.useRef(null)
 
   // Cargar semana 2 cuando cambia la proyección
@@ -398,6 +405,58 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
       toast.error('Error al eliminar: ' + (err.response?.data?.detail || err.message))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleExcluir = async (diaIdx, loteIdx, motivo = '') => {
+    setLoading(true)
+    try {
+      const data = await excluirLote(diaIdx, loteIdx, motivo)
+      setProyeccion(data)
+      setExcluirTarget(null)
+      setExcluirMotivo('')
+      toast.success('Lote actualizado')
+    } catch (err) {
+      toast.error('Error: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCargarDisponibles = async () => {
+    setDisponiblesLoading(true)
+    try {
+      const data = await getLotesDisponibles()
+      setDisponibles(data.disponibles || [])
+      setDisponiblesModal(true)
+    } catch (err) {
+      toast.error('Error: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setDisponiblesLoading(false)
+    }
+  }
+
+  const handleIncluirLote = async (loteDisp) => {
+    setIncluyendoLote(loteDisp)
+    setLoading(true)
+    try {
+      const data = await incluirLoteDisponible({
+        origen: loteDisp.origen,
+        dia_index: loteDisp.dia_index,
+        lote_index: loteDisp.lote_index,
+        pool_index: loteDisp.pool_index,
+        dia_destino: incluirDiaDestino,
+      })
+      setProyeccion(data)
+      // Refrescar lista de disponibles
+      const disp = await getLotesDisponibles()
+      setDisponibles(disp.disponibles || [])
+      toast.success('Lote incorporado a la planificación')
+    } catch (err) {
+      toast.error('Error: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setLoading(false)
+      setIncluyendoLote(null)
     }
   }
 
@@ -1443,6 +1502,18 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
           >
             <ShoppingCart size={14} style={{ marginRight: 4 }} /> Compra Terceros
           </button>
+          <button
+            className="btn btn-sm btn-outline"
+            onClick={handleCargarDisponibles}
+            style={{ borderColor: '#059669', color: '#059669', marginBottom: '0.5rem' }}
+            disabled={disponiblesLoading}
+          >
+            {disponiblesLoading
+              ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', marginRight: 4 }} />
+              : <PackageOpen size={14} style={{ marginRight: 4 }} />
+            }
+            Lotes Disponibles
+          </button>
           <button className="btn btn-sm btn-outline" onClick={() => exportProyeccionPDF(proyeccion)} style={{ marginBottom: '0.5rem' }}>
             <Download size={14} /> Descargar PDF
           </button>
@@ -1881,18 +1952,23 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ delay: loteIdx * 0.05 }}
-                      className="lote-card"
-                      style={lote.sobreedad ? { borderLeft: '3px solid #f59e0b', background: 'rgba(245,158,11,0.04)' } : lote.es_compra_terceros ? { borderLeft: '3px solid #7c3aed', background: 'rgba(168,85,247,0.03)' } : undefined}
+                      className={`lote-card${lote.excluido ? ' lote-excluido' : ''}`}
+                      style={lote.excluido ? { borderLeft: '3px solid #9ca3af', background: 'rgba(156,163,175,0.06)' } : lote.sobreedad ? { borderLeft: '3px solid #f59e0b', background: 'rgba(245,158,11,0.04)' } : lote.es_compra_terceros ? { borderLeft: '3px solid #7c3aed', background: 'rgba(168,85,247,0.03)' } : undefined}
                     >
                       <div className="lote-header">
-                        <span>{lote.granja} G{lote.galpon}</span>
+                        <span style={lote.excluido ? { textDecoration: 'line-through', opacity: 0.5 } : undefined}>{lote.granja} G{lote.galpon}</span>
                         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                          {lote.sobreedad && (
+                          {lote.excluido && (
+                            <span title={lote.motivo_exclusion || 'Lote excluido de la planificación'} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '0.1rem 0.4rem', background: 'rgba(156,163,175,0.15)', border: '1px solid rgba(156,163,175,0.3)', borderRadius: 12, fontSize: '0.65rem', color: '#6b7280', fontWeight: 600 }}>
+                              <Slash size={10} /> Excluido
+                            </span>
+                          )}
+                          {lote.sobreedad && !lote.excluido && (
                             <span title="Lote sobreedad/sobrepeso — asignado con prioridad" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '0.1rem 0.4rem', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 12, fontSize: '0.65rem', color: '#d97706', fontWeight: 600 }}>
                               <AlertTriangle size={10} /> Sobreedad
                             </span>
                           )}
-                          {lote.es_compra_terceros && (
+                          {lote.es_compra_terceros && !lote.excluido && (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '0.1rem 0.4rem', background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: 12, fontSize: '0.65rem', color: '#7c3aed', fontWeight: 600 }}>
                               <ShoppingCart size={10} /> Terceros
                             </span>
@@ -1902,50 +1978,76 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                           </span>
                         </div>
                       </div>
-                      <div className="lote-detail">
+                      {lote.excluido && lote.motivo_exclusion && (
+                        <div className="lote-detail" style={{ color: '#6b7280', fontSize: '0.75rem', fontStyle: 'italic' }}>
+                          <span>Motivo: {lote.motivo_exclusion}</span>
+                        </div>
+                      )}
+                      <div className="lote-detail" style={lote.excluido ? { opacity: 0.45, textDecoration: 'line-through' } : undefined}>
                         <span>Pollos: {formatNumber(lote.cantidad)}</span>
                         <span>Edad: {lote.edad_fin_retiro}</span>
                       </div>
-                      <div className="lote-detail">
+                      <div className="lote-detail" style={lote.excluido ? { opacity: 0.45, textDecoration: 'line-through' } : undefined}>
                         <span>Peso: {lote.peso_vivo_retiro?.toFixed(2)} kg</span>
-                        <span style={{ color: `var(--${getEdadColor(lote.diferencia_edad_ideal)})` }}>
+                        <span style={lote.excluido ? {} : { color: `var(--${getEdadColor(lote.diferencia_edad_ideal)})` }}>
                           Dif: {lote.diferencia_edad_ideal > 0 ? '+' : ''}{lote.diferencia_edad_ideal}
                         </span>
                       </div>
-                      <div className="lote-detail">
+                      <div className="lote-detail" style={lote.excluido ? { opacity: 0.45, textDecoration: 'line-through' } : undefined}>
                         <span>Faenado: {lote.peso_faenado?.toFixed(2)}</span>
                         <span>Cajas: {formatNumber(lote.cajas)}</span>
                       </div>
-                      {lote.es_compra_terceros && lote.motivo_compra && (
+                      {lote.es_compra_terceros && lote.motivo_compra && !lote.excluido && (
                         <div className="lote-detail" style={{ color: '#7c3aed', fontSize: '0.75rem', fontStyle: 'italic' }}>
                           <span>{lote.motivo_compra}</span>
                         </div>
                       )}
                       <div className="lote-actions">
-                        <button
-                          className="btn btn-sm btn-outline"
-                          onClick={() => setMovingLote({ diaIdx, loteIdx, lote })}
-                        >
-                          <ArrowLeftRight size={12} style={{ marginRight: 2 }} /> Mover
-                        </button>
-                        <button
-                          className="btn btn-sm btn-outline"
-                          style={{ borderColor: '#6366f1', color: '#6366f1' }}
-                          onClick={() => handleDiferir(diaIdx, loteIdx)}
-                          disabled={diferirLoading === `${diaIdx}-${loteIdx}`}
-                          title="Diferir este lote a Semana 2"
-                        >
-                          {diferirLoading === `${diaIdx}-${loteIdx}`
-                            ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
-                            : <><ArrowRight size={12} style={{ marginRight: 2 }} /> S2</>
-                          }
-                        </button>
-                        <button
-                          className="btn btn-sm btn-danger"
-                          onClick={() => handleDelete(diaIdx, loteIdx)}
-                        >
-                          <X size={12} style={{ marginRight: 2 }} /> Eliminar
-                        </button>
+                        {lote.excluido ? (
+                          <button
+                            className="btn btn-sm btn-outline"
+                            style={{ borderColor: '#10b981', color: '#10b981' }}
+                            onClick={() => handleExcluir(diaIdx, loteIdx)}
+                            title="Restaurar este lote a la planificación"
+                          >
+                            <Undo2 size={12} style={{ marginRight: 2 }} /> Restaurar
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              className="btn btn-sm btn-outline"
+                              onClick={() => setMovingLote({ diaIdx, loteIdx, lote })}
+                            >
+                              <ArrowLeftRight size={12} style={{ marginRight: 2 }} /> Mover
+                            </button>
+                            <button
+                              className="btn btn-sm btn-outline"
+                              style={{ borderColor: '#6366f1', color: '#6366f1' }}
+                              onClick={() => handleDiferir(diaIdx, loteIdx)}
+                              disabled={diferirLoading === `${diaIdx}-${loteIdx}`}
+                              title="Diferir este lote a Semana 2"
+                            >
+                              {diferirLoading === `${diaIdx}-${loteIdx}`
+                                ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                                : <><ArrowRight size={12} style={{ marginRight: 2 }} /> S2</>
+                              }
+                            </button>
+                            <button
+                              className="btn btn-sm btn-outline"
+                              style={{ borderColor: '#9ca3af', color: '#6b7280' }}
+                              onClick={() => setExcluirTarget({ diaIdx, loteIdx })}
+                              title="Excluir lote (tachar sin eliminar)"
+                            >
+                              <Slash size={12} style={{ marginRight: 2 }} /> Tachar
+                            </button>
+                            <button
+                              className="btn btn-sm btn-danger"
+                              onClick={() => handleDelete(diaIdx, loteIdx)}
+                            >
+                              <X size={12} style={{ marginRight: 2 }} /> Eliminar
+                            </button>
+                          </>
+                        )}
                       </div>
                     </motion.div>
                   ))
@@ -1999,44 +2101,60 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
                   {dias.map((dia, diaIdx) => (
                     <React.Fragment key={`day-${diaIdx}`}>
                       {dia.lotes.map((lote, loteIdx) => (
-                        <tr key={`${diaIdx}-${loteIdx}`} style={lote.sobreedad ? { background: 'rgba(245,158,11,0.06)' } : lote.es_compra_terceros ? { background: 'rgba(168,85,247,0.04)' } : undefined}>
+                        <tr key={`${diaIdx}-${loteIdx}`} style={lote.excluido ? { background: 'rgba(156,163,175,0.08)', opacity: 0.55 } : lote.sobreedad ? { background: 'rgba(245,158,11,0.06)' } : lote.es_compra_terceros ? { background: 'rgba(168,85,247,0.04)' } : undefined}>
                           {loteIdx === 0 && (
                             <td rowSpan={dia.lotes.length + 1} style={{ verticalAlign: 'top', fontWeight: 600 }}>
                               {getDiaNombre(dia.fecha)}
                             </td>
                           )}
                           <td>{formatDate(dia.fecha)}</td>
-                          <td>
+                          <td style={lote.excluido ? { textDecoration: 'line-through' } : undefined}>
                             <strong>{lote.granja}</strong>
-                            {lote.sobreedad && (
+                            {lote.excluido && (
+                              <span title={lote.motivo_exclusion || 'Excluido'} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 6, padding: '0.1rem 0.4rem', background: 'rgba(156,163,175,0.15)', border: '1px solid rgba(156,163,175,0.3)', borderRadius: 12, fontSize: '0.6rem', color: '#6b7280', fontWeight: 600 }}>
+                                <Slash size={9} /> Excluido
+                              </span>
+                            )}
+                            {lote.sobreedad && !lote.excluido && (
                               <span title="Lote sobreedad/sobrepeso — asignado con prioridad" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 6, padding: '0.1rem 0.4rem', background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 12, fontSize: '0.6rem', color: '#d97706', fontWeight: 600 }}>
                                 <AlertTriangle size={9} /> Sobreedad
                               </span>
                             )}
-                            {lote.es_compra_terceros && (
+                            {lote.es_compra_terceros && !lote.excluido && (
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 6, padding: '0.1rem 0.4rem', background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: 12, fontSize: '0.6rem', color: '#7c3aed', fontWeight: 600 }}>
                                 <ShoppingCart size={9} /> Terceros
                               </span>
                             )}
                           </td>
-                          <td className="text-center">{lote.galpon}</td>
-                          <td className="text-center">{lote.nucleo}</td>
-                          <td className="text-right">{formatNumber(lote.cantidad)}</td>
+                          <td className="text-center" style={lote.excluido ? { textDecoration: 'line-through' } : undefined}>{lote.galpon}</td>
+                          <td className="text-center" style={lote.excluido ? { textDecoration: 'line-through' } : undefined}>{lote.nucleo}</td>
+                          <td className="text-right" style={lote.excluido ? { textDecoration: 'line-through' } : undefined}>{formatNumber(lote.cantidad)}</td>
                           <td className="text-center">
                             <span className={`badge badge-${lote.sexo === 'M' ? 'info' : lote.sexo === 'H' ? 'warning' : 'success'}`}>
                               {lote.sexo || '-'}
                             </span>
                           </td>
-                          <td className="text-right">{lote.edad_fin_retiro}</td>
-                          <td className="text-right" style={{ color: `var(--${getEdadColor(lote.diferencia_edad_ideal)})` }}>
+                          <td className="text-right" style={lote.excluido ? { textDecoration: 'line-through' } : undefined}>{lote.edad_fin_retiro}</td>
+                          <td className="text-right" style={lote.excluido ? { textDecoration: 'line-through' } : { color: `var(--${getEdadColor(lote.diferencia_edad_ideal)})` }}>
                             {lote.diferencia_edad_ideal > 0 ? '+' : ''}{lote.diferencia_edad_ideal}
                           </td>
-                          <td className="text-right">{lote.peso_vivo_retiro?.toFixed(2)}</td>
-                          <td className="text-right">{lote.peso_faenado?.toFixed(2)}</td>
-                          <td className="text-right">{lote.calibre_promedio?.toFixed(2)}</td>
-                          <td className="text-right">{formatNumber(lote.cajas)}</td>
-                          <td>
-                            <button className="btn btn-sm btn-danger" onClick={() => handleDelete(diaIdx, loteIdx)}>✕</button>
+                          <td className="text-right" style={lote.excluido ? { textDecoration: 'line-through' } : undefined}>{lote.peso_vivo_retiro?.toFixed(2)}</td>
+                          <td className="text-right" style={lote.excluido ? { textDecoration: 'line-through' } : undefined}>{lote.peso_faenado?.toFixed(2)}</td>
+                          <td className="text-right" style={lote.excluido ? { textDecoration: 'line-through' } : undefined}>{lote.calibre_promedio?.toFixed(2)}</td>
+                          <td className="text-right" style={lote.excluido ? { textDecoration: 'line-through' } : undefined}>{formatNumber(lote.cajas)}</td>
+                          <td style={{ display: 'flex', gap: 4 }}>
+                            {lote.excluido ? (
+                              <button className="btn btn-sm btn-outline" style={{ borderColor: '#10b981', color: '#10b981', fontSize: '0.7rem' }} onClick={() => handleExcluir(diaIdx, loteIdx)} title="Restaurar">
+                                <Undo2 size={11} />
+                              </button>
+                            ) : (
+                              <>
+                                <button className="btn btn-sm btn-outline" style={{ borderColor: '#9ca3af', color: '#6b7280', fontSize: '0.7rem' }} onClick={() => setExcluirTarget({ diaIdx, loteIdx })} title="Tachar">
+                                  <Slash size={11} />
+                                </button>
+                                <button className="btn btn-sm btn-danger" onClick={() => handleDelete(diaIdx, loteIdx)}>✕</button>
+                              </>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -2470,6 +2588,197 @@ export default function ProyeccionView({ proyeccion, setProyeccion }) {
           )}
         </AnimatePresence>
       </motion.div>
+
+      {/* Modal Excluir - motivo */}
+      <AnimatePresence>
+        {excluirTarget && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="modal-overlay"
+            onClick={() => { setExcluirTarget(null); setExcluirMotivo('') }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="modal"
+              style={{ maxWidth: 440 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="modal-header" style={{ background: 'rgba(156,163,175,0.08)' }}>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Slash size={18} style={{ color: '#6b7280' }} /> Excluir lote de la planificación
+                </h3>
+                <button className="btn btn-sm btn-outline" onClick={() => { setExcluirTarget(null); setExcluirMotivo('') }}>
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="modal-body">
+                <p style={{ marginBottom: '0.75rem', fontSize: '0.9rem', color: 'var(--text-light)' }}>
+                  Este lote quedará tachado y no computará en la capacidad ni producción del día. Puede restaurarlo en cualquier momento.
+                </p>
+                <label style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: 4, display: 'block' }}>Motivo (opcional)</label>
+                <select
+                  value={excluirMotivo}
+                  onChange={e => setExcluirMotivo(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 8, border: '1px solid var(--border)', marginBottom: '0.5rem', fontSize: '0.85rem' }}
+                >
+                  <option value="">— Seleccionar motivo —</option>
+                  <option value="Faenado anticipadamente (viernes)">Faenado anticipadamente (viernes)</option>
+                  <option value="Decisión comercial">Decisión comercial</option>
+                  <option value="Problema sanitario">Problema sanitario</option>
+                  <option value="Peso insuficiente">Peso insuficiente</option>
+                  <option value="Diferido a otra semana">Diferido a otra semana</option>
+                </select>
+                <input
+                  type="text"
+                  placeholder="O escribir motivo personalizado..."
+                  value={excluirMotivo}
+                  onChange={e => setExcluirMotivo(e.target.value)}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: 8, border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                />
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-outline" onClick={() => { setExcluirTarget(null); setExcluirMotivo('') }}>
+                  Cancelar
+                </button>
+                <button
+                  className="btn"
+                  style={{ background: '#6b7280', color: 'white' }}
+                  onClick={() => handleExcluir(excluirTarget.diaIdx, excluirTarget.loteIdx, excluirMotivo)}
+                  disabled={loading}
+                >
+                  {loading
+                    ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite', marginRight: 4 }} /> Procesando...</>
+                    : <><Slash size={14} style={{ marginRight: 4 }} /> Confirmar Exclusión</>
+                  }
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal Lotes Disponibles */}
+      <AnimatePresence>
+        {disponiblesModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="modal-overlay"
+            onClick={() => setDisponiblesModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="modal"
+              style={{ maxWidth: 800 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="modal-header" style={{ background: 'rgba(5,150,105,0.06)' }}>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <PackageOpen size={18} style={{ color: '#059669' }} /> Lotes disponibles para incluir
+                </h3>
+                <button className="btn btn-sm btn-outline" onClick={() => setDisponiblesModal(false)}>
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="modal-body">
+                {disponibles.length === 0 ? (
+                  <p style={{ textAlign: 'center', color: 'var(--text-light)', padding: '2rem' }}>
+                    No hay lotes disponibles para incluir. Todos los lotes están asignados activamente.
+                  </p>
+                ) : (
+                  <>
+                    <p style={{ marginBottom: '0.75rem', fontSize: '0.9rem', color: 'var(--text-light)' }}>
+                      {disponibles.length} lotes disponibles ({formatNumber(disponibles.reduce((s, l) => s + l.cantidad, 0))} pollos). Seleccione el día destino y haga click en "Incluir".
+                    </p>
+                    <div style={{ marginBottom: '0.75rem' }}>
+                      <label style={{ fontWeight: 600, fontSize: '0.85rem', marginRight: 8 }}>Día destino:</label>
+                      <select
+                        value={incluirDiaDestino}
+                        onChange={e => setIncluirDiaDestino(Number(e.target.value))}
+                        style={{ padding: '0.4rem 0.6rem', borderRadius: 8, border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                      >
+                        {dias.map((dia, idx) => (
+                          <option key={idx} value={idx}>{getDiaNombre(dia.fecha)} {formatDate(dia.fecha)} ({formatNumber(dia.total_pollos)} pollos)</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="table-container" style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Origen</th>
+                            <th>Granja</th>
+                            <th>Galpón</th>
+                            <th>Núcleo</th>
+                            <th className="text-right">Cantidad</th>
+                            <th>Sexo</th>
+                            <th>Detalle</th>
+                            <th>Acción</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {disponibles.map((lote, idx) => (
+                            <tr key={idx}>
+                              <td>
+                                <span style={{
+                                  display: 'inline-flex', alignItems: 'center', gap: 3, padding: '0.15rem 0.5rem',
+                                  borderRadius: 12, fontSize: '0.7rem', fontWeight: 600,
+                                  background: lote.origen === 'excluido' ? 'rgba(156,163,175,0.12)' : 'rgba(245,158,11,0.12)',
+                                  color: lote.origen === 'excluido' ? '#6b7280' : '#d97706',
+                                }}>
+                                  {lote.origen === 'excluido' ? <><Slash size={10} /> Excluido</> : <><AlertTriangle size={10} /> Sin asignar</>}
+                                </span>
+                              </td>
+                              <td><strong>{lote.granja}</strong></td>
+                              <td className="text-center">{lote.galpon}</td>
+                              <td className="text-center">{lote.nucleo}</td>
+                              <td className="text-right">{formatNumber(lote.cantidad)}</td>
+                              <td className="text-center">
+                                <span className={`badge badge-${lote.sexo === 'M' ? 'info' : lote.sexo === 'H' ? 'warning' : 'success'}`}>
+                                  {lote.sexo || '-'}
+                                </span>
+                              </td>
+                              <td style={{ fontSize: '0.78rem', color: 'var(--text-light)' }}>
+                                {lote.origen === 'excluido'
+                                  ? (lote.motivo_exclusion || `Día ${formatDate(lote.fecha_dia)}`)
+                                  : (lote.motivo || formatDiasElegibles(lote.dias_elegibles))
+                                }
+                              </td>
+                              <td>
+                                <button
+                                  className="btn btn-sm"
+                                  style={{ background: '#059669', color: 'white', fontSize: '0.75rem' }}
+                                  onClick={() => handleIncluirLote(lote)}
+                                  disabled={loading || incluyendoLote === lote}
+                                >
+                                  {incluyendoLote === lote
+                                    ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                                    : <><PlusCircle size={12} style={{ marginRight: 3 }} /> Incluir</>
+                                  }
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button className="btn btn-outline" onClick={() => setDisponiblesModal(false)}>Cerrar</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </motion.div>
   )

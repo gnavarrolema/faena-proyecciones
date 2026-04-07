@@ -497,6 +497,10 @@ tbody tr.row-subtotal td {
 .lote-card .lote-detail { display: flex; justify-content: space-between; color: var(--text-light); margin-bottom: 0.4rem; align-items: center;}
 .lote-card .lote-actions { display: flex; gap: 0.6rem; margin-top: 1rem; justify-content: flex-end; padding-top: 0.75rem; border-top: 1px solid var(--border); }
 
+.lote-card.lote-excluido { opacity: 0.55; }
+.lote-card.lote-excluido:hover { transform: none; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+.lote-card.lote-excluido::before { background: #9ca3af !important; }
+
 .day-summary {
   display: grid;
   grid-template-columns: 1fr auto;
