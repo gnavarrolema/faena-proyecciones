@@ -170,6 +170,85 @@ def _get_proyeccion() -> Optional[SemanaFaena]:
     return None
 
 
+def _ganancia_default_por_sexo(sexo: str, params: Parametros) -> float:
+    return params.ganancia_diaria_hembra if (sexo or "").upper() == "H" else params.ganancia_diaria_macho
+
+
+def _reconstruir_oferta_desde_lote(
+    lote: LoteProyectado,
+    fecha_faena: date,
+    params: Parametros,
+) -> LoteOferta:
+    fecha_peso = lote.fecha_peso_original or fecha_faena
+    fecha_ingreso = lote.fecha_ingreso_original or fecha_peso
+    ganancia = (
+        lote.ganancia_diaria_original
+        if lote.ganancia_diaria_original is not None
+        else _ganancia_default_por_sexo(lote.sexo, params)
+    )
+
+    return LoteOferta(
+        fecha_peso=fecha_peso,
+        granja=lote.granja,
+        galpon=lote.galpon,
+        nucleo=lote.nucleo,
+        cantidad=lote.cantidad,
+        sexo=lote.sexo,
+        edad_proyectada=lote.edad_actual,
+        peso_muestreo_proy=lote.peso_actual,
+        ganancia_diaria=ganancia,
+        dias_proyectados=lote.dias_proyectados_original,
+        edad_real=lote.edad_actual,
+        peso_muestreo_real=lote.peso_actual,
+        fecha_ingreso=fecha_ingreso,
+    )
+
+
+def _recalcular_lote_en_fecha(
+    lote: LoteProyectado,
+    fecha_faena: date,
+    params: Parametros,
+) -> LoteProyectado:
+    oferta = _reconstruir_oferta_desde_lote(lote, fecha_faena, params)
+    recalculado = calcular_lote_proyectado(oferta, fecha_faena, params)
+    recalculado.es_compra_terceros = lote.es_compra_terceros
+    recalculado.motivo_compra = lote.motivo_compra
+    recalculado.excluido = lote.excluido
+    recalculado.motivo_exclusion = lote.motivo_exclusion
+    return recalculado
+
+
+def _recalcular_proyeccion_actual(semana: SemanaFaena, params: Parametros) -> SemanaFaena:
+    dias_recalculados: list[DiaFaena] = []
+
+    for dia in semana.dias:
+        lotes_recalculados = [
+            _recalcular_lote_en_fecha(lote, dia.fecha, params)
+            for lote in dia.lotes
+        ]
+        dias_recalculados.append(
+            calcular_dia_faena(
+                dia.fecha,
+                lotes_recalculados,
+                params=params,
+                gallinas_cantidad=dia.gallinas_cantidad,
+                gallinas_livianas=dia.gallinas_livianas_cantidad,
+                gallinas_pesadas=dia.gallinas_pesadas_cantidad,
+            )
+        )
+
+    resultado = calcular_semana_faena(
+        semana.fecha_inicio,
+        dias_recalculados,
+        params,
+        lotes_no_asignados=semana.lotes_no_asignados,
+        lotes_fuera_rango=semana.lotes_fuera_rango,
+    )
+    resultado.feriados_aplicados = semana.feriados_aplicados
+    resultado.eventos_gallinas = semana.eventos_gallinas
+    return resultado
+
+
 def _oferta_key(granja: str, galpon: int, nucleo: int, sexo: str, fecha_ingreso: Optional[date]) -> tuple:
     return (
         granja,
@@ -788,42 +867,12 @@ def update_parametros(update: ParametrosUpdate, current_user: TokenData = Depend
     proyeccion_recalculada = False
     proyeccion = _get_proyeccion()
     if proyeccion is not None:
-        ofertas = _get_ofertas()
-        if ofertas:
-            try:
-                config = storage.load_proyeccion_config() or {}
-                fecha_inicio = proyeccion.fecha_inicio
-                dias_faena = config.get("dias_faena", len(proyeccion.dias))
-                pollos_por_dia = config.get("pollos_por_dia", params.pollos_diarios_objetivo_max)
-
-                # Reconstruir feriados desde la proyección guardada
-                feriados = None
-                if proyeccion.feriados_aplicados:
-                    feriados = {f.fecha: f.nombre for f in proyeccion.feriados_aplicados}
-
-                # Reconstruir gallinas desde la proyección guardada
-                gallinas = config.get("gallinas")
-                if gallinas is None and proyeccion.eventos_gallinas:
-                    gallinas = {}
-                    for e in proyeccion.eventos_gallinas:
-                        gallinas[e.fecha.isoformat()] = {
-                            "livianas": e.cantidad,
-                            "tipo": e.tipo,
-                        }
-
-                semana = generar_proyeccion(
-                    ofertas=ofertas,
-                    fecha_inicio_semana=fecha_inicio,
-                    dias_faena=dias_faena,
-                    pollos_por_dia=pollos_por_dia,
-                    params=params,
-                    feriados=feriados,
-                    gallinas=gallinas,
-                )
-                storage.save_proyeccion(semana.model_dump())
-                proyeccion_recalculada = True
-            except Exception as e:
-                logger.warning(f"Error recalculando proyección tras cambio de parámetros: {e}")
+        try:
+            semana = _recalcular_proyeccion_actual(proyeccion, params)
+            storage.save_proyeccion(semana.model_dump())
+            proyeccion_recalculada = True
+        except Exception as e:
+            logger.warning(f"Error recalculando proyección tras cambio de parámetros: {e}")
 
     result = params.model_dump()
     result["proyeccion_recalculada"] = proyeccion_recalculada

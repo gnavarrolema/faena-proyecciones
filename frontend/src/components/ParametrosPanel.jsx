@@ -32,7 +32,7 @@ export default function ParametrosPanel({ onParametrosUpdated } = {}) {
       const data = await updateParametros(params)
       setParams(data)
       if (data.proyeccion_recalculada && onParametrosUpdated) {
-        onParametrosUpdated()
+        await onParametrosUpdated(data)
       }
       setMessage({ type: 'success', text: data.proyeccion_recalculada ? 'Parámetros guardados y planificación recalculada' : 'Parámetros guardados correctamente' })
       setTimeout(() => setMessage(null), 3000)
