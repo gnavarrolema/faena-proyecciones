@@ -495,7 +495,8 @@ tbody tr.row-subtotal td {
 }
 .lote-card .lote-header { display: flex; justify-content: space-between; font-weight: 700; margin-bottom: 0.75rem; color: var(--text); font-size: 0.95rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
 .lote-card .lote-detail { display: flex; justify-content: space-between; color: var(--text-light); margin-bottom: 0.4rem; align-items: center;}
-.lote-card .lote-actions { display: flex; gap: 0.6rem; margin-top: 1rem; justify-content: flex-end; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+.lote-card .lote-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1rem; justify-content: flex-start; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+.lote-card .lote-actions .btn { flex: 0 0 auto; }
 
 .lote-card.lote-excluido { opacity: 0.55; }
 .lote-card.lote-excluido:hover { transform: none; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
