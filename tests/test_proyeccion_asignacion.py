@@ -802,3 +802,86 @@ def test_rescate_swap_desplaza_lote_menor_urgencia():
             f"Día {dia.fecha} excede cap_extras: {dia.total_pollos}"
         )
 
+
+def test_criterio_gerente_fracciona_y_deja_backlog_como_respaldo():
+    params = Parametros(
+        pollos_diarios_objetivo_min=15000,
+        pollos_diarios_objetivo_max=15000,
+        capacidad_maxima_planta=15000,
+        capacidad_con_horas_extras=15000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.80,
+        peso_max_faena=3.20,
+    )
+
+    lote_fresco = _lote(30000, 1, edad_proyectada=38, peso=2.74, granja="FRESCO")
+    lote_backlog = _lote(15000, 2, edad_proyectada=46, peso=3.65, granja="BACKLOG")
+
+    semana = generar_proyeccion(
+        ofertas=[lote_fresco, lote_backlog],
+        fecha_inicio_semana=date(2026, 2, 23),
+        dias_faena=2,
+        pollos_por_dia=15000,
+        params=params,
+        criterio_gerente=True,
+    )
+
+    assert [dia.total_pollos for dia in semana.dias] == [15000, 15000]
+
+    # Cascade assigns sobreedad BACKLOG first (maturity-based priority),
+    # then FRESCO fills remaining capacity — matching manager behavior.
+    lotes_asignados = [lote for dia in semana.dias for lote in dia.lotes]
+    granjas_asignadas = {lote.granja for lote in lotes_asignados}
+    assert "BACKLOG" in granjas_asignadas
+    assert "FRESCO" in granjas_asignadas
+    assert sum(lote.cantidad for lote in lotes_asignados) == 30000
+
+    # FRESCO remaining (15000) goes to no_asignados
+    assert len(semana.lotes_no_asignados) == 1
+    assert semana.lotes_no_asignados[0].granja == "FRESCO"
+
+
+def test_ajuste_martes_redistribuye_cantidad_en_fragmentos():
+    params = Parametros(
+        pollos_diarios_objetivo_min=15000,
+        pollos_diarios_objetivo_max=15000,
+        capacidad_maxima_planta=15000,
+        capacidad_con_horas_extras=15000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.80,
+        peso_max_faena=3.20,
+    )
+
+    semana = generar_proyeccion(
+        ofertas=[_lote(30000, 1, edad_proyectada=38, peso=2.74, granja="FRESCO")],
+        fecha_inicio_semana=date(2026, 2, 23),
+        dias_faena=2,
+        pollos_por_dia=15000,
+        params=params,
+        criterio_gerente=True,
+    )
+
+    fragment_ids_antes = {
+        lote.fragment_id
+        for dia in semana.dias
+        for lote in dia.lotes
+    }
+
+    ofertas_martes = [
+        _lote(24000, 1, edad_proyectada=39, peso=2.80, granja="FRESCO")
+    ]
+
+    resultado, resumen = aplicar_ajuste_martes(ofertas_martes, semana, params)
+
+    assert resumen.lotes_actualizados == 1
+    assert resumen.lotes_nuevos == 0
+    assert resumen.lotes_faltantes == 0
+
+    lotes_resultado = [lote for dia in resultado.dias for lote in dia.lotes]
+    assert sum(lote.cantidad for lote in lotes_resultado) == 24000
+    assert sorted(lote.cantidad for lote in lotes_resultado) == [12000, 12000]
+    assert {lote.fragment_id for lote in lotes_resultado} == fragment_ids_antes
+    assert all(lote.cantidad_original_lote == 24000 for lote in lotes_resultado)
+

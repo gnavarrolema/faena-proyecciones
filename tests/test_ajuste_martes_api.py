@@ -250,3 +250,56 @@ def test_oferta_trazabilidad_refleja_ajuste_martes(client, auth_headers):
     assert registro["ajuste_martes"]["disponible"] is True
     assert registro["ajuste_martes"]["estado"] == "actualizado"
     assert registro["ajuste_martes"]["oferta"]["cantidad"] == lote["cantidad"] + 500
+
+
+def test_oferta_trazabilidad_marca_lote_parcial_fraccionado(client, auth_headers):
+    lote_parcial = {
+        **LOTE_BASE,
+        "granja": "PARCIAL",
+        "cantidad": 40000,
+        "edad_proyectada": 38,
+        "edad_real": 38,
+        "peso_muestreo_proy": 2.74,
+        "peso_muestreo_real": 2.74,
+    }
+
+    excel = _crear_excel_oferta([lote_parcial], sheet_title="OFERTA JUEV")
+    r = client.post(
+        "/oferta/upload",
+        headers=auth_headers,
+        files={"file": ("oferta.xlsx", excel, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200, r.text
+
+    r = client.post(
+        "/proyeccion/generar",
+        headers=auth_headers,
+        json={
+            "fecha_inicio_semana": "2026-02-23",
+            "dias_faena": 2,
+            "pollos_por_dia": 15000,
+            "criterio_gerente": True,
+            "parametros": {
+                "pollos_diarios_objetivo_min": 15000,
+                "pollos_diarios_objetivo_max": 15000,
+                "capacidad_maxima_planta": 15000,
+                "capacidad_con_horas_extras": 15000,
+                "edad_min_faena": 38,
+                "edad_max_faena": 43,
+                "peso_min_faena": 2.8,
+                "peso_max_faena": 3.2,
+            },
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    r = client.get("/oferta/trazabilidad", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+
+    assert data["resumen"]["parciales"] == 1
+    registro = data["registros"][0]
+    assert registro["estado_planificacion"] == "parcial"
+    assert registro["tomado_en_planificacion"] is True
+    assert registro["detalle_planificacion"]["planificado"]["cantidad_planificada"] == 30000
+    assert registro["detalle_planificacion"]["no_asignado"]["cantidad_no_asignada"] == 10000

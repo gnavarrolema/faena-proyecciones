@@ -92,34 +92,41 @@ def _crear_oferta_y_proyeccion(client, auth_headers):
     return resp.json()
 
 
+def _primer_lote_planificado(proyeccion: dict) -> tuple[int, int]:
+    for dia_idx, dia in enumerate(proyeccion["dias"]):
+        if dia["lotes"]:
+            return dia_idx, 0
+    raise AssertionError("La proyección no contiene lotes planificados")
+
+
 def test_diferir_lote(client, auth_headers):
     """Diferir un lote de semana 1 y verificar que se guarda."""
     proy = _crear_oferta_y_proyeccion(client, auth_headers)
-    dia0_pollos = proy["dias"][0]["total_pollos"]
-    dia0_lotes = len(proy["dias"][0]["lotes"])
+    dia_idx, lote_idx = _primer_lote_planificado(proy)
+    dia_lotes = len(proy["dias"][dia_idx]["lotes"])
 
-    # Diferir el primer lote del primer día
+    # Diferir el primer lote disponible
     resp = client.post(
         "/proyeccion/diferir-lote",
-        json={"dia_index": 0, "lote_index": 0, "motivo": "Feriado"},
+        json={"dia_index": dia_idx, "lote_index": lote_idx, "motivo": "Feriado"},
         headers=auth_headers,
     )
     assert resp.status_code == 200
     data = resp.json()
     assert data["total_diferidos"] == 1
     assert data["lote_diferido"]["motivo"] == "Feriado"
-    # El día 0 debe tener un lote menos
-    assert len(data["proyeccion"]["dias"][0]["lotes"]) == dia0_lotes - 1
+    assert len(data["proyeccion"]["dias"][dia_idx]["lotes"]) == dia_lotes - 1
 
 
 def test_diferir_y_restaurar(client, auth_headers):
     """Diferir un lote y luego restaurarlo."""
-    _crear_oferta_y_proyeccion(client, auth_headers)
+    proy = _crear_oferta_y_proyeccion(client, auth_headers)
+    dia_idx, lote_idx = _primer_lote_planificado(proy)
 
     # Diferir
     resp = client.post(
         "/proyeccion/diferir-lote",
-        json={"dia_index": 0, "lote_index": 0},
+        json={"dia_index": dia_idx, "lote_index": lote_idx},
         headers=auth_headers,
     )
     assert resp.status_code == 200
@@ -152,12 +159,12 @@ def test_semana2_vacia(client, auth_headers):
 
 def test_semana2_con_diferidos(client, auth_headers):
     """Diferir lotes y luego obtener proyección de semana 2."""
-    _crear_oferta_y_proyeccion(client, auth_headers)
+    proy = _crear_oferta_y_proyeccion(client, auth_headers)
+    dia_idx, lote_idx = _primer_lote_planificado(proy)
 
-    # Diferir 2 lotes
     client.post(
         "/proyeccion/diferir-lote",
-        json={"dia_index": 0, "lote_index": 0, "motivo": "Sobrecarga"},
+        json={"dia_index": dia_idx, "lote_index": lote_idx, "motivo": "Sobrecarga"},
         headers=auth_headers,
     )
 
@@ -221,7 +228,8 @@ def test_semana2_recupera_lotes_fuera_rango_de_s1(client, auth_headers):
 
 def test_lotes_diferidos_endpoint(client, auth_headers):
     """Verificar endpoint de listar lotes diferidos."""
-    _crear_oferta_y_proyeccion(client, auth_headers)
+    proy = _crear_oferta_y_proyeccion(client, auth_headers)
+    dia_idx, lote_idx = _primer_lote_planificado(proy)
 
     # Sin diferidos
     resp = client.get("/proyeccion/lotes-diferidos", headers=auth_headers)
@@ -231,7 +239,7 @@ def test_lotes_diferidos_endpoint(client, auth_headers):
     # Diferir uno
     client.post(
         "/proyeccion/diferir-lote",
-        json={"dia_index": 0, "lote_index": 0},
+        json={"dia_index": dia_idx, "lote_index": lote_idx},
         headers=auth_headers,
     )
 
@@ -243,10 +251,11 @@ def test_lotes_diferidos_endpoint(client, auth_headers):
 
 def test_limpiar_diferidos(client, auth_headers):
     """Limpiar todos los diferidos."""
-    _crear_oferta_y_proyeccion(client, auth_headers)
+    proy = _crear_oferta_y_proyeccion(client, auth_headers)
+    dia_idx, lote_idx = _primer_lote_planificado(proy)
     client.post(
         "/proyeccion/diferir-lote",
-        json={"dia_index": 0, "lote_index": 0},
+        json={"dia_index": dia_idx, "lote_index": lote_idx},
         headers=auth_headers,
     )
 
@@ -262,10 +271,11 @@ def test_limpiar_diferidos(client, auth_headers):
 
 def _generar_semana2(client, auth_headers):
     """Helper: genera S1, difiere un lote, y obtiene S2."""
-    _crear_oferta_y_proyeccion(client, auth_headers)
+    proy = _crear_oferta_y_proyeccion(client, auth_headers)
+    dia_idx, lote_idx = _primer_lote_planificado(proy)
     client.post(
         "/proyeccion/diferir-lote",
-        json={"dia_index": 0, "lote_index": 0},
+        json={"dia_index": dia_idx, "lote_index": lote_idx},
         headers=auth_headers,
     )
     resp = client.get("/proyeccion/semana2", headers=auth_headers)

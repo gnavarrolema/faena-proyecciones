@@ -35,6 +35,7 @@ from .calculo import (
     calcular_alerta_temprana,
     generar_sugerencias_diferimiento,
     validar_mortalidad_oferta,
+    normalizar_granja_clave,
 )
 from .parser_excel import leer_oferta_excel
 from .parser_produccion import (
@@ -211,11 +212,25 @@ def _recalcular_lote_en_fecha(
 ) -> LoteProyectado:
     oferta = _reconstruir_oferta_desde_lote(lote, fecha_faena, params)
     recalculado = calcular_lote_proyectado(oferta, fecha_faena, params)
-    recalculado.es_compra_terceros = lote.es_compra_terceros
-    recalculado.motivo_compra = lote.motivo_compra
-    recalculado.excluido = lote.excluido
-    recalculado.motivo_exclusion = lote.motivo_exclusion
-    return recalculado
+    return _copiar_metadata_lote(lote, recalculado)
+
+
+def _copiar_metadata_lote(origen: LoteProyectado, destino: LoteProyectado) -> LoteProyectado:
+    destino.es_compra_terceros = origen.es_compra_terceros
+    destino.motivo_compra = origen.motivo_compra
+    destino.excluido = origen.excluido
+    destino.motivo_exclusion = origen.motivo_exclusion
+    destino.fragmentado = origen.fragmentado
+    destino.fragment_id = origen.fragment_id
+    destino.cantidad_original_lote = origen.cantidad_original_lote or origen.cantidad
+    return destino
+
+
+def _copiar_metadata_diferida(datos: dict, destino: LoteProyectado) -> LoteProyectado:
+    destino.fragmentado = datos.get("fragmentado", False)
+    destino.fragment_id = datos.get("fragment_id")
+    destino.cantidad_original_lote = datos.get("cantidad_original_lote") or destino.cantidad
+    return destino
 
 
 def _recalcular_proyeccion_actual(semana: SemanaFaena, params: Parametros) -> SemanaFaena:
@@ -251,7 +266,7 @@ def _recalcular_proyeccion_actual(semana: SemanaFaena, params: Parametros) -> Se
 
 def _oferta_key(granja: str, galpon: int, nucleo: int, sexo: str, fecha_ingreso: Optional[date]) -> tuple:
     return (
-        granja,
+        normalizar_granja_clave(granja),
         galpon,
         nucleo,
         sexo,
@@ -300,31 +315,73 @@ def _build_oferta_trace() -> dict:
                 if isinstance(fecha_ingreso, str):
                     fecha_ingreso = date.fromisoformat(fecha_ingreso)
                 key = _oferta_key(lote.granja, lote.galpon, lote.nucleo, lote.sexo, fecha_ingreso)
-                planificados[key] = {
+                detalle = planificados.setdefault(key, {
+                    "dia": None,
+                    "fecha": None,
+                    "dias": [],
+                    "fechas": [],
+                    "cantidad_planificada": 0,
+                    "es_compra_terceros": False,
+                    "fragmentado": False,
+                    "fragmentos": [],
+                })
+                if dia_nombre not in detalle["dias"]:
+                    detalle["dias"].append(dia_nombre)
+                fecha_iso = dia.fecha.isoformat()
+                if detalle["dia"] is None:
+                    detalle["dia"] = dia_nombre
+                if detalle["fecha"] is None:
+                    detalle["fecha"] = fecha_iso
+                if fecha_iso not in detalle["fechas"]:
+                    detalle["fechas"].append(fecha_iso)
+                detalle["cantidad_planificada"] += lote.cantidad
+                detalle["es_compra_terceros"] = detalle["es_compra_terceros"] or lote.es_compra_terceros
+                detalle["fragmentado"] = detalle["fragmentado"] or lote.fragmentado
+                detalle["fragmentos"].append({
                     "dia": dia_nombre,
-                    "fecha": dia.fecha.isoformat(),
-                    "cantidad_planificada": lote.cantidad,
-                    "es_compra_terceros": lote.es_compra_terceros,
-                }
+                    "fecha": fecha_iso,
+                    "cantidad": lote.cantidad,
+                    "fragment_id": lote.fragment_id,
+                })
 
         for lote in planificacion.lotes_no_asignados or []:
             key = _oferta_key(lote.granja, lote.galpon, lote.nucleo, lote.sexo, lote.fecha_ingreso)
-            no_asignados[key] = {
-                "motivo": lote.motivo,
-                "dias_elegibles": [d.isoformat() if isinstance(d, date) else d for d in lote.dias_elegibles],
-            }
+            detalle = no_asignados.setdefault(key, {
+                "motivo": None,
+                "cantidad_no_asignada": 0,
+                "motivos": [],
+                "dias_elegibles": [],
+            })
+            detalle["cantidad_no_asignada"] += lote.cantidad
+            if detalle["motivo"] is None:
+                detalle["motivo"] = lote.motivo
+            if lote.motivo not in detalle["motivos"]:
+                detalle["motivos"].append(lote.motivo)
+            for dia_elegible in lote.dias_elegibles:
+                fecha_iso = dia_elegible.isoformat() if isinstance(dia_elegible, date) else dia_elegible
+                if fecha_iso not in detalle["dias_elegibles"]:
+                    detalle["dias_elegibles"].append(fecha_iso)
 
         for lote in planificacion.lotes_fuera_rango or []:
             key = _oferta_key(lote.granja, lote.galpon, lote.nucleo, lote.sexo, lote.fecha_ingreso)
-            fuera_rango[key] = {
-                "motivo": lote.motivo,
-                "detalle_por_dia": lote.detalle_por_dia,
-            }
+            detalle = fuera_rango.setdefault(key, {
+                "motivo": None,
+                "cantidad_fuera_rango": 0,
+                "motivos": [],
+                "detalle_por_dia": [],
+            })
+            detalle["cantidad_fuera_rango"] += lote.cantidad
+            if detalle["motivo"] is None:
+                detalle["motivo"] = lote.motivo
+            if lote.motivo not in detalle["motivos"]:
+                detalle["motivos"].append(lote.motivo)
+            detalle["detalle_por_dia"].extend(lote.detalle_por_dia)
 
     registros = []
     resumen = {
         "total_jueves": len(ofertas_jueves),
         "planificados": 0,
+        "parciales": 0,
         "no_asignados": 0,
         "fuera_rango": 0,
         "pendientes": 0,
@@ -338,15 +395,26 @@ def _build_oferta_trace() -> dict:
         oferta_martes = martes_index.get(key)
         ajuste_estado = _estado_ajuste_martes(oferta, oferta_martes)
 
-        if key in planificados:
+        tiene_plan = key in planificados
+        tiene_no_asignado = key in no_asignados
+        tiene_fuera_rango = key in fuera_rango
+
+        if tiene_plan and tiene_no_asignado:
+            estado_planificacion = "parcial"
+            detalle = {
+                "planificado": planificados[key],
+                "no_asignado": no_asignados[key],
+            }
+            resumen["parciales"] += 1
+        elif tiene_plan:
             estado_planificacion = "planificado"
             detalle = planificados[key]
             resumen["planificados"] += 1
-        elif key in no_asignados:
+        elif tiene_no_asignado:
             estado_planificacion = "no_asignado"
             detalle = no_asignados[key]
             resumen["no_asignados"] += 1
-        elif key in fuera_rango:
+        elif tiene_fuera_rango:
             estado_planificacion = "fuera_rango"
             detalle = fuera_rango[key]
             resumen["fuera_rango"] += 1
@@ -373,7 +441,7 @@ def _build_oferta_trace() -> dict:
             },
             "oferta_jueves": oferta.model_dump(),
             "estado_planificacion": estado_planificacion,
-            "tomado_en_planificacion": estado_planificacion == "planificado",
+            "tomado_en_planificacion": estado_planificacion in {"planificado", "parcial"},
             "detalle_planificacion": detalle,
             "ajuste_martes": {
                 "disponible": oferta_martes is not None,
@@ -427,6 +495,10 @@ class ProyeccionRequest(BaseModel):
     habilitar_sabado: bool = False
     gallinas: Optional[dict] = None  # {fecha_iso: cantidad}
     incluir_deficit: bool = False  # incluir lotes del déficit de semana anterior
+    criterio_gerente: bool = True
+    permitir_fraccionamiento_lotes: Optional[bool] = None
+    excluir_backlog_semana_previa: Optional[bool] = None
+    minimos_como_alerta: Optional[bool] = None
 
 
 class FeriadoCustomRequest(BaseModel):
@@ -1129,6 +1201,10 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
         params=params,
         feriados=feriados if feriados else None,
         gallinas=req.gallinas,
+        criterio_gerente=req.criterio_gerente,
+        permitir_fraccionamiento_lotes=req.permitir_fraccionamiento_lotes,
+        excluir_backlog_semana_previa=req.excluir_backlog_semana_previa,
+        minimos_como_alerta=req.minimos_como_alerta,
     )
 
     # Persistir proyección y parámetros usados
@@ -1142,6 +1218,10 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
         "pollos_por_dia": req.pollos_por_dia,
         "habilitar_sabado": req.habilitar_sabado,
         "incluir_deficit": req.incluir_deficit,
+        "criterio_gerente": req.criterio_gerente,
+        "permitir_fraccionamiento_lotes": req.permitir_fraccionamiento_lotes,
+        "excluir_backlog_semana_previa": req.excluir_backlog_semana_previa,
+        "minimos_como_alerta": req.minimos_como_alerta,
         "gallinas": req.gallinas,
         "feriados_custom": [f.isoformat() for f in req.feriados_custom] if req.feriados_custom else None,
     })
@@ -1219,7 +1299,10 @@ def mover_lote(asignacion: AsignacionManual, current_user: TokenData = Depends(g
         fecha_ingreso=fecha_ingreso,
     )
 
-    nuevo_lote = calcular_lote_proyectado(oferta_equiv, nueva_fecha, params)
+    nuevo_lote = _copiar_metadata_lote(
+        lote,
+        calcular_lote_proyectado(oferta_equiv, nueva_fecha, params),
+    )
     dia_destino.lotes.append(nuevo_lote)
 
     # Recalcular agregados de ambos días
@@ -1348,7 +1431,10 @@ def redistribuir_dia(
         candidatos.sort(key=lambda x: (-x[1], x[2]))
         mejor_idx = candidatos[0][0]
 
-        nuevo_lote = calcular_lote_proyectado(oferta_equiv, semana.dias[mejor_idx].fecha, params)
+        nuevo_lote = _copiar_metadata_lote(
+            lote,
+            calcular_lote_proyectado(oferta_equiv, semana.dias[mejor_idx].fecha, params),
+        )
         semana.dias[mejor_idx].lotes.append(nuevo_lote)
 
         dia_dest = semana.dias[mejor_idx]
@@ -1611,10 +1697,10 @@ def incluir_lote_disponible(req: IncluirLoteDisponibleRequest, current_user: Tok
                 peso_muestreo_real=lote.peso_actual,
                 fecha_ingreso=lote.fecha_ingreso_original or fecha_destino,
             )
-            nuevo_lote = calcular_lote_proyectado(oferta, fecha_destino, params)
-            if lote.es_compra_terceros:
-                nuevo_lote.es_compra_terceros = True
-                nuevo_lote.motivo_compra = lote.motivo_compra
+            nuevo_lote = _copiar_metadata_lote(
+                lote,
+                calcular_lote_proyectado(oferta, fecha_destino, params),
+            )
             semana.dias[req.dia_destino].lotes.append(nuevo_lote)
 
             # Recalcular el día origen
@@ -2861,6 +2947,10 @@ def generar_escenarios_endpoint(
             params=params,
             feriados=feriados if feriados else None,
             gallinas=req.gallinas,
+            criterio_gerente=req.criterio_gerente,
+            permitir_fraccionamiento_lotes=req.permitir_fraccionamiento_lotes,
+            excluir_backlog_semana_previa=req.excluir_backlog_semana_previa,
+            minimos_como_alerta=req.minimos_como_alerta,
         )
         proy_dict = semana.model_dump()
         usa_horas_extras = any(d.get("nivel_carga") == "horas_extras" for d in proy_dict.get("dias", []))
@@ -3227,6 +3317,9 @@ def diferir_lote_semana2(req: DiferirLoteRequest, current_user: TokenData = Depe
         "ganancia_diaria_original": lote.ganancia_diaria_original,
         "fecha_ingreso_original": lote.fecha_ingreso_original.isoformat() if lote.fecha_ingreso_original else None,
         "dias_proyectados_original": lote.dias_proyectados_original,
+        "fragmentado": lote.fragmentado,
+        "fragment_id": lote.fragment_id,
+        "cantidad_original_lote": lote.cantidad_original_lote,
         "dia_origen_fecha": dia.fecha.isoformat(),
         "dia_origen_index": req.dia_index,
         "motivo": req.motivo,
@@ -3318,7 +3411,10 @@ def restaurar_lote_semana1(req: RestaurarLoteRequest, current_user: TokenData = 
         dia_destino_idx = mejor_idx
 
     dia_destino = semana.dias[dia_destino_idx]
-    nuevo_lote = calcular_lote_proyectado(oferta_equiv, dia_destino.fecha, params)
+    nuevo_lote = _copiar_metadata_diferida(
+        diferido,
+        calcular_lote_proyectado(oferta_equiv, dia_destino.fecha, params),
+    )
     dia_destino.lotes.append(nuevo_lote)
 
     # Recalcular
@@ -3371,22 +3467,24 @@ def get_semana2(current_user: TokenData = Depends(get_current_user)):
 
     def _lote_key(granja: str, galpon: int, nucleo: int, sexo: str, fecha_ingreso: Optional[date]) -> tuple:
         return (
-            granja,
+            normalizar_granja_clave(granja),
             galpon,
             nucleo,
             sexo,
             fecha_ingreso.isoformat() if fecha_ingreso else "",
         )
 
-    claves_agregadas: set[tuple] = set()
+    ofertas_s2_index: dict[tuple, LoteOferta] = {}
 
     def _agregar_oferta_si_no_existe(oferta: LoteOferta) -> bool:
         key = _lote_key(oferta.granja, oferta.galpon, oferta.nucleo, oferta.sexo, oferta.fecha_ingreso)
-        if key in claves_agregadas:
-            return False
-        ofertas_s2.append(oferta)
-        claves_agregadas.add(key)
-        return True
+        existente = ofertas_s2_index.get(key)
+        if existente is None:
+            ofertas_s2.append(oferta)
+            ofertas_s2_index[key] = oferta
+            return True
+        existente.cantidad += oferta.cantidad
+        return False
 
     # 1) Lotes diferidos → LoteOferta
     for d in diferidos:
@@ -3468,6 +3566,10 @@ def get_semana2(current_user: TokenData = Depends(get_current_user)):
         pollos_por_dia=pollos_por_dia_s2,
         params=params,
         feriados=feriados if feriados else None,
+        criterio_gerente=config_s1.get("criterio_gerente", True),
+        permitir_fraccionamiento_lotes=config_s1.get("permitir_fraccionamiento_lotes"),
+        excluir_backlog_semana_previa=config_s1.get("excluir_backlog_semana_previa"),
+        minimos_como_alerta=config_s1.get("minimos_como_alerta"),
     )
 
     # Persistir la proyección S2 para edición interactiva
@@ -3557,7 +3659,10 @@ def mover_lote_s2(req: MoverLoteS2Request, current_user: TokenData = Depends(get
         fecha_ingreso=fecha_ingreso,
     )
 
-    nuevo_lote = calcular_lote_proyectado(oferta_equiv, nueva_fecha, params)
+    nuevo_lote = _copiar_metadata_lote(
+        lote,
+        calcular_lote_proyectado(oferta_equiv, nueva_fecha, params),
+    )
     dia_destino.lotes.append(nuevo_lote)
 
     semana2.dias[req.dia_origen] = calcular_dia_faena(
@@ -3683,7 +3788,10 @@ def enviar_lote_s2_a_s1(req: EnviarS1Request, current_user: TokenData = Depends(
         dia_destino_idx = mejor_idx
 
     dia_destino_s1 = semana1.dias[dia_destino_idx]
-    nuevo_lote = calcular_lote_proyectado(oferta_equiv, dia_destino_s1.fecha, params)
+    nuevo_lote = _copiar_metadata_lote(
+        lote,
+        calcular_lote_proyectado(oferta_equiv, dia_destino_s1.fecha, params),
+    )
     dia_destino_s1.lotes.append(nuevo_lote)
 
     # Recalcular S1

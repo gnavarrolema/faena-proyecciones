@@ -13,6 +13,17 @@ DIAS_HASTA_FAENA_REFERENCIA = 42
 MERMA_REFERENCIA_MIN = 0.045
 MERMA_REFERENCIA_MAX = 0.075
 TOLERANCIA_FECHA_CRUCE_DIAS = 3
+EDAD_TOLERANCIA_GERENTE = 4
+PESO_TOLERANCIA_GERENTE = 0.75
+
+
+def normalizar_granja_clave(granja: str) -> str:
+    """Normaliza el nombre de granja para matching entre fuentes."""
+    valor = " ".join((granja or "").strip().upper().split())
+    for prefijo in ("LOS ", "LAS ", "EL ", "LA "):
+        if valor.startswith(prefijo):
+            return valor[len(prefijo):]
+    return valor
 
 
 # ─── Modelos ────────────────────────────────────────────────────────────────────
@@ -90,6 +101,12 @@ class LoteProyectado(BaseModel):
     # Exclusión manual (lote "tachado" por el usuario)
     excluido: bool = False
     motivo_exclusion: Optional[str] = None
+    # Fraccionamiento automático para aproximar el criterio del gerente
+    fragmentado: bool = False
+    fragment_id: Optional[str] = None
+    cantidad_original_lote: Optional[int] = None
+    alerta_baja_edad: bool = False
+    alerta_bajo_peso: bool = False
 
 
 class DiaFaena(BaseModel):
@@ -386,7 +403,7 @@ def calcular_lote_proyectado(
     calibre = calibre_promedio(p_faenado, params.kg_por_caja)
     cajas = cajas_lote(oferta.cantidad, calibre)
 
-    return LoteProyectado(
+    lote = LoteProyectado(
         granja=oferta.granja,
         galpon=oferta.galpon,
         nucleo=oferta.nucleo,
@@ -406,7 +423,82 @@ def calcular_lote_proyectado(
         ganancia_diaria_original=oferta.ganancia_diaria,
         fecha_ingreso_original=oferta.fecha_ingreso,
         dias_proyectados_original=oferta.dias_proyectados,
+        cantidad_original_lote=oferta.cantidad,
     )
+    lote.alerta_baja_edad = lote.edad_fin_retiro < params.edad_min_faena
+    lote.alerta_bajo_peso = lote.peso_vivo_retiro < params.peso_min_faena
+    return lote
+
+
+def _crear_fragmento_proyectado(
+    oferta: LoteOferta,
+    fecha_fin_retiro: date,
+    params: Parametros,
+    cantidad_fragmento: int,
+    fragmento_indice: int,
+    total_fragmentos: int,
+    cantidad_original_lote: Optional[int] = None,
+) -> LoteProyectado:
+    lote = calcular_lote_proyectado(oferta, fecha_fin_retiro, params)
+    lote.cantidad = cantidad_fragmento
+    lote.cajas = cajas_lote(cantidad_fragmento, lote.calibre_promedio)
+    lote.fragmentado = total_fragmentos > 1 or cantidad_fragmento != oferta.cantidad
+    lote.cantidad_original_lote = cantidad_original_lote or oferta.cantidad
+    if lote.fragmentado:
+        fecha_ingreso = oferta.fecha_ingreso.isoformat() if oferta.fecha_ingreso else "sin-fecha"
+        lote.fragment_id = (
+            f"{normalizar_granja_clave(oferta.granja)}-"
+            f"{oferta.galpon}-{oferta.nucleo}-{oferta.sexo}-{fecha_ingreso}-{fragmento_indice}"
+        )
+    return lote
+
+
+def _generar_fechas_faena(
+    fecha_inicio_semana: date,
+    dias_faena: int,
+    feriados: Optional[dict],
+) -> tuple[list[date], bool, date]:
+    incluir_sabado = dias_faena >= 6
+    fecha_limite = fecha_inicio_semana + timedelta(days=5 if incluir_sabado else 4)
+    if feriados:
+        from .feriados import generar_dias_habiles
+
+        fechas_dias = generar_dias_habiles(
+            fecha_inicio_semana,
+            dias_faena,
+            feriados,
+            incluir_sabado=incluir_sabado,
+            fecha_limite=fecha_limite,
+        )
+    else:
+        fechas_dias = [fecha_inicio_semana + timedelta(days=i) for i in range(dias_faena)]
+    return fechas_dias, incluir_sabado, fecha_limite
+
+
+def _particionar_cantidad(cantidad_total: int, pesos: list[int]) -> list[int]:
+    if not pesos:
+        return []
+    if sum(pesos) <= 0:
+        base = cantidad_total // len(pesos)
+        cantidades = [base for _ in pesos]
+        for idx in range(cantidad_total - sum(cantidades)):
+            cantidades[idx % len(cantidades)] += 1
+        return cantidades
+
+    cantidades = []
+    restos = []
+    total_asignado = 0
+    total_pesos = sum(pesos)
+    for idx, peso in enumerate(pesos):
+        exacto = cantidad_total * peso / total_pesos
+        base = int(exacto)
+        cantidades.append(base)
+        restos.append((exacto - base, idx))
+        total_asignado += base
+
+    for _, idx in sorted(restos, reverse=True)[:cantidad_total - total_asignado]:
+        cantidades[idx] += 1
+    return cantidades
 
 
 def calcular_dia_faena(
@@ -635,6 +727,345 @@ def evaluar_elegibilidad_lote(
     return (peso_proy, edad_fin, sobreedad)
 
 
+def _evaluar_elegibilidad_lote_criterio_gerente(
+    oferta: LoteOferta,
+    fecha_dia: date,
+    params: Parametros,
+    minimos_como_alerta: bool,
+) -> Optional[LoteProyectado]:
+    lote = calcular_lote_proyectado(oferta, fecha_dia, params)
+    brecha_edad = params.edad_min_faena - lote.edad_fin_retiro
+    brecha_peso = params.peso_min_faena - lote.peso_vivo_retiro
+
+    if minimos_como_alerta:
+        if brecha_edad > EDAD_TOLERANCIA_GERENTE or brecha_peso > PESO_TOLERANCIA_GERENTE:
+            return None
+    else:
+        if brecha_edad > 0 or brecha_peso > 0:
+            return None
+
+    lote.sobreedad = (
+        lote.edad_fin_retiro > params.edad_max_faena
+        or lote.peso_vivo_retiro > params.peso_max_faena
+    )
+    return lote
+
+
+def _generar_proyeccion_criterio_gerente(
+    ofertas: List[LoteOferta],
+    fecha_inicio_semana: date,
+    dias_faena: int,
+    pollos_por_dia: int,
+    params: Parametros,
+    feriados: Optional[dict],
+    gallinas: Optional[dict],
+    permitir_fraccionamiento_lotes: bool,
+    excluir_backlog_semana_previa: bool,
+    minimos_como_alerta: bool,
+) -> SemanaFaena:
+    gallinas = gallinas or {}
+    objetivo_preferido = max(
+        params.pollos_diarios_objetivo_min,
+        min(pollos_por_dia, params.pollos_diarios_objetivo_max),
+    )
+    fechas_dias, _, fecha_limite = _generar_fechas_faena(
+        fecha_inicio_semana,
+        dias_faena,
+        feriados,
+    )
+    fechas_semana_previa = [fecha_dia - timedelta(days=7) for fecha_dia in fechas_dias]
+    num_dias = len(fechas_dias)
+
+    def _gallinas_total(fecha_iso: str) -> int:
+        val = gallinas.get(fecha_iso, 0)
+        if isinstance(val, dict):
+            return val.get("livianas", 0) + val.get("pesadas", 0)
+        return val
+
+    def _gallinas_desglose(fecha_iso: str) -> tuple[int, int]:
+        val = gallinas.get(fecha_iso, 0)
+        if isinstance(val, dict):
+            return val.get("livianas", 0), val.get("pesadas", 0)
+        return val, 0
+
+    def _capacidad_dia(d_idx: int) -> int:
+        fecha = fechas_dias[d_idx]
+        es_sabado = fecha.weekday() == 5
+        cap_base = params.limite_sabado if es_sabado else params.capacidad_maxima_planta
+        return max(0, cap_base - _gallinas_total(fecha.isoformat()))
+
+    def _objetivo_dia(d_idx: int) -> int:
+        fecha = fechas_dias[d_idx]
+        es_sabado = fecha.weekday() == 5
+        gall = _gallinas_total(fecha.isoformat())
+        if es_sabado:
+            return max(0, params.limite_sabado - gall)
+        return max(0, objetivo_preferido - gall)
+
+    candidatos_por_lote: dict[int, list[dict]] = {}
+    candidatos_por_dia: dict[int, dict[int, dict]] = {}
+    fuera_rango_data: dict[int, list[dict]] = {}
+    backlog_previo: set[int] = set()
+
+    for i, oferta in enumerate(ofertas):
+        candidatos = []
+        detalle_rechazo = []
+        for d_idx, fecha_dia in enumerate(fechas_dias):
+            lote = _evaluar_elegibilidad_lote_criterio_gerente(
+                oferta,
+                fecha_dia,
+                params,
+                minimos_como_alerta=minimos_como_alerta,
+            )
+            if lote is None:
+                detalle_rechazo.append(_detalle_rechazo_dia(oferta, fecha_dia, params))
+                continue
+
+            candidatos.append({
+                "dia_idx": d_idx,
+                "lote": lote,
+                "alertas": int(lote.alerta_baja_edad) + int(lote.alerta_bajo_peso),
+            })
+            candidatos_por_dia.setdefault(i, {})[d_idx] = {
+                "lote": lote,
+                "alertas": int(lote.alerta_baja_edad) + int(lote.alerta_bajo_peso),
+            }
+
+        if candidatos:
+            candidatos_por_lote[i] = candidatos
+            if excluir_backlog_semana_previa and any(
+                evaluar_elegibilidad_lote(oferta, fecha_previa, params) is not None
+                for fecha_previa in fechas_semana_previa
+            ):
+                backlog_previo.add(i)
+        else:
+            fuera_rango_data[i] = detalle_rechazo
+
+    pendientes: dict[int, int] = {i: ofertas[i].cantidad for i in candidatos_por_lote}
+    asignaciones: dict[int, dict[int, int]] = {d_idx: {} for d_idx in range(num_dias)}
+    pollos_dia: dict[int, int] = {d_idx: 0 for d_idx in range(num_dias)}
+
+    def _registrar_asignacion(lote_idx: int, dia_idx: int, cantidad: int):
+        if cantidad <= 0:
+            return
+        asignaciones[dia_idx][lote_idx] = asignaciones[dia_idx].get(lote_idx, 0) + cantidad
+        pendientes[lote_idx] -= cantidad
+        pollos_dia[dia_idx] += cantidad
+
+    # ── Cascada de madurez: lógica del gerente ──────────────────────────
+    # 1) Ordenar lotes por madurez (peso desc en primer día elegible)
+    # 2) Llenar días secuencialmente (más temprano primero)
+    # 3) Target dinámico: capacidad planta si total pendiente > lo que
+    #    cabe al objetivo normal, sino pollos_diarios_objetivo_max
+
+    def _peso_primer_dia(lote_idx: int) -> float:
+        """Peso proyectado del lote en su primer día elegible."""
+        candidatos = candidatos_por_lote[lote_idx]
+        primer = min(candidatos, key=lambda c: c["dia_idx"])
+        return primer["lote"].peso_vivo_retiro
+
+    def _prioridad_madurez(lote_idx: int) -> tuple:
+        """Prioridad cascada: sobreedad primero, luego más pesado, más viejo."""
+        candidatos = candidatos_por_lote[lote_idx]
+        primer = min(candidatos, key=lambda c: c["dia_idx"])
+        return (
+            0 if primer["lote"].sobreedad else 1,
+            -primer["lote"].peso_vivo_retiro,
+            -primer["lote"].edad_fin_retiro,
+            len(candidatos),
+        )
+
+    def _target_dia_dinamico(d_idx: int) -> int:
+        """Target dinámico: usar capacidad máxima de planta si:
+        - Ya hay lotes sobreedad asignados a este día (mantener capacidad), o
+        - Hay lotes pendientes que serían sobreedad en este día.
+        Si no, usar el objetivo normal (pollos_diarios_objetivo_max).
+        Los lotes que no caben al objetivo normal se difieren a la
+        semana siguiente, como hace el gerente."""
+        # Si ya hay lotes sobreedad asignados al día, mantener capacidad
+        for lote_idx in asignaciones[d_idx]:
+            info = candidatos_por_dia.get(lote_idx, {}).get(d_idx)
+            if info and info["lote"].sobreedad:
+                return _capacidad_dia(d_idx)
+        # Si hay lotes pendientes sobreedad en este día
+        for lote_idx, cant in pendientes.items():
+            if cant <= 0:
+                continue
+            info = candidatos_por_dia.get(lote_idx, {}).get(d_idx)
+            if info and info["lote"].sobreedad:
+                return _capacidad_dia(d_idx)
+        return _objetivo_dia(d_idx)
+
+    def _llenar_cascada(indices: list[int]):
+        """Llena días secuencialmente con lotes ordenados por madurez."""
+        sorted_indices = sorted(indices, key=_prioridad_madurez)
+
+        for lote_idx in sorted_indices:
+            while pendientes[lote_idx] > 0:
+                restante = pendientes[lote_idx]
+                # Buscar primer día elegible con espacio bajo target dinámico
+                mejor_dia = None
+                mejor_espacio = 0
+                candidatos_ordenados = sorted(
+                    candidatos_por_lote[lote_idx],
+                    key=lambda c: c["dia_idx"],
+                )
+                for candidato in candidatos_ordenados:
+                    dia_idx = candidato["dia_idx"]
+                    target = _target_dia_dinamico(dia_idx)
+                    espacio = target - pollos_dia[dia_idx]
+                    if espacio > 0:
+                        mejor_dia = dia_idx
+                        mejor_espacio = espacio
+                        break
+
+                if mejor_dia is None:
+                    break  # No cabe en ningún día bajo target dinámico → diferir
+
+                if permitir_fraccionamiento_lotes:
+                    cantidad = min(restante, mejor_espacio)
+                    if cantidad <= 0:
+                        break
+                    _registrar_asignacion(lote_idx, mejor_dia, cantidad)
+                else:
+                    if restante <= mejor_espacio:
+                        _registrar_asignacion(lote_idx, mejor_dia, restante)
+                    else:
+                        break  # No cabe entero
+
+    lotes_primarios = [i for i in candidatos_por_lote if i not in backlog_previo]
+    lotes_respaldo = [i for i in backlog_previo if i in candidatos_por_lote]
+
+    # En modo cascada, los lotes de backlog se incluyen en el sort
+    # principal por madurez. Al ser más pesados/viejos, naturalmente
+    # se asignan primero a los días más tempranos (comportamiento
+    # del gerente). Solo se separan si quedan sin espacio.
+    todos_los_lotes = sorted(
+        list(candidatos_por_lote.keys()),
+        key=_prioridad_madurez,
+    )
+    _llenar_cascada(todos_los_lotes)
+
+    dias_por_lote: dict[int, list[tuple[int, int]]] = {}
+    for dia_idx, asignaciones_dia in asignaciones.items():
+        for lote_idx, cantidad in asignaciones_dia.items():
+            dias_por_lote.setdefault(lote_idx, []).append((dia_idx, cantidad))
+    for fragmentos_lote in dias_por_lote.values():
+        fragmentos_lote.sort(key=lambda item: item[0])
+
+    dias_resultado: List[DiaFaena] = []
+    for d_idx, fecha_dia in enumerate(fechas_dias):
+        lotes_dia: List[LoteProyectado] = []
+        lotes_ordenados = sorted(
+            asignaciones[d_idx].items(),
+            key=lambda item: -candidatos_por_dia[item[0]][d_idx]["lote"].peso_vivo_retiro,
+        )
+        for lote_idx, cantidad in lotes_ordenados:
+            fragmentos_lote = dias_por_lote.get(lote_idx, [])
+            fragmento_indice = next(
+                idx + 1
+                for idx, (dia_fragmento, _) in enumerate(fragmentos_lote)
+                if dia_fragmento == d_idx
+            )
+            lote = _crear_fragmento_proyectado(
+                ofertas[lote_idx],
+                fecha_dia,
+                params,
+                cantidad_fragmento=cantidad,
+                fragmento_indice=fragmento_indice,
+                total_fragmentos=len(fragmentos_lote),
+                cantidad_original_lote=ofertas[lote_idx].cantidad,
+            )
+            lote.sobreedad = candidatos_por_dia[lote_idx][d_idx]["lote"].sobreedad
+            lotes_dia.append(lote)
+
+        gall_total = _gallinas_total(fecha_dia.isoformat())
+        gall_liv, gall_pes = _gallinas_desglose(fecha_dia.isoformat())
+        dias_resultado.append(
+            calcular_dia_faena(
+                fecha_dia,
+                lotes_dia,
+                params=params,
+                gallinas_cantidad=gall_total,
+                gallinas_livianas=gall_liv,
+                gallinas_pesadas=gall_pes,
+            )
+        )
+
+    lotes_no_asignados_resultado: List[LoteNoAsignado] = []
+    for lote_idx, cantidad_restante in pendientes.items():
+        if cantidad_restante <= 0:
+            continue
+        oferta = ofertas[lote_idx]
+        dias_elegibles = [fechas_dias[c["dia_idx"]] for c in candidatos_por_lote.get(lote_idx, [])]
+        if lote_idx in backlog_previo and cantidad_restante == oferta.cantidad:
+            motivo = "Ya era elegible en la semana previa; quedó como respaldo y no fue necesario"
+        elif cantidad_restante < oferta.cantidad:
+            motivo = "Saldo del lote fragmentado sin capacidad disponible"
+        else:
+            motivo = "Excede la capacidad disponible en los días elegibles"
+        lotes_no_asignados_resultado.append(
+            LoteNoAsignado(
+                granja=oferta.granja,
+                galpon=oferta.galpon,
+                nucleo=oferta.nucleo,
+                cantidad=cantidad_restante,
+                sexo=oferta.sexo,
+                fecha_ingreso=oferta.fecha_ingreso,
+                dias_elegibles=dias_elegibles,
+                motivo=motivo,
+            )
+        )
+
+    lotes_fuera_rango_resultado: List[LoteFueraRango] = []
+    for i, detalle in fuera_rango_data.items():
+        oferta = ofertas[i]
+        motivo = _construir_motivo_fuera_rango(oferta, fechas_dias, params)
+        lotes_fuera_rango_resultado.append(
+            LoteFueraRango(
+                granja=oferta.granja,
+                galpon=oferta.galpon,
+                nucleo=oferta.nucleo,
+                cantidad=oferta.cantidad,
+                sexo=oferta.sexo,
+                fecha_ingreso=oferta.fecha_ingreso,
+                motivo=motivo,
+                detalle_por_dia=detalle,
+            )
+        )
+
+    feriados_aplicados_lista: List[FeriadoAplicado] = []
+    if feriados:
+        for f_fecha, f_nombre in sorted(feriados.items()):
+            if fecha_inicio_semana <= f_fecha <= fecha_limite and f_fecha not in fechas_dias:
+                feriados_aplicados_lista.append(FeriadoAplicado(fecha=f_fecha, nombre=f_nombre))
+
+    semana = calcular_semana_faena(
+        fecha_inicio_semana,
+        dias_resultado,
+        params,
+        lotes_no_asignados=lotes_no_asignados_resultado,
+        lotes_fuera_rango=lotes_fuera_rango_resultado,
+    )
+    semana.feriados_aplicados = feriados_aplicados_lista
+
+    for fecha_str in gallinas:
+        from datetime import date as date_type
+
+        fecha_gall = date_type.fromisoformat(fecha_str)
+        gall_liv, gall_pes = _gallinas_desglose(fecha_str)
+        if gall_liv > 0:
+            semana.eventos_gallinas.append(
+                EventoGallinas(fecha=fecha_gall, cantidad=gall_liv, tipo="liviana")
+            )
+        if gall_pes > 0:
+            semana.eventos_gallinas.append(
+                EventoGallinas(fecha=fecha_gall, cantidad=gall_pes, tipo="pesada")
+            )
+
+    return semana
+
+
 def generar_proyeccion(
     ofertas: List[LoteOferta],
     fecha_inicio_semana: date,
@@ -643,6 +1074,10 @@ def generar_proyeccion(
     params: Optional[Parametros] = None,
     feriados: Optional[dict] = None,
     gallinas: Optional[dict] = None,
+    criterio_gerente: bool = False,
+    permitir_fraccionamiento_lotes: Optional[bool] = None,
+    excluir_backlog_semana_previa: Optional[bool] = None,
+    minimos_como_alerta: Optional[bool] = None,
 ) -> SemanaFaena:
     """
     Genera la proyección completa de faena para una semana.
@@ -679,26 +1114,37 @@ def generar_proyeccion(
     if gallinas is None:
         gallinas = {}
 
+    if criterio_gerente:
+        if permitir_fraccionamiento_lotes is None:
+            permitir_fraccionamiento_lotes = True
+        if excluir_backlog_semana_previa is None:
+            excluir_backlog_semana_previa = True
+        if minimos_como_alerta is None:
+            minimos_como_alerta = True
+        return _generar_proyeccion_criterio_gerente(
+            ofertas=ofertas,
+            fecha_inicio_semana=fecha_inicio_semana,
+            dias_faena=dias_faena,
+            pollos_por_dia=pollos_por_dia,
+            params=params,
+            feriados=feriados,
+            gallinas=gallinas,
+            permitir_fraccionamiento_lotes=permitir_fraccionamiento_lotes,
+            excluir_backlog_semana_previa=excluir_backlog_semana_previa,
+            minimos_como_alerta=minimos_como_alerta,
+        )
+
     objetivo_preferido = max(
         params.pollos_diarios_objetivo_min,
         min(pollos_por_dia, params.pollos_diarios_objetivo_max),
     )
 
     # Generar días hábiles saltando feriados y domingos
-    incluir_sabado = dias_faena >= 6
-    # Limitar al viernes o sábado de la semana para no extenderse a la siguiente
-    fecha_limite = fecha_inicio_semana + timedelta(days=5 if incluir_sabado else 4)
-    if feriados:
-        from .feriados import generar_dias_habiles
-        fechas_dias = generar_dias_habiles(
-            fecha_inicio_semana, dias_faena, feriados,
-            incluir_sabado=incluir_sabado,
-            fecha_limite=fecha_limite,
-        )
-    else:
-        fechas_dias = [
-            fecha_inicio_semana + timedelta(days=i) for i in range(dias_faena)
-        ]
+    fechas_dias, _, fecha_limite = _generar_fechas_faena(
+        fecha_inicio_semana,
+        dias_faena,
+        feriados,
+    )
 
     num_dias = len(fechas_dias)
 
@@ -2267,125 +2713,176 @@ def aplicar_ajuste_martes(
     if params is None:
         params = Parametros()
 
-    # 1. Indexar oferta martes por clave 5-tupla.
-    #    fecha_ingreso distingue lotes del mismo galpón/núcleo/sexo que
-    #    ingresaron en fechas distintas (común en datos reales).
-    martes_index: dict[tuple, list[LoteOferta]] = {}
-    for o in ofertas_martes:
-        key = (o.granja, o.galpon, o.nucleo, o.sexo, o.fecha_ingreso)
-        martes_index.setdefault(key, []).append(o)
+    def _clave_lote(granja: str, galpon: int, nucleo: int, sexo: str, fecha_ingreso: Optional[date]) -> tuple:
+        return (
+            normalizar_granja_clave(granja),
+            galpon,
+            nucleo,
+            sexo,
+            fecha_ingreso,
+        )
 
-    # Conjunto de claves que ya fueron totalmente consumidas.
-    matched_keys: set[tuple] = set()
+    martes_index: dict[tuple, LoteOferta] = {}
+    for oferta in ofertas_martes:
+        key = _clave_lote(oferta.granja, oferta.galpon, oferta.nucleo, oferta.sexo, oferta.fecha_ingreso)
+        existente = martes_index.get(key)
+        if existente is None:
+            martes_index[key] = oferta.model_copy(deep=True)
+        else:
+            existente.cantidad += oferta.cantidad
+
     resumen = AjusteMartesResumen()
 
     DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
 
-    # 2. Recorrer cada día y cada lote de la proyección
+    reemplazos_por_dia: dict[int, list[Optional[LoteProyectado]]] = {
+        dia_idx: list(dia.lotes)
+        for dia_idx, dia in enumerate(semana.dias)
+    }
+
+    lotes_planificados_por_clave: dict[tuple, list[dict]] = {}
     for dia_idx, dia in enumerate(semana.dias):
-        nuevos_lotes: List[LoteProyectado] = []
-
-        for lote in dia.lotes:
-            key = (lote.granja, lote.galpon, lote.nucleo, lote.sexo,
-                   lote.fecha_ingreso_original)
-
-            if key in martes_index and martes_index[key]:
-                oferta_martes = martes_index[key].pop(0)  # FIFO
-                # Marcar como consumida si la lista quedó vacía
-                if not martes_index[key]:
-                    matched_keys.add(key)
-
-                # Guardar valores previos para el diff
-                peso_antes = lote.peso_vivo_retiro
-                edad_antes = lote.edad_fin_retiro
-                cantidad_antes = lote.cantidad
-
-                # Recalcular con datos del martes en el MISMO día
-                nuevo_lote = calcular_lote_proyectado(
-                    oferta_martes, lote.fecha_fin_retiro, params
-                )
-                nuevos_lotes.append(nuevo_lote)
-
-                # Verificar si el lote sigue dentro del rango de elegibilidad
-                # después de la actualización con datos del martes
-                alertas_rango = []
-                if nuevo_lote.edad_fin_retiro < params.edad_min_faena:
-                    alertas_rango.append(
-                        f"Edad {nuevo_lote.edad_fin_retiro} < mín {params.edad_min_faena}"
-                    )
-                if nuevo_lote.edad_fin_retiro > params.edad_max_faena:
-                    alertas_rango.append(
-                        f"Edad {nuevo_lote.edad_fin_retiro} > máx {params.edad_max_faena}"
-                    )
-                if nuevo_lote.peso_vivo_retiro < params.peso_min_faena:
-                    alertas_rango.append(
-                        f"Peso {nuevo_lote.peso_vivo_retiro:.2f} < mín {params.peso_min_faena:.2f}"
-                    )
-                if nuevo_lote.peso_vivo_retiro > params.peso_max_faena:
-                    alertas_rango.append(
-                        f"Peso {nuevo_lote.peso_vivo_retiro:.2f} > máx {params.peso_max_faena:.2f}"
-                    )
-
-                if alertas_rango:
-                    dia_nombre = DIAS_SEMANA[dia_idx] if dia_idx < len(DIAS_SEMANA) else str(dia_idx)
-                    resumen.lotes_fuera_rango_post_ajuste += 1
-                    resumen.detalle_fuera_rango_post_ajuste.append({
-                        "granja": lote.granja,
-                        "galpon": lote.galpon,
-                        "nucleo": lote.nucleo,
-                        "cantidad": nuevo_lote.cantidad,
-                        "dia": dia_nombre,
-                        "alerta": "; ".join(alertas_rango),
-                    })
-
-                # Registrar cambios
-                cambios = []
-                if abs(nuevo_lote.peso_vivo_retiro - peso_antes) > 0.001:
-                    cambios.append(f"Peso: {peso_antes:.2f} → {nuevo_lote.peso_vivo_retiro:.2f}")
-                if nuevo_lote.edad_fin_retiro != edad_antes:
-                    cambios.append(f"Edad: {edad_antes} → {nuevo_lote.edad_fin_retiro}")
-                if nuevo_lote.cantidad != cantidad_antes:
-                    cambios.append(f"Cantidad: {cantidad_antes} → {nuevo_lote.cantidad}")
-
-                if cambios:
-                    resumen.lotes_actualizados += 1
-                    resumen.detalle_actualizados.append({
-                        "granja": lote.granja,
-                        "galpon": lote.galpon,
-                        "nucleo": lote.nucleo,
-                        "dia": DIAS_SEMANA[dia_idx] if dia_idx < len(DIAS_SEMANA) else str(dia_idx),
-                        "cambios": ", ".join(cambios),
-                    })
-                # Si no hay cambios, el lote ya fue agregado arriba
-            else:
-                # Lote en proyección no está en oferta martes → faltante
-                resumen.lotes_faltantes += 1
-                resumen.detalle_faltantes.append({
-                    "granja": lote.granja,
-                    "galpon": lote.galpon,
-                    "nucleo": lote.nucleo,
-                    "cantidad": lote.cantidad,
-                    "sexo": lote.sexo,
-                    "dia": DIAS_SEMANA[dia_idx] if dia_idx < len(DIAS_SEMANA) else str(dia_idx),
-                })
-                # Mantener el lote como está (no se elimina automáticamente)
-                nuevos_lotes.append(lote)
-
-        dia.lotes = nuevos_lotes
-
-    # 3. Lotes nuevos del martes: los que quedaron sin consumir en el index
-    lotes_nuevos_oferta: List[LoteOferta] = []
-    for key, ofertas_restantes in martes_index.items():
-        for oferta in ofertas_restantes:
-            resumen.lotes_nuevos += 1
-            resumen.detalle_nuevos.append({
-                "granja": oferta.granja,
-                "galpon": oferta.galpon,
-                "nucleo": oferta.nucleo,
-                "cantidad": oferta.cantidad,
-                "sexo": oferta.sexo,
+        for lote_idx, lote in enumerate(dia.lotes):
+            key = _clave_lote(
+                lote.granja,
+                lote.galpon,
+                lote.nucleo,
+                lote.sexo,
+                lote.fecha_ingreso_original,
+            )
+            lotes_planificados_por_clave.setdefault(key, []).append({
+                "dia_idx": dia_idx,
+                "lote_idx": lote_idx,
+                "lote": lote,
             })
-            lotes_nuevos_oferta.append(oferta)
+
+    lotes_no_asignados_originales = list(semana.lotes_no_asignados or [])
+    lotes_no_asignados_actualizados: dict[int, Optional[LoteNoAsignado]] = {
+        idx: lote.model_copy(deep=True)
+        for idx, lote in enumerate(lotes_no_asignados_originales)
+    }
+    lotes_no_asignados_por_clave: dict[tuple, list[dict]] = {}
+    for idx, lote in enumerate(lotes_no_asignados_originales):
+        key = _clave_lote(lote.granja, lote.galpon, lote.nucleo, lote.sexo, lote.fecha_ingreso)
+        lotes_no_asignados_por_clave.setdefault(key, []).append({
+            "index": idx,
+            "lote": lotes_no_asignados_actualizados[idx],
+        })
+
+    claves_existentes = set(lotes_planificados_por_clave) | set(lotes_no_asignados_por_clave)
+
+    for key in claves_existentes:
+        lotes_planificados = lotes_planificados_por_clave.get(key, [])
+        lotes_no_asignados = lotes_no_asignados_por_clave.get(key, [])
+        oferta_martes = martes_index.pop(key, None)
+
+        if oferta_martes is None:
+            if lotes_planificados:
+                resumen.lotes_faltantes += 1
+                primer_lote = lotes_planificados[0]["lote"]
+                resumen.detalle_faltantes.append({
+                    "granja": primer_lote.granja,
+                    "galpon": primer_lote.galpon,
+                    "nucleo": primer_lote.nucleo,
+                    "cantidad": sum(item["lote"].cantidad for item in lotes_planificados),
+                    "sexo": primer_lote.sexo,
+                    "dia": DIAS_SEMANA[lotes_planificados[0]["dia_idx"]] if lotes_planificados else "",
+                })
+            continue
+
+        piezas = [item["lote"].cantidad for item in lotes_planificados] + [item["lote"].cantidad for item in lotes_no_asignados]
+        cantidades_actualizadas = _particionar_cantidad(oferta_martes.cantidad, piezas)
+        hubo_cambios = oferta_martes.cantidad != sum(piezas)
+
+        for idx_plan, item in enumerate(lotes_planificados):
+            lote_actual = item["lote"]
+            cantidad_fragmento = cantidades_actualizadas[idx_plan]
+            if cantidad_fragmento <= 0:
+                reemplazos_por_dia[item["dia_idx"]][item["lote_idx"]] = None
+                if lote_actual.cantidad != 0:
+                    hubo_cambios = True
+                continue
+
+            oferta_fragmento = oferta_martes.model_copy(update={"cantidad": cantidad_fragmento})
+            nuevo_lote = calcular_lote_proyectado(oferta_fragmento, lote_actual.fecha_fin_retiro, params)
+            nuevo_lote.es_compra_terceros = lote_actual.es_compra_terceros
+            nuevo_lote.motivo_compra = lote_actual.motivo_compra
+            nuevo_lote.excluido = lote_actual.excluido
+            nuevo_lote.motivo_exclusion = lote_actual.motivo_exclusion
+            nuevo_lote.fragmentado = lote_actual.fragmentado or len(piezas) > 1
+            nuevo_lote.fragment_id = lote_actual.fragment_id
+            nuevo_lote.cantidad_original_lote = oferta_martes.cantidad
+            reemplazos_por_dia[item["dia_idx"]][item["lote_idx"]] = nuevo_lote
+
+            if (
+                abs(nuevo_lote.peso_vivo_retiro - lote_actual.peso_vivo_retiro) > 0.001
+                or nuevo_lote.edad_fin_retiro != lote_actual.edad_fin_retiro
+                or nuevo_lote.cantidad != lote_actual.cantidad
+            ):
+                hubo_cambios = True
+
+            alertas_rango = []
+            if nuevo_lote.edad_fin_retiro < params.edad_min_faena:
+                alertas_rango.append(f"Edad {nuevo_lote.edad_fin_retiro} < mín {params.edad_min_faena}")
+            if nuevo_lote.edad_fin_retiro > params.edad_max_faena:
+                alertas_rango.append(f"Edad {nuevo_lote.edad_fin_retiro} > máx {params.edad_max_faena}")
+            if nuevo_lote.peso_vivo_retiro < params.peso_min_faena:
+                alertas_rango.append(f"Peso {nuevo_lote.peso_vivo_retiro:.2f} < mín {params.peso_min_faena:.2f}")
+            if nuevo_lote.peso_vivo_retiro > params.peso_max_faena:
+                alertas_rango.append(f"Peso {nuevo_lote.peso_vivo_retiro:.2f} > máx {params.peso_max_faena:.2f}")
+            if alertas_rango:
+                resumen.lotes_fuera_rango_post_ajuste += 1
+                resumen.detalle_fuera_rango_post_ajuste.append({
+                    "granja": lote_actual.granja,
+                    "galpon": lote_actual.galpon,
+                    "nucleo": lote_actual.nucleo,
+                    "cantidad": nuevo_lote.cantidad,
+                    "dia": DIAS_SEMANA[item["dia_idx"]] if item["dia_idx"] < len(DIAS_SEMANA) else str(item["dia_idx"]),
+                    "alerta": "; ".join(alertas_rango),
+                })
+
+        offset_no_asignados = len(lotes_planificados)
+        for idx_na, item in enumerate(lotes_no_asignados):
+            cantidad_actualizada = cantidades_actualizadas[offset_no_asignados + idx_na]
+            lote_na = item["lote"]
+            if cantidad_actualizada <= 0:
+                lotes_no_asignados_actualizados[item["index"]] = None
+                if lote_na.cantidad != 0:
+                    hubo_cambios = True
+                continue
+
+            if lote_na.cantidad != cantidad_actualizada:
+                hubo_cambios = True
+            lote_na.cantidad = cantidad_actualizada
+            lote_na.sexo = oferta_martes.sexo
+            lote_na.motivo = f"{lote_na.motivo} (datos actualizados con oferta martes)"
+            lotes_no_asignados_actualizados[item["index"]] = lote_na
+
+        if hubo_cambios:
+            referencia = (lotes_planificados[0]["lote"] if lotes_planificados else lotes_no_asignados[0]["lote"])
+            resumen.lotes_actualizados += 1
+            resumen.detalle_actualizados.append({
+                "granja": referencia.granja,
+                "galpon": referencia.galpon,
+                "nucleo": referencia.nucleo,
+                "dia": DIAS_SEMANA[lotes_planificados[0]["dia_idx"]] if lotes_planificados else "pool_no_asignados",
+                "cambios": f"Cantidad total reajustada a {oferta_martes.cantidad}",
+            })
+
+    for dia_idx, dia in enumerate(semana.dias):
+        dia.lotes = [lote for lote in reemplazos_por_dia[dia_idx] if lote is not None]
+
+    lotes_nuevos_oferta: List[LoteOferta] = []
+    for oferta in martes_index.values():
+        resumen.lotes_nuevos += 1
+        resumen.detalle_nuevos.append({
+            "granja": oferta.granja,
+            "galpon": oferta.galpon,
+            "nucleo": oferta.nucleo,
+            "cantidad": oferta.cantidad,
+            "sexo": oferta.sexo,
+        })
+        lotes_nuevos_oferta.append(oferta)
 
     # Intentar asignar lotes nuevos a días con capacidad
     lotes_no_asignados_nuevos: List[LoteNoAsignado] = []
@@ -2401,41 +2898,11 @@ def aplicar_ajuste_martes(
     resumen.detalle_nuevos_asignados = detalle_asignados_nuevos
     resumen.lotes_nuevos_fuera_rango = len(lotes_fuera_rango_nuevos)
 
-    # 4. Combinar lotes no asignados previos + nuevos
-    # Construir conjunto de claves de lotes nuevos que SÍ fueron asignados a un
-    # día en el paso 3, para no duplicarlos en la lista de no-asignados.
-    claves_asignados_nuevos: set[tuple] = set()
-    for d in detalle_asignados_nuevos:
-        for o in lotes_nuevos_oferta:
-            if (o.granja == d["granja"] and o.galpon == d["galpon"]
-                    and o.nucleo == d["nucleo"]):
-                claves_asignados_nuevos.add(
-                    (o.granja, o.galpon, o.nucleo, o.sexo, o.fecha_ingreso)
-                )
-
-    # Actualizar también los lotes_no_asignados previos si hay match en martes
-    martes_lookup: dict[tuple, list[LoteOferta]] = {}
-    for o in ofertas_martes:
-        k = (o.granja, o.galpon, o.nucleo, o.sexo, o.fecha_ingreso)
-        martes_lookup.setdefault(k, []).append(o)
-
-    lotes_no_asignados_previos: List[LoteNoAsignado] = []
-    for lna in semana.lotes_no_asignados:
-        key = (lna.granja, lna.galpon, lna.nucleo, lna.sexo, lna.fecha_ingreso)
-        # Si este lote fue asignado como "nuevo" en el paso 3, no duplicar
-        if key in claves_asignados_nuevos:
-            continue
-        if key in martes_lookup and martes_lookup[key]:
-            oferta_martes = martes_lookup[key][0]  # usa el primero disponible
-            # Actualizar datos del lote no asignado
-            lna.cantidad = oferta_martes.cantidad
-            lna.sexo = oferta_martes.sexo
-            lna.motivo = f"{lna.motivo} (datos actualizados con oferta martes)"
-            lotes_no_asignados_previos.append(lna)
-        else:
-            lotes_no_asignados_previos.append(lna)
-
-    todos_no_asignados = lotes_no_asignados_previos + lotes_no_asignados_nuevos
+    todos_no_asignados = [
+        lote
+        for lote in lotes_no_asignados_actualizados.values()
+        if lote is not None and lote.cantidad > 0
+    ] + lotes_no_asignados_nuevos
 
     # Combinar fuera de rango previos + nuevos del martes
     fuera_rango_previos = list(semana.lotes_fuera_rango) if semana.lotes_fuera_rango else []
