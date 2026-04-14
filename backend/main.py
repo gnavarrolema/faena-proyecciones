@@ -2974,14 +2974,18 @@ def generar_escenarios_endpoint(
     carga_excedida = total_aves_oferta > req.pollos_por_dia * dias_base * 1.1
     es_compleja = tiene_feriados or tiene_gallinas or carga_excedida
 
-    def _generar_variante(etiqueta, descripcion, pollos_dia, dias, habilitar_sab):
+    def _generar_variante(etiqueta, descripcion, pollos_dia, dias, habilitar_sab, params_override=None):
         dias_eff = max(dias, 6) if habilitar_sab else dias
+        variante_params = params.model_copy()
+        if params_override:
+            for k, v in params_override.items():
+                setattr(variante_params, k, v)
         semana = generar_proyeccion(
             ofertas=ofertas_base,
             fecha_inicio_semana=req.fecha_inicio_semana,
             dias_faena=dias_eff,
             pollos_por_dia=pollos_dia,
-            params=params,
+            params=variante_params,
             feriados=feriados if feriados else None,
             gallinas=req.gallinas,
             criterio_gerente=req.criterio_gerente,
@@ -3017,16 +3021,20 @@ def generar_escenarios_endpoint(
     variantes = []
 
     if es_compleja:
-        # Conservador: objetivo bajo, sábado habilitado
+        # Conservador: objetivo bajo, capacidad limitada al objetivo, sábado habilitado
         variantes.append(_generar_variante(
             "Conservador",
             "Carga diaria baja, sábado habilitado. Prioriza evitar horas extras.",
             params.pollos_diarios_objetivo_min,
             dias_base,
             True,
+            params_override={
+                "capacidad_maxima_planta": params.pollos_diarios_objetivo_min,
+                "pollos_diarios_objetivo_max": params.pollos_diarios_objetivo_min,
+            },
         ))
 
-        # Equilibrado: objetivo del usuario, sábado solo si hay feriados
+        # Equilibrado: objetivo del usuario, capacidad estándar, sábado solo si hay feriados
         variantes.append(_generar_variante(
             "Equilibrado",
             "Carga moderada. Sábado solo si hay feriados o gallinas.",
@@ -3035,13 +3043,17 @@ def generar_escenarios_endpoint(
             tiene_feriados or tiene_gallinas,
         ))
 
-        # Intensivo: objetivo alto, sin sábado
+        # Intensivo: objetivo alto, permite horas extras, sin sábado
         variantes.append(_generar_variante(
             "Intensivo",
             "Carga máxima Lun-Vie. Sin sábado, acepta posibles horas extras.",
-            params.pollos_diarios_objetivo_max,
+            params.capacidad_con_horas_extras,
             dias_base,
             False,
+            params_override={
+                "capacidad_maxima_planta": params.capacidad_con_horas_extras,
+                "pollos_diarios_objetivo_max": params.capacidad_con_horas_extras,
+            },
         ))
     else:
         # Semana normal: solo Equilibrado
