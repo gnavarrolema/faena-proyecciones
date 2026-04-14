@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { FolderUp, List, KanbanSquare, TrendingUp, Settings2, Bird, LogOut, Loader2, Factory, Scale, Layers, Activity, GitMerge } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { getOferta, getProyeccion, getDeficitGuardado, clearDeficitGuardado } from '../services/api'
+import { getOferta, getProyeccion, getDeficitGuardado, clearDeficitGuardado, activarProyeccion } from '../services/api'
 import UploadOferta from './UploadOferta'
 import OfertaTable from './OfertaTable'
 import ProyeccionView from './ProyeccionView'
@@ -53,6 +53,20 @@ const MainApp = () => {
         } else {
             setProyeccion(data)
             // No borrar la alternativa si solo se recarga la principal (ej: mover lote)
+        }
+    }
+
+    // Intercambiar planificación activa con la alternativa
+    const handleSwapPlanificacion = async () => {
+        if (!planificacionAlternativa) return
+        const nuevaPrincipal = planificacionAlternativa
+        const nuevaAlternativa = proyeccion
+        try {
+            await activarProyeccion(nuevaPrincipal)
+            setProyeccion(nuevaPrincipal)
+            setPlanificacionAlternativa(nuevaAlternativa)
+        } catch (err) {
+            console.error('Error al activar planificación alternativa:', err)
         }
     }
 
@@ -196,6 +210,7 @@ const MainApp = () => {
                                     proyeccion={proyeccion}
                                     setProyeccion={setProyeccion}
                                     planificacionAlternativa={planificacionAlternativa}
+                                    onSwapPlanificacion={handleSwapPlanificacion}
                                 />
                             )}
 

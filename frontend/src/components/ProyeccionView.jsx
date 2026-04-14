@@ -86,9 +86,8 @@ const itemVariants = {
   show: { opacity: 1, scale: 1, y: 0, transition: { duration: 0.3 } }
 }
 
-export default function ProyeccionView({ proyeccion, setProyeccion, planificacionAlternativa }) {
+export default function ProyeccionView({ proyeccion, setProyeccion, planificacionAlternativa, onSwapPlanificacion }) {
   const [viewMode, setViewMode] = useState('cards') // 'cards' | 'table'
-  const [viendoAlternativa, setViendoAlternativa] = useState(false)
   const [movingLote, setMovingLote] = useState(null)
   const [loading, setLoading] = useState(false)
   const [ajusteFile, setAjusteFile] = useState(null)
@@ -138,25 +137,23 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
   // Etiquetas de modo de planificación
   const MODOS_PLANIFICACION = {
     cascada_madurez: {
-      label: 'Cascada de Madurez',
-      descripcion: 'Asigna lotes por orden de madurez, permite fraccionamiento y ajusta topes dinámicamente.',
+      label: 'Prioridad por Madurez',
+      descripcion: 'Prioriza lotes por edad, permite fraccionamiento para alcanzar el objetivo diario.',
       color: '#2563eb',
       bg: 'rgba(37, 99, 235, 0.08)',
     },
     optimizacion_restricciones: {
-      label: 'Optimización por Restricciones',
-      descripcion: 'Asigna lotes enteros usando propagación de restricciones para balancear la carga diaria.',
+      label: 'Distribución Equilibrada',
+      descripcion: 'Asigna lotes enteros distribuyendo la carga de forma equilibrada entre los días.',
       color: '#7c3aed',
       bg: 'rgba(124, 58, 237, 0.08)',
     },
   }
 
-  // Datos activos según el modo que se está viendo
-  const datosActivos = viendoAlternativa && planificacionAlternativa ? planificacionAlternativa : proyeccion
+  // Modo activo = el de la proyección actual
   const modoPrincipal = proyeccion?.modo_planificacion || 'cascada_madurez'
   const modoAlternativo = planificacionAlternativa?.modo_planificacion || (modoPrincipal === 'cascada_madurez' ? 'optimizacion_restricciones' : 'cascada_madurez')
-  const modoActual = viendoAlternativa ? modoAlternativo : modoPrincipal
-  const infoModo = MODOS_PLANIFICACION[modoActual] || MODOS_PLANIFICACION.cascada_madurez
+  const infoModo = MODOS_PLANIFICACION[modoPrincipal] || MODOS_PLANIFICACION.cascada_madurez
 
   // Cargar semana 2 cuando cambia la proyección
   const cargarSemana2 = async () => {
@@ -578,9 +575,9 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
     }
   }
 
-  const { dias } = datosActivos
-  const lotesNoAsignados = datosActivos.lotes_no_asignados || []
-  const lotesFueraRango = datosActivos.lotes_fuera_rango || []
+  const { dias } = proyeccion
+  const lotesNoAsignados = proyeccion.lotes_no_asignados || []
+  const lotesFueraRango = proyeccion.lotes_fuera_rango || []
 
   const toggleFR = (idx) => {
     setExpandedFR(prev => {
@@ -612,25 +609,25 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
             border: '1px solid var(--border)', background: 'var(--bg)',
           }}>
             <button
-              onClick={() => setViendoAlternativa(false)}
               style={{
                 padding: '0.4rem 1rem', fontSize: '0.82rem', fontWeight: 600,
-                border: 'none', cursor: 'pointer', transition: 'all 0.2s',
-                background: !viendoAlternativa ? MODOS_PLANIFICACION[modoPrincipal]?.bg : 'transparent',
-                color: !viendoAlternativa ? MODOS_PLANIFICACION[modoPrincipal]?.color : 'var(--text-light)',
+                border: 'none', cursor: 'default',
+                background: MODOS_PLANIFICACION[modoPrincipal]?.bg,
+                color: MODOS_PLANIFICACION[modoPrincipal]?.color,
                 borderRight: '1px solid var(--border)',
               }}
             >
               {MODOS_PLANIFICACION[modoPrincipal]?.label}
             </button>
             <button
-              onClick={() => setViendoAlternativa(true)}
+              onClick={onSwapPlanificacion}
               style={{
                 padding: '0.4rem 1rem', fontSize: '0.82rem', fontWeight: 600,
                 border: 'none', cursor: 'pointer', transition: 'all 0.2s',
-                background: viendoAlternativa ? MODOS_PLANIFICACION[modoAlternativo]?.bg : 'transparent',
-                color: viendoAlternativa ? MODOS_PLANIFICACION[modoAlternativo]?.color : 'var(--text-light)',
+                background: 'transparent',
+                color: 'var(--text-light)',
               }}
+              title="Cambiar a este modo de planificación"
             >
               {MODOS_PLANIFICACION[modoAlternativo]?.label}
             </button>
@@ -644,48 +641,28 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
         </motion.div>
       )}
 
-      {/* Banner modo alternativa */}
-      {viendoAlternativa && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          exit={{ opacity: 0, height: 0 }}
-          style={{
-            padding: '0.6rem 1rem', marginBottom: '1rem',
-            background: 'rgba(124, 58, 237, 0.06)',
-            border: '1px solid rgba(124, 58, 237, 0.2)',
-            borderLeft: '4px solid #7c3aed',
-            borderRadius: 8, fontSize: '0.82rem', color: '#6d28d9',
-            display: 'flex', alignItems: 'center', gap: '0.5rem',
-          }}
-        >
-          <Eye size={16} />
-          Vista de referencia — Las acciones interactivas (mover, tachar, diferir) operan sobre la planificación principal.
-        </motion.div>
-      )}
-
       {/* Header Dashboard section */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', marginBottom: '1.5rem' }}>
         {/* Stats generales */}
         <motion.div variants={itemVariants} className="stats-grid" style={{ marginBottom: 0 }}>
           <div className="stat-card" style={{ padding: '1.25rem' }}>
             <div className="stat-label" style={{ color: 'var(--success)' }}><BarChart size={16} /> Total Pollos Semana</div>
-            <div className="stat-value green" style={{ fontSize: '1.8rem' }}>{formatNumber(datosActivos.total_pollos_semana)}</div>
+            <div className="stat-value green" style={{ fontSize: '1.8rem' }}>{formatNumber(proyeccion.total_pollos_semana)}</div>
           </div>
           <div className="stat-card" style={{ padding: '1.25rem' }}>
             <div className="stat-label" style={{ color: 'var(--info)' }}><Clock size={16} /> Promedio Edad Semana</div>
             <div className="stat-value blue" style={{ fontSize: '1.8rem', display: 'flex', alignItems: 'baseline', gap: '0.4rem' }}>
-              {datosActivos.promedio_edad_semana?.toFixed(1)} 
+              {proyeccion.promedio_edad_semana?.toFixed(1)} 
               <span style={{ fontSize: '1rem', color: 'var(--text-light)', fontWeight: 500 }}>días</span>
             </div>
           </div>
           <div className="stat-card" style={{ padding: '1.25rem' }}>
             <div className="stat-label" style={{ color: 'var(--warning)' }}><PackageOpen size={16} /> Cajas Semanales</div>
-            <div className="stat-value orange" style={{ fontSize: '1.8rem' }}>{formatNumber(datosActivos.produccion_cajas_semanales)}</div>
+            <div className="stat-value orange" style={{ fontSize: '1.8rem' }}>{formatNumber(proyeccion.produccion_cajas_semanales)}</div>
           </div>
           <div className="stat-card" style={{ padding: '1.25rem' }}>
             <div className="stat-label" style={{ color: 'var(--primary)' }}><Factory size={16} /> Sofía</div>
-            <div className="stat-value" style={{ fontSize: '1.8rem' }}>{formatNumber(datosActivos.sofia)}</div>
+            <div className="stat-value" style={{ fontSize: '1.8rem' }}>{formatNumber(proyeccion.sofia)}</div>
           </div>
         </motion.div>
 
@@ -1959,7 +1936,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
       </AnimatePresence>
 
       {/* Alerta: horas extras → sugerir sábado */}
-      {datosActivos.dias.some(d => d.alerta_horas_extras) && !datosActivos.dias.some(d => d.es_sabado) && (
+      {proyeccion.dias.some(d => d.alerta_horas_extras) && !proyeccion.dias.some(d => d.es_sabado) && (
         <motion.div variants={itemVariants} style={{
           padding: '0.75rem 1rem',
           background: 'rgba(234,179,8,0.12)',
@@ -1979,7 +1956,6 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
             className="btn btn-sm"
             style={{ background: '#854d0e', color: 'white', whiteSpace: 'nowrap' }}
             onClick={handleRegenerarConSabado}
-            disabled={viendoAlternativa}
           >
             Regenerar con sábado
           </button>
@@ -2016,7 +1992,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                       }
                     </span>
                   )}
-                  {!viendoAlternativa && (dia.gallinas_habilitado || dia.nivel_carga === 'horas_extras') && dia.lotes.length > 0 && (
+                  {(dia.gallinas_habilitado || dia.nivel_carga === 'horas_extras') && dia.lotes.length > 0 && (
                     <button
                       className="btn btn-sm btn-outline"
                       style={{ fontSize: '0.6rem', padding: '0.1rem 0.35rem', color: '#7c3aed', borderColor: '#7c3aed', marginTop: 2 }}
@@ -2094,7 +2070,6 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                           <span>{lote.motivo_compra}</span>
                         </div>
                       )}
-                      {!viendoAlternativa && (
                       <div className="lote-actions">
                         {lote.excluido ? (
                           <button
@@ -2142,7 +2117,6 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                           </>
                         )}
                       </div>
-                      )}
                     </motion.div>
                   ))
                 )}
@@ -2188,7 +2162,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                     <th className="text-right">Peso Faenado</th>
                     <th className="text-right">Calibre</th>
                     <th className="text-right">Cajas</th>
-                    {!viendoAlternativa && <th>Acciones</th>}
+                    <th>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2236,7 +2210,6 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                           <td className="text-right" style={lote.excluido ? { textDecoration: 'line-through' } : undefined}>{lote.peso_faenado?.toFixed(2)}</td>
                           <td className="text-right" style={lote.excluido ? { textDecoration: 'line-through' } : undefined}>{lote.calibre_promedio?.toFixed(2)}</td>
                           <td className="text-right" style={lote.excluido ? { textDecoration: 'line-through' } : undefined}>{formatNumber(lote.cajas)}</td>
-                          {!viendoAlternativa && (
                           <td style={{ display: 'flex', gap: 4 }}>
                             {lote.excluido ? (
                               <button className="btn btn-sm btn-outline" style={{ borderColor: '#10b981', color: '#10b981', fontSize: '0.7rem' }} onClick={() => handleExcluir(diaIdx, loteIdx)} title="Restaurar">
@@ -2251,7 +2224,6 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                               </>
                             )}
                           </td>
-                          )}
                         </tr>
                       ))}
                       <tr className="row-subtotal" key={`sub-${diaIdx}`}>

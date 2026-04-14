@@ -82,6 +82,9 @@ export const generarProyeccion = (params) =>
 
 export const getProyeccion = () => api.get('/proyeccion').then(r => r.data);
 
+export const activarProyeccion = (data) =>
+  api.post('/proyeccion/activar', data).then(r => r.data);
+
 export const moverLote = (data) =>
   api.post('/proyeccion/mover-lote', data).then(r => r.data);
 

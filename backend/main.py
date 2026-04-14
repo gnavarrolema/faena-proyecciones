@@ -1280,6 +1280,15 @@ def get_proyeccion(current_user: TokenData = Depends(get_current_user)):
     return result
 
 
+@app.post("/proyeccion/activar")
+def activar_proyeccion(data: dict, current_user: TokenData = Depends(get_current_user)):
+    """Reemplaza la proyección activa con los datos proporcionados (swap de modo)."""
+    if not data or "dias" not in data:
+        raise HTTPException(400, "Datos de proyección inválidos")
+    storage.save_proyeccion(data)
+    return {"ok": True}
+
+
 @app.post("/proyeccion/mover-lote")
 def mover_lote(asignacion: AsignacionManual, current_user: TokenData = Depends(get_current_user)):
     """Mover un lote de un día a otro manualmente."""
