@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FolderUp, List, KanbanSquare, TrendingUp, Settings2, Bird, LogOut, Loader2, Factory, Scale, Layers, Activity, GitMerge } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { getOferta, getProyeccion, getDeficitGuardado, clearDeficitGuardado, activarProyeccion } from '../services/api'
@@ -34,6 +35,11 @@ const tabVariants = {
     exit: { opacity: 0, y: -15, scale: 0.98 }
 }
 
+const MODOS_PLANIFICACION = {
+    cascada_madurez: 'Prioridad por Madurez',
+    optimizacion_restricciones: 'Distribución Equilibrada',
+}
+
 const MainApp = () => {
     const [activeTab, setActiveTab] = useState('upload')
     const [oferta, setOferta] = useState(null)
@@ -65,8 +71,13 @@ const MainApp = () => {
             await activarProyeccion(nuevaPrincipal)
             setProyeccion(nuevaPrincipal)
             setPlanificacionAlternativa(nuevaAlternativa)
+            const modoLabel = MODOS_PLANIFICACION[nuevaPrincipal.modo_planificacion] || 'la estrategia seleccionada'
+            toast.success(`Plan activo cambiado a ${modoLabel}. La vista ya muestra esa distribución como principal.`, {
+                duration: 5000,
+            })
         } catch (err) {
             console.error('Error al activar planificación alternativa:', err)
+            toast.error('No se pudo activar la planificación alternativa')
         }
     }
 

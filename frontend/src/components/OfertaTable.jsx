@@ -56,6 +56,43 @@ function formatDiasElegibles(dias) {
   return dias.map((dia) => getDiaNombre(dia)).join(', ')
 }
 
+const MODOS_PLANIFICACION = {
+  cascada_madurez: {
+    label: 'Prioridad por Madurez',
+  },
+  optimizacion_restricciones: {
+    label: 'Distribución Equilibrada',
+  },
+}
+
+function notificarResumenPlanificacion(proyeccion, origen = 'Planificación generada') {
+  if (!proyeccion) return
+
+  const infoModo = MODOS_PLANIFICACION[proyeccion.modo_planificacion] || MODOS_PLANIFICACION.cascada_madurez
+  const diasTotales = proyeccion.dias?.length || 0
+  const diasUtilizados = proyeccion.dias?.filter((dia) => (dia.total_pollos || 0) > 0).length || 0
+  const totalNoAsignado = proyeccion.total_pollos_no_asignados || 0
+  const totalFueraRango = proyeccion.total_pollos_fuera_rango || 0
+
+  let estadoCobertura = 'Toda la oferta de esta semana quedó absorbida en la planificación.'
+  if (totalNoAsignado > 0 && totalFueraRango > 0) {
+    estadoCobertura = `Quedaron ${formatNumber(totalNoAsignado)} pollos sin capacidad y ${formatNumber(totalFueraRango)} fuera de rango.`
+  } else if (totalNoAsignado > 0) {
+    estadoCobertura = `Quedaron ${formatNumber(totalNoAsignado)} pollos sin capacidad en esta corrida.`
+  } else if (totalFueraRango > 0) {
+    estadoCobertura = `Quedaron ${formatNumber(totalFueraRango)} pollos fuera de rango para esta semana.`
+  }
+
+  const notaAlternativa = proyeccion.planificacion_alternativa
+    ? 'También quedó disponible otra estrategia para comparar la distribución.'
+    : ''
+
+  toast.success(
+    `${origen}: ${infoModo.label}. Se distribuyeron ${formatNumber(proyeccion.total_pollos_semana)} pollos en ${diasUtilizados} de ${diasTotales} días. ${estadoCobertura} ${notaAlternativa}`.trim(),
+    { duration: 6500 },
+  )
+}
+
 export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuardado, onDeficitUsado }) {
   const [fechaInicio, setFechaInicio] = useState('')
   const [pollosPorDia, setPollosPorDia] = useState(35000)
@@ -219,6 +256,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
         setTrazabilidad(trazData)
       } catch {}
       onGenerarProyeccion(data)
+      notificarResumenPlanificacion(data)
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al generar la planificación')
     } finally {
@@ -649,10 +687,11 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
             {variantesData && (
               <VariantesPicker
                 data={variantesData}
-                  onSelect={(proyeccion) => {
+                onSelect={(proyeccion) => {
                   setVariantesData(null)
                   if (incluirDeficit && onDeficitUsado) onDeficitUsado()
                   onGenerarProyeccion(proyeccion)
+                  notificarResumenPlanificacion(proyeccion, 'Estrategia activada')
                 }}
                 onClose={() => setVariantesData(null)}
               />

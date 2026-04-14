@@ -41,12 +41,49 @@ from .parser_excel import leer_oferta_excel
 from .parser_produccion import (
     leer_produccion_excel, simular_mortalidad,
     SemanaProduccion, TASAS_MORTALIDAD_DEFAULT, DIAS_HASTA_FAENA,
+    construir_tasas_mortalidad, calcular_fecha_faena_estimada,
 )
 from .feriados import obtener_feriados_nacionales, obtener_feriados_rango
 from .config import CORS_ORIGINS, CORS_ALLOW_CREDENTIALS
 from . import storage
 
 logger = logging.getLogger(__name__)
+
+
+def _get_produccion_reference_config(params: Optional[Parametros] = None) -> dict:
+    """Devuelve la configuración persistida para cruces con producción BB."""
+    params = params or _get_parametros()
+    tasas = construir_tasas_mortalidad(
+        params.produccion_mortalidad_min,
+        params.produccion_mortalidad_max,
+        params.produccion_mortalidad_paso,
+    )
+    if not tasas:
+        tasas = TASAS_MORTALIDAD_DEFAULT
+    return {
+        "dias_hasta_faena": params.produccion_dias_hasta_faena,
+        "tolerancia_dias": params.produccion_tolerancia_cruce_dias,
+        "tasas_mortalidad": tasas,
+    }
+
+
+def _serializar_semanas_referenciadas(
+    semanas: list[SemanaProduccion],
+    dias_hasta_faena: int,
+) -> list[dict]:
+    """Serializa las semanas BB usadas como referencia en un cruce."""
+    return [
+        {
+            "fecha_desde": sem.fecha_desde.isoformat(),
+            "fecha_hasta": sem.fecha_hasta.isoformat(),
+            "pollitos_cargados": sem.pollitos_cargados,
+            "fecha_faena_estimada": calcular_fecha_faena_estimada(
+                sem.fecha_desde,
+                dias_hasta_faena,
+            ).isoformat(),
+        }
+        for sem in sorted(semanas, key=lambda item: item.fecha_desde)
+    ]
 
 
 # ─── Helpers: lectura directa de storage ────────────────────────────────────────
@@ -548,6 +585,13 @@ class ParametrosUpdate(BaseModel):
     capacidad_maxima_planta: Optional[int] = None
     limite_sabado: Optional[int] = None
     descuento_sofia: Optional[int] = None
+    capacidad_con_horas_extras: Optional[int] = None
+    peso_objetivo_recepcion: Optional[float] = None
+    produccion_dias_hasta_faena: Optional[int] = None
+    produccion_tolerancia_cruce_dias: Optional[int] = None
+    produccion_mortalidad_min: Optional[float] = None
+    produccion_mortalidad_max: Optional[float] = None
+    produccion_mortalidad_paso: Optional[float] = None
 
 
 class GallinasRequest(BaseModel):
@@ -591,6 +635,13 @@ class FactibilidadProduccion(BaseModel):
     deficit_peor: Optional[int] = None          # oferta - disponibles_peor (si >0)
     cobertura_pct_peor: Optional[float] = None  # (oferta / disponibles_peor) * 100
     coberturas: Optional[list] = None           # [{tasa, disponibles, cobertura_pct}, ...]
+    total_compra_terceros: int = 0
+    total_semanas_referenciadas: int = 0
+    metodo_cruce: str = "macro_faena"
+    contexto: str = "oferta_actual"
+    dias_hasta_faena_referencia: int = DIAS_HASTA_FAENA
+    tolerancia_cruce_dias: int = 3
+    semanas_referenciadas: Optional[list] = None
 
 
 class ReferenciaProduccionResponse(BaseModel):
@@ -600,6 +651,11 @@ class ReferenciaProduccionResponse(BaseModel):
     total_oferta_actual: int = 0
     cobertura_pct: Optional[float] = None
     coberturas: Optional[list] = None  # [{tasa, disponibles, cobertura_pct}, ...]
+    total_compra_terceros: int = 0
+    total_semanas_referenciadas: int = 0
+    metodo_cruce: str = "macro_faena"
+    dias_hasta_faena_referencia: int = DIAS_HASTA_FAENA
+    tolerancia_cruce_dias: int = 3
     mensaje: str = ""
 
 
@@ -651,10 +707,143 @@ class EnviarS1Request(BaseModel):
 
 # ─── Helpers: factibilidad producción ─────────────────────────────────────────
 
+def _buscar_semanas_produccion_referenciadas(
+    semanas: list[SemanaProduccion],
+    fecha_inicio_semana: Optional[date] = None,
+    ofertas: Optional[list[LoteOferta]] = None,
+    fechas_ingreso: Optional[list[date]] = None,
+    dias_hasta_faena: int = DIAS_HASTA_FAENA,
+    tolerancia_dias: int = 3,
+) -> list[SemanaProduccion]:
+    """Encuentra las semanas de producción relevantes para un cruce."""
+    semanas_encontradas: list[SemanaProduccion] = []
+    fechas_referencia = [f for f in (fechas_ingreso or []) if f is not None]
+    if not fechas_referencia and ofertas:
+        fechas_referencia = [
+            oferta.fecha_ingreso for oferta in ofertas if oferta.fecha_ingreso
+        ]
+
+    if fechas_referencia:
+        seen: set[str] = set()
+        for fecha_ingreso in fechas_referencia:
+            for sem in semanas:
+                key = sem.fecha_desde.isoformat()
+                if key in seen:
+                    continue
+                if sem.fecha_desde <= fecha_ingreso <= sem.fecha_hasta:
+                    seen.add(key)
+                    semanas_encontradas.append(sem)
+                    break
+            else:
+                for sem in semanas:
+                    key = sem.fecha_desde.isoformat()
+                    if key in seen:
+                        continue
+                    if abs((fecha_ingreso - sem.fecha_desde).days) <= tolerancia_dias:
+                        seen.add(key)
+                        semanas_encontradas.append(sem)
+                        break
+                    if abs((fecha_ingreso - sem.fecha_hasta).days) <= tolerancia_dias:
+                        seen.add(key)
+                        semanas_encontradas.append(sem)
+                        break
+        return semanas_encontradas
+
+    if fecha_inicio_semana is None:
+        return []
+
+    for sem in semanas:
+        fecha_faena_estimada = calcular_fecha_faena_estimada(
+            sem.fecha_desde,
+            dias_hasta_faena,
+        )
+        if abs((fecha_faena_estimada - fecha_inicio_semana).days) <= tolerancia_dias:
+            semanas_encontradas.append(sem)
+            break
+
+    return semanas_encontradas
+
+
+def _extraer_contexto_planificado_propio(proyeccion: SemanaFaena) -> dict:
+    """Resume el plan propio asignado en la proyección activa."""
+    fechas_ingreso: list[date] = []
+    total_propio = 0
+    total_compra_terceros = 0
+
+    for dia in proyeccion.dias or []:
+        for lote in dia.lotes or []:
+            if lote.es_compra_terceros:
+                total_compra_terceros += lote.cantidad
+                continue
+            total_propio += lote.cantidad
+            if lote.fecha_ingreso_original:
+                fechas_ingreso.append(lote.fecha_ingreso_original)
+
+    return {
+        "fechas_ingreso": fechas_ingreso,
+        "total_propio": total_propio,
+        "total_compra_terceros": total_compra_terceros,
+    }
+
+
+def _agrupar_simulacion_produccion(
+    semanas: list[SemanaProduccion],
+    dias_hasta_faena: int,
+    tasas_mortalidad: list[float],
+) -> dict:
+    """Consolida varias semanas de producción en una referencia única."""
+    simulacion = simular_mortalidad(
+        semanas,
+        tasas=tasas_mortalidad,
+        dias_hasta_faena=dias_hasta_faena,
+    )
+    if not simulacion:
+        return {}
+
+    tasas = [fila.tasa_mortalidad for fila in simulacion[0].simulaciones]
+    simulaciones = []
+    for tasa in tasas:
+        disponibles = sum(
+            next(
+                fila.pollitos_disponibles
+                for fila in sem.simulaciones
+                if abs(fila.tasa_mortalidad - tasa) < 1e-9
+            )
+            for sem in simulacion
+        )
+        simulaciones.append({
+            "tasa_mortalidad": tasa,
+            "pollitos_disponibles": disponibles,
+        })
+
+    fecha_faena_desde = min(sem.fecha_faena_estimada for sem in simulacion)
+    fecha_faena_hasta = max(sem.fecha_faena_estimada for sem in simulacion)
+
+    return {
+        "fecha_desde": min(sem.fecha_desde for sem in semanas).isoformat(),
+        "fecha_hasta": max(sem.fecha_hasta for sem in semanas).isoformat(),
+        "pollitos_cargados": sum(sem.pollitos_cargados for sem in semanas),
+        "fecha_faena_estimada": (
+            fecha_faena_desde.isoformat() if len(simulacion) == 1 else None
+        ),
+        "fecha_faena_estimada_desde": fecha_faena_desde.isoformat(),
+        "fecha_faena_estimada_hasta": fecha_faena_hasta.isoformat(),
+        "total_semanas": len(semanas),
+        "semanas_referenciadas": _serializar_semanas_referenciadas(
+            semanas,
+            dias_hasta_faena,
+        ),
+        "simulaciones": simulaciones,
+    }
+
 def _calcular_factibilidad(
     fecha_inicio_semana: date,
     total_oferta: int,
     ofertas: Optional[list[LoteOferta]] = None,
+    fechas_ingreso: Optional[list[date]] = None,
+    total_compra_terceros: int = 0,
+    metodo_cruce: str = "macro_faena",
+    contexto: str = "oferta_actual",
 ) -> Optional[FactibilidadProduccion]:
     """Cruza oferta con producción cargada para evaluar factibilidad.
 
@@ -667,50 +856,37 @@ def _calcular_factibilidad(
     if not data:
         return None
 
+    config = _get_produccion_reference_config()
     semanas = [SemanaProduccion(**s) for s in data]
-    TOLERANCIA_DIAS = 3
-
-    semanas_encontradas: list[SemanaProduccion] = []
-
-    if ofertas:
-        # Agregar TODAS las semanas de producción referenciadas por la oferta
-        seen: set[str] = set()
-        for oferta in ofertas:
-            if not oferta.fecha_ingreso:
-                continue
-            for sem in semanas:
-                key = sem.fecha_desde.isoformat()
-                if key in seen:
-                    continue
-                if sem.fecha_desde <= oferta.fecha_ingreso <= sem.fecha_hasta:
-                    seen.add(key)
-                    semanas_encontradas.append(sem)
-                    break
-            else:
-                # Tolerancia: ±3 días
-                for sem in semanas:
-                    key = sem.fecha_desde.isoformat()
-                    if key in seen:
-                        continue
-                    if abs((oferta.fecha_ingreso - sem.fecha_desde).days) <= TOLERANCIA_DIAS:
-                        seen.add(key)
-                        semanas_encontradas.append(sem)
-                        break
-    else:
-        # Legacy: buscar una sola semana por fecha de faena estimada
-        for sem in semanas:
-            fecha_faena_estimada = sem.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
-            if abs((fecha_faena_estimada - fecha_inicio_semana).days) <= TOLERANCIA_DIAS:
-                semanas_encontradas.append(sem)
-                break
+    semanas_encontradas = _buscar_semanas_produccion_referenciadas(
+        semanas,
+        fecha_inicio_semana=fecha_inicio_semana,
+        ofertas=ofertas,
+        fechas_ingreso=fechas_ingreso,
+        dias_hasta_faena=config["dias_hasta_faena"],
+        tolerancia_dias=config["tolerancia_dias"],
+    )
 
     if not semanas_encontradas:
-        return FactibilidadProduccion(encontrada=False, total_oferta=total_oferta)
+        return FactibilidadProduccion(
+            encontrada=False,
+            total_oferta=total_oferta,
+            total_compra_terceros=total_compra_terceros,
+            metodo_cruce=metodo_cruce,
+            contexto=contexto,
+            dias_hasta_faena_referencia=config["dias_hasta_faena"],
+            tolerancia_cruce_dias=config["tolerancia_dias"],
+        )
 
     total_pollitos = sum(s.pollitos_cargados for s in semanas_encontradas)
+    tasas_mortalidad = config["tasas_mortalidad"]
+    semanas_referenciadas = _serializar_semanas_referenciadas(
+        semanas_encontradas,
+        config["dias_hasta_faena"],
+    )
 
     coberturas = []
-    for tasa in TASAS_MORTALIDAD_DEFAULT:
+    for tasa in tasas_mortalidad:
         disponibles = int(total_pollitos * (1 - tasa))
         cob_pct = round((total_oferta / disponibles * 100), 1) if disponibles > 0 else None
         coberturas.append({
@@ -733,19 +909,49 @@ def _calcular_factibilidad(
         deficit_peor=deficit if deficit > 0 else None,
         cobertura_pct_peor=cobertura,
         coberturas=coberturas,
+        total_compra_terceros=total_compra_terceros,
+        total_semanas_referenciadas=len(semanas_encontradas),
+        metodo_cruce=metodo_cruce,
+        contexto=contexto,
+        dias_hasta_faena_referencia=config["dias_hasta_faena"],
+        tolerancia_cruce_dias=config["tolerancia_dias"],
+        semanas_referenciadas=semanas_referenciadas,
+    )
+
+
+def _calcular_factibilidad_proyeccion(proyeccion: SemanaFaena) -> Optional[FactibilidadProduccion]:
+    """Calcula factibilidad usando las cohortes realmente planificadas."""
+    contexto = _extraer_contexto_planificado_propio(proyeccion)
+    total_propio = contexto["total_propio"]
+    if total_propio <= 0:
+        if not proyeccion.total_pollos_semana or proyeccion.total_pollos_semana <= 0:
+            return None
+        return _calcular_factibilidad(
+            fecha_inicio_semana=proyeccion.fecha_inicio,
+            total_oferta=proyeccion.total_pollos_semana,
+            metodo_cruce="macro_faena",
+            contexto="plan_propio",
+        )
+
+    fechas_ingreso = contexto["fechas_ingreso"]
+    return _calcular_factibilidad(
+        fecha_inicio_semana=proyeccion.fecha_inicio,
+        total_oferta=total_propio,
+        fechas_ingreso=fechas_ingreso or None,
+        total_compra_terceros=contexto["total_compra_terceros"],
+        metodo_cruce="cohortes_planificadas" if fechas_ingreso else "macro_faena",
+        contexto="plan_propio",
     )
 
 
 def _calcular_deficit_produccion(proyeccion: SemanaFaena) -> Optional[dict]:
     """Calcula déficit de producción propia vs oferta para la recomendación de terceros."""
-    fact = _calcular_factibilidad(
-        fecha_inicio_semana=proyeccion.fecha_inicio,
-        total_oferta=proyeccion.total_pollos_semana,
-    )
+    fact = _calcular_factibilidad_proyeccion(proyeccion)
     if fact is None or not fact.encontrada:
         return None
 
     hay_deficit = fact.deficit_peor is not None and fact.deficit_peor > 0
+    sujeto = "el plan propio" if fact.contexto == "plan_propio" else "la oferta"
     return {
         "encontrada": True,
         "pollitos_cargados": fact.pollitos_cargados,
@@ -754,10 +960,14 @@ def _calcular_deficit_produccion(proyeccion: SemanaFaena) -> Optional[dict]:
         "total_oferta": fact.total_oferta,
         "deficit_peor": fact.deficit_peor,
         "cobertura_pct_peor": fact.cobertura_pct_peor,
+        "total_compra_terceros": fact.total_compra_terceros,
+        "total_semanas_referenciadas": fact.total_semanas_referenciadas,
+        "metodo_cruce": fact.metodo_cruce,
+        "contexto": fact.contexto,
         "hay_deficit": hay_deficit,
         "recomendacion_terceros": (
             f"La producción propia ({fact.disponibles_peor:,} en el escenario conservador) "
-            f"no cubre la oferta ({fact.total_oferta:,}). "
+            f"no cubre {sujeto} ({fact.total_oferta:,}). "
             f"Se recomienda adquirir ~{fact.deficit_peor:,} pollos a terceros."
         ) if hay_deficit else None,
     }
@@ -771,6 +981,8 @@ def _validar_cruce_oferta(ofertas: list[LoteOferta]) -> Optional[dict]:
     if not produccion_data or not ofertas:
         return None
 
+    params = _get_parametros()
+    config = _get_produccion_reference_config(params)
     result: dict = {}
 
     # 1. Factibilidad: cobertura oferta vs producción (agregando todas las semanas)
@@ -785,7 +997,14 @@ def _validar_cruce_oferta(ofertas: list[LoteOferta]) -> Optional[dict]:
             result["factibilidad"] = fact.model_dump()
 
     # 2. Concordancia producción-oferta por cohorte
-    mortalidad = validar_mortalidad_oferta(ofertas, produccion_data)
+    mortalidad = validar_mortalidad_oferta(
+        ofertas,
+        produccion_data,
+        dias_hasta_faena=config["dias_hasta_faena"],
+        tolerancia_dias=config["tolerancia_dias"],
+        merma_min=params.produccion_mortalidad_min,
+        merma_max=params.produccion_mortalidad_max,
+    )
     if mortalidad and mortalidad.get("cohortes"):
         result["mortalidad_cohortes"] = mortalidad
 
@@ -876,6 +1095,8 @@ def _validar_cruce_produccion() -> Optional[dict]:
     if not produccion_data:
         return None
 
+    params = _get_parametros()
+    config = _get_produccion_reference_config(params)
     result: dict = {}
 
     # 1. Factibilidad (agregando todas las semanas referenciadas)
@@ -890,7 +1111,14 @@ def _validar_cruce_produccion() -> Optional[dict]:
             result["factibilidad"] = fact.model_dump()
 
     # 2. Concordancia producción-oferta por cohorte
-    mortalidad = validar_mortalidad_oferta(ofertas, produccion_data)
+    mortalidad = validar_mortalidad_oferta(
+        ofertas,
+        produccion_data,
+        dias_hasta_faena=config["dias_hasta_faena"],
+        tolerancia_dias=config["tolerancia_dias"],
+        merma_min=params.produccion_mortalidad_min,
+        merma_max=params.produccion_mortalidad_max,
+    )
     if mortalidad and mortalidad.get("cohortes"):
         result["mortalidad_cohortes"] = mortalidad
 
@@ -1246,11 +1474,8 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
         "feriados_custom": [f.isoformat() for f in req.feriados_custom] if req.feriados_custom else None,
     })
 
-    # ── Factibilidad: cruzar oferta vs producción propia ──
-    factibilidad = _calcular_factibilidad(
-        fecha_inicio_semana=req.fecha_inicio_semana,
-        total_oferta=semana.total_pollos_semana,
-    )
+    # ── Factibilidad: cruzar plan propio vs producción propia ──
+    factibilidad = _calcular_factibilidad_proyeccion(semana)
 
     # Etiquetas profesionales para los modos de planificación
     modo_principal = "cascada_madurez" if req.criterio_gerente else "optimizacion_restricciones"
@@ -1272,10 +1497,7 @@ def get_proyeccion(current_user: TokenData = Depends(get_current_user)):
     if proyeccion is None:
         raise HTTPException(404, "No hay proyección generada aún.")
     result = proyeccion.model_dump()
-    factibilidad = _calcular_factibilidad(
-        fecha_inicio_semana=proyeccion.fecha_inicio,
-        total_oferta=proyeccion.total_pollos_semana,
-    )
+    factibilidad = _calcular_factibilidad_proyeccion(proyeccion)
     result["factibilidad_produccion"] = factibilidad.model_dump() if factibilidad else None
     return result
 
@@ -2111,17 +2333,28 @@ def get_produccion(current_user: TokenData = Depends(get_current_user)):
 @app.get("/produccion/simulacion")
 def get_simulacion_mortalidad(current_user: TokenData = Depends(get_current_user)):
     """
-    Retorna simulación de mortalidad a 7 tasas (4.5%–7.5%)
+    Retorna simulación de mortalidad según la configuración vigente.
     para cada semana de producción cargada.
     """
     data = storage.load_produccion()
     if not data:
         raise HTTPException(404, "No hay datos de producción cargados.")
 
+    config = _get_produccion_reference_config()
     semanas = [SemanaProduccion(**s) for s in data]
-    resultado = simular_mortalidad(semanas)
+    resultado = simular_mortalidad(
+        semanas,
+        tasas=config["tasas_mortalidad"],
+        dias_hasta_faena=config["dias_hasta_faena"],
+    )
     return {
-        "tasas": [t * 100 for t in TASAS_MORTALIDAD_DEFAULT],
+        "tasas": [round(t * 100, 1) for t in config["tasas_mortalidad"]],
+        "configuracion": {
+            "dias_hasta_faena": config["dias_hasta_faena"],
+            "tolerancia_dias": config["tolerancia_dias"],
+            "mortalidad_min": round(config["tasas_mortalidad"][0] * 100, 1),
+            "mortalidad_max": round(config["tasas_mortalidad"][-1] * 100, 1),
+        },
         "simulacion": [r.model_dump() for r in resultado],
     }
 
@@ -2132,9 +2365,11 @@ def get_referencia_produccion(
     current_user: TokenData = Depends(get_current_user),
 ) -> ReferenciaProduccionResponse:
     """
-    Busca la semana de producción cuya fecha_desde + 42 días
-    cae dentro de la semana de faena indicada (±3 días de tolerancia).
-    Sirve como referencia macro para validar que la oferta cubra todos los lotes.
+    Busca la referencia de producción más útil para la semana analizada.
+
+    Si existe una proyección activa para esa semana, consolida las cohortes
+    realmente planificadas a partir de los fecha_ingreso originales de los
+    lotes asignados. Si no, cae al modo macro legacy (una sola semana por +42 días).
     """
     data = storage.load_produccion()
     if not data:
@@ -2144,39 +2379,63 @@ def get_referencia_produccion(
         )
 
     semanas = [SemanaProduccion(**s) for s in data]
-    TOLERANCIA_DIAS = 3
+    config = _get_produccion_reference_config()
+    proyeccion = _get_proyeccion()
+    total_oferta = proyeccion.total_pollos_semana if proyeccion else 0
+    total_compra_terceros = 0
+    metodo_cruce = "macro_faena"
 
-    semana_encontrada = None
-    for sem in semanas:
-        fecha_faena_estimada = sem.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
-        if abs((fecha_faena_estimada - fecha_faena).days) <= TOLERANCIA_DIAS:
-            semana_encontrada = sem
-            break
+    semanas_referenciadas: list[SemanaProduccion] = []
+    if proyeccion and proyeccion.fecha_inicio == fecha_faena:
+        contexto = _extraer_contexto_planificado_propio(proyeccion)
+        if contexto["total_propio"] > 0:
+            total_oferta = contexto["total_propio"]
+            total_compra_terceros = contexto["total_compra_terceros"]
+        if contexto["fechas_ingreso"]:
+            semanas_referenciadas = _buscar_semanas_produccion_referenciadas(
+                semanas,
+                fechas_ingreso=contexto["fechas_ingreso"],
+                dias_hasta_faena=config["dias_hasta_faena"],
+                tolerancia_dias=config["tolerancia_dias"],
+            )
+            metodo_cruce = "cohortes_planificadas"
 
-    if semana_encontrada is None:
+    if not semanas_referenciadas:
+        semanas_referenciadas = _buscar_semanas_produccion_referenciadas(
+            semanas,
+            fecha_inicio_semana=fecha_faena,
+            dias_hasta_faena=config["dias_hasta_faena"],
+            tolerancia_dias=config["tolerancia_dias"],
+        )
+        metodo_cruce = "macro_faena"
+
+    if not semanas_referenciadas:
         return ReferenciaProduccionResponse(
             encontrada=False,
+            dias_hasta_faena_referencia=config["dias_hasta_faena"],
+            tolerancia_cruce_dias=config["tolerancia_dias"],
             mensaje=f"No se encontró semana de producción para fecha de faena {fecha_faena.isoformat()}.",
         )
 
-    simulacion = simular_mortalidad([semana_encontrada])
-    sim_data = simulacion[0].model_dump()
+    sim_data = _agrupar_simulacion_produccion(
+        semanas_referenciadas,
+        dias_hasta_faena=config["dias_hasta_faena"],
+        tasas_mortalidad=config["tasas_mortalidad"],
+    )
 
-    # Cobertura: oferta actual vs disponible al peor escenario configurado
-    proyeccion = _get_proyeccion()
-    total_oferta = proyeccion.total_pollos_semana if proyeccion else 0
-
-    peor_tasa = max(TASAS_MORTALIDAD_DEFAULT)
-    disponible_peor = int(semana_encontrada.pollitos_cargados * (1 - peor_tasa))
+    # Cobertura: plan propio actual vs disponible al peor escenario configurado
+    peor_tasa = max(config["tasas_mortalidad"])
+    total_pollitos = sum(sem.pollitos_cargados for sem in semanas_referenciadas)
+    disponible_peor = int(total_pollitos * (1 - peor_tasa))
     cobertura = round((total_oferta / disponible_peor * 100), 1) if disponible_peor > 0 else None
 
     # Coberturas multi-escenario
     coberturas = []
-    for sim_fila in simulacion[0].simulaciones:
-        cob_pct = round((total_oferta / sim_fila.pollitos_disponibles * 100), 1) if sim_fila.pollitos_disponibles > 0 else None
+    for sim_fila in sim_data["simulaciones"]:
+        cob_pct = round((total_oferta / sim_fila["pollitos_disponibles"] * 100), 1) if sim_fila["pollitos_disponibles"] > 0 else None
         coberturas.append({
-            "tasa": round(sim_fila.tasa_mortalidad * 100, 1),
-            "disponibles": sim_fila.pollitos_disponibles,
+            "tasa": round(sim_fila["tasa_mortalidad"] * 100, 1),
+            "disponibles": sim_fila["pollitos_disponibles"],
             "cobertura_pct": cob_pct,
         })
 
@@ -2186,7 +2445,16 @@ def get_referencia_produccion(
         total_oferta_actual=total_oferta,
         cobertura_pct=cobertura,
         coberturas=coberturas,
-        mensaje="Referencia encontrada.",
+        total_compra_terceros=total_compra_terceros,
+        total_semanas_referenciadas=len(semanas_referenciadas),
+        metodo_cruce=metodo_cruce,
+        dias_hasta_faena_referencia=config["dias_hasta_faena"],
+        tolerancia_cruce_dias=config["tolerancia_dias"],
+        mensaje=(
+            f"Referencia consolidada sobre {len(semanas_referenciadas)} semana(s) de producción."
+            if len(semanas_referenciadas) > 1
+            else "Referencia encontrada."
+        ),
     )
 
 
@@ -2252,8 +2520,8 @@ def _generar_insights_validacion(validacion: dict) -> list[dict]:
                     "categoria": "sensibilidad",
                     "titulo": "Rango de sensibilidad por merma estimada",
                     "detalle": (
-                        f"Entre el mejor (4.5% merma → {disponibles_mejor:,}) "
-                        f"y peor escenario ({max(TASAS_MORTALIDAD_DEFAULT) * 100:.1f}% merma → {disponibles_peor:,}) "
+                        f"Entre el mejor ({fact['coberturas'][0]['tasa']:.1f}% merma → {disponibles_mejor:,}) "
+                        f"y peor escenario ({fact['coberturas'][-1]['tasa']:.1f}% merma → {disponibles_peor:,}) "
                         f"hay una variación de {rango:,} aves."
                     ),
                     "accion": "",
@@ -2277,7 +2545,7 @@ def _generar_insights_validacion(validacion: dict) -> list[dict]:
                 "titulo": f"{len(anticipadas)} cohorte(s) con oferta anticipada respecto a la carga BB",
                 "detalle": (
                     "Las fechas objetivo de la oferta quedan antes de la ventana esperada de faena "
-                    "(+42 días desde la carga) para esas cohortes."
+                    "según la configuración actual de referencia para esas cohortes."
                 ),
                 "accion": "Revisar si la fecha de ingreso o la fecha objetivo de la oferta corresponden a la misma cohorte.",
             })
@@ -2368,13 +2636,10 @@ def forecast_produccion(
     if not raw:
         raise HTTPException(404, "No hay datos de producción cargados.")
 
-    from backend.parser_produccion import (
-        SemanaProduccion, DIAS_HASTA_FAENA, TASAS_MORTALIDAD_DEFAULT,
-    )
-
+    config = _get_produccion_reference_config()
     semanas_prod = [SemanaProduccion(**r) for r in raw]
     hoy = date.today()
-    tolerancia = 3
+    tolerancia = config["tolerancia_dias"]
 
     # Pre-calcular rangos de cada semana de forecast (lunes a domingo)
     # Buscar el lunes de la semana actual (weekday(): 0=lunes, 6=domingo)
@@ -2389,7 +2654,7 @@ def forecast_produccion(
     # Asignar cada carga a UNA sola semana (la más cercana) para evitar duplicados
     asignaciones: dict[int, list] = {i: [] for i in range(semanas)}
     for sp in semanas_prod:
-        faena_est = sp.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
+        faena_est = calcular_fecha_faena_estimada(sp.fecha_desde, config["dias_hasta_faena"])
         mejor_idx = None
         mejor_dist = None
         for i, (inicio_sem, fin_sem, centro) in enumerate(rangos):
@@ -2407,8 +2672,8 @@ def forecast_produccion(
         matched = asignaciones[i]
 
         total_cargados = sum(s.pollitos_cargados for s in matched)
-        mejor_tasa = min(TASAS_MORTALIDAD_DEFAULT)
-        peor_tasa = max(TASAS_MORTALIDAD_DEFAULT)
+        mejor_tasa = min(config["tasas_mortalidad"])
+        peor_tasa = max(config["tasas_mortalidad"])
 
         result_semanas.append({
             "inicio": inicio_sem.isoformat(),
@@ -2705,8 +2970,9 @@ def mortalidad_observada(current_user: TokenData = Depends(get_current_user)):
     if proyeccion is None:
         raise HTTPException(404, "No hay proyección generada.")
 
+    config = _get_produccion_reference_config()
     semanas_prod = [SemanaProduccion(**s) for s in prod_data]
-    tolerancia = 2  # margen en los extremos del rango
+    tolerancia = config["tolerancia_dias"]
 
     # Rango de fechas cubierto por la proyección
     fechas_proyeccion = {dia.fecha for dia in proyeccion.dias if dia.total_pollos > 0}
@@ -2736,9 +3002,9 @@ def mortalidad_observada(current_user: TokenData = Depends(get_current_user)):
     puntos = []
     for sp in semanas_prod:
         # Los pollitos cargados durante TODA la semana (fecha_desde→fecha_hasta)
-        # estarán listos para faena entre fecha_desde+42 y fecha_hasta+42.
-        faena_rango_ini = sp.fecha_desde + timedelta(days=DIAS_HASTA_FAENA) - timedelta(days=tolerancia)
-        faena_rango_fin = sp.fecha_hasta + timedelta(days=DIAS_HASTA_FAENA) + timedelta(days=tolerancia)
+        # estarán listos para faena alrededor de la ventana de referencia configurada.
+        faena_rango_ini = sp.fecha_desde + timedelta(days=config["dias_hasta_faena"]) - timedelta(days=tolerancia)
+        faena_rango_fin = sp.fecha_hasta + timedelta(days=config["dias_hasta_faena"]) + timedelta(days=tolerancia)
 
         # Verificar cobertura: el rango de faena debe estar completamente
         # dentro de las fechas de la proyección.
@@ -2782,8 +3048,8 @@ def mortalidad_observada(current_user: TokenData = Depends(get_current_user)):
         mortalidad_pct = round(mortalidad_obs * 100, 2)
 
         # Comparar con tasas estándar
-        mejor_tasa = min(TASAS_MORTALIDAD_DEFAULT) * 100  # 4.5
-        peor_tasa = max(TASAS_MORTALIDAD_DEFAULT) * 100
+        mejor_tasa = min(config["tasas_mortalidad"]) * 100
+        peor_tasa = max(config["tasas_mortalidad"]) * 100
 
         if mortalidad_pct <= mejor_tasa:
             evaluacion = "excelente"
@@ -2792,7 +3058,7 @@ def mortalidad_observada(current_user: TokenData = Depends(get_current_user)):
         else:
             evaluacion = "por_encima"
 
-        fecha_faena_est = sp.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
+        fecha_faena_est = calcular_fecha_faena_estimada(sp.fecha_desde, config["dias_hasta_faena"])
         puntos.append({
             "fecha_carga": sp.fecha_desde.isoformat(),
             "fecha_faena_estimada": fecha_faena_est.isoformat(),
@@ -2817,8 +3083,8 @@ def mortalidad_observada(current_user: TokenData = Depends(get_current_user)):
     # Resumen
     mortalidades = [p["mortalidad_observada_pct"] for p in puntos]
     promedio = round(sum(mortalidades) / len(mortalidades), 2)
-    mejor_tasa_pct = min(TASAS_MORTALIDAD_DEFAULT) * 100
-    peor_tasa_pct = max(TASAS_MORTALIDAD_DEFAULT) * 100
+    mejor_tasa_pct = min(config["tasas_mortalidad"]) * 100
+    peor_tasa_pct = max(config["tasas_mortalidad"]) * 100
 
     if promedio <= mejor_tasa_pct:
         tendencia = "favorable"
@@ -3112,20 +3378,22 @@ def guardar_escenario(
     tasa = req.tasa_mortalidad
     produccion_analisis = None
     if tasa is not None:
-        fact = _calcular_factibilidad(
-            fecha_inicio_semana=proyeccion.fecha_inicio,
-            total_oferta=proyeccion.total_pollos_semana,
-        )
+        fact = _calcular_factibilidad_proyeccion(proyeccion)
         if fact and fact.encontrada and fact.pollitos_cargados is not None:
             disponibles = int(fact.pollitos_cargados * (1 - tasa))
-            deficit = max(0, proyeccion.total_pollos_semana - disponibles)
-            cobertura = round(proyeccion.total_pollos_semana / disponibles * 100, 1) if disponibles > 0 else None
+            deficit = max(0, fact.total_oferta - disponibles)
+            cobertura = round(fact.total_oferta / disponibles * 100, 1) if disponibles > 0 else None
             produccion_analisis = {
                 "tasa_mortalidad": tasa,
                 "pollitos_cargados": fact.pollitos_cargados,
                 "disponibles": disponibles,
                 "deficit": deficit if deficit > 0 else None,
                 "cobertura_pct": cobertura,
+                "total_oferta": fact.total_oferta,
+                "total_compra_terceros": fact.total_compra_terceros,
+                "total_semanas_referenciadas": fact.total_semanas_referenciadas,
+                "metodo_cruce": fact.metodo_cruce,
+                "contexto": fact.contexto,
             }
 
     escenario_data = {
@@ -4185,6 +4453,7 @@ def get_alerta_temprana(current_user: TokenData = Depends(get_current_user)):
     Incluye validación cruzada entre oferta y cargas de pollitos BB.
     """
     params = _get_parametros()
+    config = _get_produccion_reference_config(params)
     ofertas = _get_ofertas()
 
     if not ofertas:
@@ -4195,7 +4464,12 @@ def get_alerta_temprana(current_user: TokenData = Depends(get_current_user)):
     # Cruce oferta vs producción: expectativa por cohorte
     prod_data = storage.load_produccion()
     resultado["validacion_mortalidad"] = validar_mortalidad_oferta(
-        ofertas, prod_data or [],
+        ofertas,
+        prod_data or [],
+        dias_hasta_faena=config["dias_hasta_faena"],
+        tolerancia_dias=config["tolerancia_dias"],
+        merma_min=params.produccion_mortalidad_min,
+        merma_max=params.produccion_mortalidad_max,
     )
 
     return resultado

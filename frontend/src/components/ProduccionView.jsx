@@ -40,6 +40,7 @@ export default function ProduccionView() {
   const [file, setFile] = useState(null)
   const [ordenDesc, setOrdenDesc] = useState(true)
   const inputRef = useRef(null)
+  const configSim = simulacion?.configuracion || null
 
   useEffect(() => {
     cargarDatos()
@@ -275,8 +276,11 @@ export default function ProduccionView() {
           </div>
           <div className="card-body">
             <p style={{ marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-light)' }}>
-              Planificación estimada de pollitos disponibles para faena (+42 días) descontando diferentes tasas de mortalidad.
-              La fecha de faena es <strong>fecha de carga + 42 días</strong>.
+              Planificación estimada de pollitos disponibles para faena usando la configuración vigente de referencia BB.
+              La fecha de faena se proyecta con <strong>fecha de carga + {configSim?.dias_hasta_faena ?? 42} días</strong>
+              {configSim?.tolerancia_dias != null && ` y un margen operativo de ±${configSim.tolerancia_dias} días para los cruces.`}
+              {' '}
+              Los escenarios de merma van de <strong>{configSim?.mortalidad_min ?? simulacion.tasas[0]}%</strong> a <strong>{configSim?.mortalidad_max ?? simulacion.tasas[simulacion.tasas.length - 1]}%</strong>.
               {Object.keys(ofertaPorSemana).length > 0 && (
                 <span> Las columnas <strong>Oferta Actual</strong> y <strong>Cobertura</strong> muestran las aves vinculadas desde el archivo de oferta para cada semana.</span>
               )}

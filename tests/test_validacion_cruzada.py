@@ -3,8 +3,8 @@ from datetime import date, timedelta
 
 import pytest
 from backend.main import _validar_cruce_oferta, _validar_cruce_produccion
-from backend.calculo import LoteOferta
-from backend.parser_produccion import SemanaProduccion, DIAS_HASTA_FAENA
+from backend.calculo import LoteOferta, Parametros
+from backend.parser_produccion import SemanaProduccion, DIAS_HASTA_FAENA, calcular_fecha_faena_estimada
 from backend import storage
 
 
@@ -268,3 +268,36 @@ def test_cruce_oferta_multisemana_con_deficit():
     assert fact["pollitos_cargados"] == 100000
     # Al 7.5%: 100000 * 0.925 = 92500.  100000 > 92500 → déficit = 7500
     assert fact["deficit_peor"] == 7500
+
+
+def test_cruce_oferta_respeta_parametros_referencia_configurados():
+    """La validación por cohortes debe usar ventana y merma configuradas."""
+    storage.save_parametros(Parametros(
+        produccion_dias_hasta_faena=40,
+        produccion_tolerancia_cruce_dias=1,
+        produccion_mortalidad_min=0.02,
+        produccion_mortalidad_max=0.04,
+        produccion_mortalidad_paso=0.01,
+    ).model_dump())
+
+    fecha_prod = date(2026, 2, 2)
+    _guardar_produccion(fecha_prod, 100000)
+    fecha_referencia = calcular_fecha_faena_estimada(fecha_prod, 40)
+
+    ofertas = [
+        _lote(
+            cantidad=97000,
+            fecha_ingreso=fecha_prod,
+            fecha_peso=fecha_referencia,
+            edad_real=40,
+            edad_proyectada=40,
+        ),
+    ]
+    result = _validar_cruce_oferta(ofertas)
+
+    assert result is not None
+    cohorte = result["mortalidad_cohortes"]["cohortes"][0]
+    assert cohorte["esperados_faena_max"] == 98000
+    assert cohorte["esperados_faena_min"] == 96000
+    assert cohorte["estado_fecha"] == "alineada"
+    assert cohorte["estado_cantidad"] == "en_rango"

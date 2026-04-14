@@ -4,6 +4,7 @@ import { BarChart, KanbanSquare, Table, ArrowLeftRight, X, Calendar, Settings2, 
 import toast from 'react-hot-toast'
 import { eliminarLote, moverLote, uploadAjusteMartes, configurarGallinas, quitarGallinas, generarProyeccion, agregarLote, getAnalisisTerceros, cargarDeficit, getParametros, diferirLote, restaurarLoteSemana1, getSemana2, clearLotesDiferidos, getSugerenciasDiferimiento, getOfertaTrazabilidad, moverLoteS2, eliminarLoteS2, enviarLoteS2aS1, excluirLote, getLotesDisponibles, incluirLoteDisponible } from '../services/api'
 import { exportProyeccionPDF } from '../utils/pdfExport'
+import { formatBBReferenceSummary, getBBReferenceConfigFromCoverage, getBBReferenceConfigFromParams, getBBReferencePresetMeta } from '../utils/bbReferencePresets'
 
 const DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
@@ -110,6 +111,11 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
     capacidad_maxima_planta: 42000,
     capacidad_con_horas_extras: 45000,
     limite_sabado: 20000,
+    produccion_dias_hasta_faena: 42,
+    produccion_tolerancia_cruce_dias: 3,
+    produccion_mortalidad_min: 0.045,
+    produccion_mortalidad_max: 0.075,
+    produccion_mortalidad_paso: 0.005,
   })
   const [semana2Data, setSemana2Data] = useState(null)
   const [semana2Loading, setSemana2Loading] = useState(false)
@@ -154,6 +160,21 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
   const modoPrincipal = proyeccion?.modo_planificacion || 'cascada_madurez'
   const modoAlternativo = planificacionAlternativa?.modo_planificacion || (modoPrincipal === 'cascada_madurez' ? 'optimizacion_restricciones' : 'cascada_madurez')
   const infoModo = MODOS_PLANIFICACION[modoPrincipal] || MODOS_PLANIFICACION.cascada_madurez
+  const diasTotalesPlan = proyeccion?.dias?.length || 0
+  const diasConPlan = proyeccion?.dias?.filter((dia) => (dia.total_pollos || 0) > 0).length || 0
+  const totalSinCapacidad = proyeccion?.total_pollos_no_asignados || 0
+  const totalFueraRango = proyeccion?.total_pollos_fuera_rango || 0
+  const bbReferenceConfig = getBBReferenceConfigFromParams(parametros)
+    || getBBReferenceConfigFromCoverage(proyeccion?.factibilidad_produccion)
+  const bbReferencePreset = getBBReferencePresetMeta(bbReferenceConfig)
+  const bbReferenceResumen = formatBBReferenceSummary(bbReferenceConfig)
+  const resumenPlanificacion = [
+    'Primero se consideran los lotes habilitados por edad, peso y días elegibles para faena.',
+    'Después se reparte la carga respetando capacidad diaria, feriados, sábado habilitado y eventos de gallinas.',
+    totalSinCapacidad > 0 || totalFueraRango > 0
+      ? 'Los lotes que no entran en la semana quedan señalados como sin capacidad o fuera de rango para que el ajuste sea visible.'
+      : 'En esta corrida no quedaron lotes pendientes por capacidad ni por rango de faena.',
+  ]
 
   // Cargar semana 2 cuando cambia la proyección
   const cargarSemana2 = async () => {
@@ -392,7 +413,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
     try {
       const data = await redistribuirDia(diaIdx)
       setProyeccion(data)
-      toast.success('Lotes redistribuidos correctamente')
+      toast.success('Lotes redistribuidos sobre los días restantes respetando elegibilidad y capacidad diaria')
     } catch (err) {
       toast.error('Error al redistribuir: ' + (err.response?.data?.detail || err.message))
     } finally {
@@ -641,6 +662,99 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
         </motion.div>
       )}
 
+      <motion.div variants={itemVariants} style={{
+        marginBottom: '1.25rem',
+        padding: '1rem 1.1rem',
+        borderRadius: 12,
+        border: `1px solid ${infoModo.color}33`,
+        background: `linear-gradient(135deg, ${infoModo.bg} 0%, var(--card-bg) 100%)`,
+      }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: '1rem',
+          flexWrap: 'wrap',
+        }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <Lightbulb size={18} color={infoModo.color} />
+              <strong style={{ fontSize: '0.95rem', color: 'var(--text)' }}>Cómo se armó esta planificación</strong>
+            </div>
+            <div style={{ fontSize: '0.86rem', color: 'var(--text-light)', maxWidth: 760 }}>
+              <strong style={{ color: infoModo.color }}>{infoModo.label}:</strong> {infoModo.descripcion}
+            </div>
+          </div>
+          {planificacionAlternativa && (
+            <div style={{
+              fontSize: '0.8rem',
+              color: 'var(--text-light)',
+              padding: '0.45rem 0.7rem',
+              borderRadius: 999,
+              border: '1px solid var(--border)',
+              background: 'rgba(255,255,255,0.75)',
+            }}>
+              También puedes probar {MODOS_PLANIFICACION[modoAlternativo]?.label} para comparar otra distribución.
+            </div>
+          )}
+        </div>
+
+        <div style={{
+          marginTop: '0.85rem',
+          padding: '0.8rem 0.9rem',
+          borderRadius: 10,
+          border: '1px solid var(--border)',
+          background: 'rgba(255,255,255,0.72)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: '0.75rem',
+          flexWrap: 'wrap',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span className={`badge ${bbReferencePreset.isCustom ? 'badge-warning' : 'badge-info'}`}>
+              Referencia BB activa: {bbReferencePreset.label}
+            </span>
+            <span style={{ fontSize: '0.82rem', color: 'var(--text)' }}>{bbReferenceResumen}</span>
+          </div>
+          <span style={{ fontSize: '0.76rem', color: 'var(--text-light)' }}>{bbReferencePreset.description}</span>
+        </div>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: '0.75rem',
+          marginTop: '0.9rem',
+        }}>
+          {resumenPlanificacion.map((texto, idx) => (
+            <div key={idx} style={{
+              padding: '0.85rem 0.9rem',
+              borderRadius: 10,
+              border: '1px solid var(--border)',
+              background: 'var(--card-bg)',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 8,
+            }}>
+              <Check size={15} color={infoModo.color} style={{ marginTop: 2, flexShrink: 0 }} />
+              <span style={{ fontSize: '0.85rem', color: 'var(--text)' }}>{texto}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '0.5rem',
+          marginTop: '0.9rem',
+        }}>
+          <span className="badge badge-info">Planificados: {formatNumber(proyeccion.total_pollos_semana)}</span>
+          <span className="badge badge-success">Días usados: {diasConPlan}/{diasTotalesPlan}</span>
+          <span className="badge badge-warning">Sin capacidad: {formatNumber(totalSinCapacidad)}</span>
+          <span className="badge badge-danger">Fuera de rango: {formatNumber(totalFueraRango)}</span>
+        </div>
+      </motion.div>
+
       {/* Header Dashboard section */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', marginBottom: '1.5rem' }}>
         {/* Stats generales */}
@@ -678,6 +792,15 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
             const borderColor = hayDeficit ? '#f97316' : '#22c55e'
             const bgColor = hayDeficit ? 'rgba(249, 115, 22, 0.08)' : 'rgba(34, 197, 94, 0.08)'
             const iconColor = hayDeficit ? '#ea580c' : '#16a34a'
+            const sujeto = fact.contexto === 'plan_propio' ? 'plan propio' : 'oferta'
+            const notaCohortes = fact.total_semanas_referenciadas > 1
+              ? `Cruce consolidado sobre ${fact.total_semanas_referenciadas} semanas de carga BB.`
+              : null
+            const notaTerceros = fact.total_compra_terceros > 0
+              ? `Compra a terceros fuera de este cruce: ${formatNumber(fact.total_compra_terceros)} pollos.`
+              : null
+            const notaVentana = `Referencia BB: carga + ${fact.dias_hasta_faena_referencia} días (±${fact.tolerancia_cruce_dias}).`
+            const semanasReferenciadas = fact.semanas_referenciadas || []
 
             return (
               <div style={{
@@ -697,8 +820,29 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                     <>
                       <div style={{ fontWeight: 600, color: '#ea580c', fontSize: '0.95rem' }}>Déficit de Producción Detectado</div>
                       <span style={{ fontSize: '0.85rem', color: 'var(--text)', lineHeight: 1.5 }}>
-                        La oferta ({formatNumber(fact.total_oferta)}) excede la producción disponible ({formatNumber(fact.disponibles_peor)} en el escenario conservador) en <strong style={{ color: '#ef4444' }}>{formatNumber(fact.deficit_peor)} pollos</strong>. Cobertura: <strong>{fact.cobertura_pct_peor}%</strong>.
+                        El {sujeto} ({formatNumber(fact.total_oferta)}) excede la producción disponible ({formatNumber(fact.disponibles_peor)} en el escenario conservador) en <strong style={{ color: '#ef4444' }}>{formatNumber(fact.deficit_peor)} pollos</strong>. Cobertura: <strong>{fact.cobertura_pct_peor}%</strong>.
                       </span>
+                      {(notaCohortes || notaTerceros || notaVentana) && (
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-light)', lineHeight: 1.4 }}>
+                          {[notaCohortes, notaTerceros, notaVentana].filter(Boolean).join(' ')}
+                        </span>
+                      )}
+                      {semanasReferenciadas.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                          {semanasReferenciadas.map((sem) => (
+                            <span key={sem.fecha_desde} style={{
+                              fontSize: '0.74rem',
+                              color: 'var(--text)',
+                              background: 'rgba(255,255,255,0.7)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 999,
+                              padding: '0.2rem 0.55rem',
+                            }}>
+                              BB {formatDate(sem.fecha_desde)} - {formatDate(sem.fecha_hasta)} · {formatNumber(sem.pollitos_cargados)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       <button 
                         className="btn btn-sm"
                         style={{
@@ -715,8 +859,29 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                     <>
                       <div style={{ fontWeight: 600, color: '#16a34a', fontSize: '0.95rem' }}>Producción OK</div>
                       <span style={{ fontSize: '0.85rem', color: 'var(--text)', lineHeight: 1.5 }}>
-                        La producción propia ({formatNumber(fact.disponibles_peor)} en el escenario conservador) cubre la oferta ({formatNumber(fact.total_oferta)}). Cobertura: <strong>{fact.cobertura_pct_peor}%</strong>.
+                        La producción propia ({formatNumber(fact.disponibles_peor)} en el escenario conservador) cubre el {sujeto} ({formatNumber(fact.total_oferta)}). Cobertura: <strong>{fact.cobertura_pct_peor}%</strong>.
                       </span>
+                      {(notaCohortes || notaTerceros || notaVentana) && (
+                        <span style={{ fontSize: '0.78rem', color: 'var(--text-light)', lineHeight: 1.4 }}>
+                          {[notaCohortes, notaTerceros, notaVentana].filter(Boolean).join(' ')}
+                        </span>
+                      )}
+                      {semanasReferenciadas.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 2 }}>
+                          {semanasReferenciadas.map((sem) => (
+                            <span key={sem.fecha_desde} style={{
+                              fontSize: '0.74rem',
+                              color: 'var(--text)',
+                              background: 'rgba(255,255,255,0.7)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 999,
+                              padding: '0.2rem 0.55rem',
+                            }}>
+                              BB {formatDate(sem.fecha_desde)} - {formatDate(sem.fecha_hasta)} · {formatNumber(sem.pollitos_cargados)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {/* Botón opcional de compras a terceros, aunque todo este OK */}
                       <button 
                         className="btn btn-sm btn-outline"

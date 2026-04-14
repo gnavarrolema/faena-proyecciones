@@ -12,6 +12,7 @@ import math
 DIAS_HASTA_FAENA_REFERENCIA = 42
 MERMA_REFERENCIA_MIN = 0.045
 MERMA_REFERENCIA_MAX = 0.075
+MERMA_REFERENCIA_PASO = 0.005
 TOLERANCIA_FECHA_CRUCE_DIAS = 3
 EDAD_TOLERANCIA_GERENTE = 4
 PESO_TOLERANCIA_GERENTE = 0.75
@@ -49,6 +50,11 @@ class Parametros(BaseModel):
     descuento_sofia: int = 10000
     peso_objetivo_recepcion: float = 2.85   # kg peso vivo objetivo en recepción
     capacidad_con_horas_extras: int = 45000  # capacidad máxima real con horas extras
+    produccion_dias_hasta_faena: int = DIAS_HASTA_FAENA_REFERENCIA
+    produccion_tolerancia_cruce_dias: int = TOLERANCIA_FECHA_CRUCE_DIAS
+    produccion_mortalidad_min: float = MERMA_REFERENCIA_MIN
+    produccion_mortalidad_max: float = MERMA_REFERENCIA_MAX
+    produccion_mortalidad_paso: float = MERMA_REFERENCIA_PASO
 
 
 class LoteOferta(BaseModel):
@@ -2125,6 +2131,10 @@ def calcular_alerta_temprana(
 def validar_mortalidad_oferta(
     ofertas: List[LoteOferta],
     semanas_produccion: list[dict],
+    dias_hasta_faena: int = DIAS_HASTA_FAENA_REFERENCIA,
+    tolerancia_dias: int = TOLERANCIA_FECHA_CRUCE_DIAS,
+    merma_min: float = MERMA_REFERENCIA_MIN,
+    merma_max: float = MERMA_REFERENCIA_MAX,
 ) -> dict:
     """
     Cruza la oferta detallada por granja contra las cargas semanales de
@@ -2136,8 +2146,8 @@ def validar_mortalidad_oferta(
     debe inferir mortalidad observada a partir de la diferencia simple entre
     ambos reportes. En cambio, reporta:
 
-    - ventana esperada de faena para la cohorte (+42 días desde la carga)
-    - rango esperado de aves en faena aplicando la merma de referencia
+    - ventana esperada de faena para la cohorte según la referencia configurada
+    - rango esperado de aves en faena aplicando la merma de referencia vigente
     - aves presentes en la oferta actual
     - si la fecha objetivo de la oferta está alineada o desfasada respecto a
       la ventana esperada
@@ -2172,11 +2182,11 @@ def validar_mortalidad_oferta(
         for sem in semanas:
             if sem["fecha_desde"] <= fecha_ingreso <= sem["fecha_hasta"]:
                 return sem
-        # Tolerancia: buscar ±3 días si no hay match exacto
+        # Tolerancia configurable: buscar ±N días si no hay match exacto
         for sem in semanas:
-            if abs((fecha_ingreso - sem["fecha_desde"]).days) <= TOLERANCIA_FECHA_CRUCE_DIAS:
+            if abs((fecha_ingreso - sem["fecha_desde"]).days) <= tolerancia_dias:
                 return sem
-            if abs((fecha_ingreso - sem["fecha_hasta"]).days) <= TOLERANCIA_FECHA_CRUCE_DIAS:
+            if abs((fecha_ingreso - sem["fecha_hasta"]).days) <= tolerancia_dias:
                 return sem
         return None
 
@@ -2232,21 +2242,21 @@ def validar_mortalidad_oferta(
 
         fecha_desde = date.fromisoformat(c["fecha_desde"])
         fecha_hasta = date.fromisoformat(c["fecha_hasta"])
-        faena_esperada_desde = fecha_desde + timedelta(days=DIAS_HASTA_FAENA_REFERENCIA)
+        faena_esperada_desde = fecha_desde + timedelta(days=dias_hasta_faena)
         # Si cae sábado o domingo, mover al lunes siguiente
         if faena_esperada_desde.weekday() == 5:
             faena_esperada_desde += timedelta(days=2)
         elif faena_esperada_desde.weekday() == 6:
             faena_esperada_desde += timedelta(days=1)
-        faena_esperada_hasta = fecha_hasta + timedelta(days=DIAS_HASTA_FAENA_REFERENCIA)
+        faena_esperada_hasta = fecha_hasta + timedelta(days=dias_hasta_faena)
         if faena_esperada_hasta.weekday() == 5:
             faena_esperada_hasta += timedelta(days=2)
         elif faena_esperada_hasta.weekday() == 6:
             faena_esperada_hasta += timedelta(days=1)
 
         if cargados > 0:
-            esperados_faena_max = int(cargados * (1 - MERMA_REFERENCIA_MIN))
-            esperados_faena_min = int(cargados * (1 - MERMA_REFERENCIA_MAX))
+            esperados_faena_max = int(cargados * (1 - merma_min))
+            esperados_faena_min = int(cargados * (1 - merma_max))
             cobertura_pct_cargados = round(en_oferta / cargados * 100, 1)
             cobertura_pct_min = round(en_oferta / esperados_faena_min * 100, 1) if esperados_faena_min > 0 else None
             cobertura_pct_max = round(en_oferta / esperados_faena_max * 100, 1) if esperados_faena_max > 0 else None
@@ -2262,15 +2272,15 @@ def validar_mortalidad_oferta(
         if objetivo_desde is None or objetivo_hasta is None:
             estado_fecha = "sin_dato"
             desfase_dias = None
-        elif objetivo_hasta < faena_esperada_desde - timedelta(days=TOLERANCIA_FECHA_CRUCE_DIAS):
+        elif objetivo_hasta < faena_esperada_desde - timedelta(days=tolerancia_dias):
             estado_fecha = "anticipada"
             desfase_dias = (objetivo_hasta - faena_esperada_desde).days
-        elif objetivo_desde > faena_esperada_hasta + timedelta(days=TOLERANCIA_FECHA_CRUCE_DIAS):
+        elif objetivo_desde > faena_esperada_hasta + timedelta(days=tolerancia_dias):
             estado_fecha = "atrasada"
             desfase_dias = (objetivo_desde - faena_esperada_hasta).days
         elif (
-            objetivo_desde >= faena_esperada_desde - timedelta(days=TOLERANCIA_FECHA_CRUCE_DIAS)
-            and objetivo_hasta <= faena_esperada_hasta + timedelta(days=TOLERANCIA_FECHA_CRUCE_DIAS)
+            objetivo_desde >= faena_esperada_desde - timedelta(days=tolerancia_dias)
+            and objetivo_hasta <= faena_esperada_hasta + timedelta(days=tolerancia_dias)
         ):
             estado_fecha = "alineada"
             desfase_dias = 0

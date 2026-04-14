@@ -10,6 +10,12 @@ function getDiaNombre(fechaStr) {
   return DIAS_SEMANA[idx]
 }
 
+function formatDateShort(fechaStr) {
+  if (!fechaStr) return '-'
+  const dt = new Date(fechaStr + 'T12:00:00')
+  return dt.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
+}
+
 const PRIMARY = [26, 86, 50]       // #1a5632
 const PRIMARY_DARK = [15, 61, 34]  // #0f3d22
 const HEADER_BG = [26, 86, 50]
@@ -81,6 +87,15 @@ function addPageNumbers(doc) {
     doc.setTextColor(...TEXT_LIGHT)
     doc.text(`Página ${i} de ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: 'center' })
   }
+}
+
+function ensurePageSpace(doc, y, required = 40) {
+  const pageHeight = doc.internal.pageSize.getHeight()
+  if (y > pageHeight - required) {
+    doc.addPage()
+    return 20
+  }
+  return y
 }
 
 /**
@@ -293,6 +308,74 @@ export function exportProyeccionPDF(proyeccion) {
     },
   })
 
+  const fact = proyeccion.factibilidad_produccion
+  if (fact?.encontrada) {
+    y = ensurePageSpace(doc, doc.lastAutoTable.finalY + 10, 70)
+
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...PRIMARY)
+    doc.text('Referencia Producción BB', 20, y)
+    y += 5
+
+    const sujeto = fact.contexto === 'plan_propio' ? 'plan propio' : 'oferta'
+    const peorEscenario = fact.coberturas?.[fact.coberturas.length - 1] || null
+    const descripcion = doc.splitTextToSize(
+      `Cruce ${fact.metodo_cruce === 'cohortes_planificadas' ? 'consolidado por cohortes planificadas' : 'macro'} para validar disponibilidad viva del ${sujeto}. Referencia: carga + ${fact.dias_hasta_faena_referencia} días con tolerancia de ±${fact.tolerancia_cruce_dias} días.`,
+      doc.internal.pageSize.getWidth() - 40,
+    )
+    doc.setFontSize(8.5)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(...TEXT_LIGHT)
+    doc.text(descripcion, 20, y)
+    y += descripcion.length * 4 + 2
+
+    const resumenFactRows = [
+      ['Cargados referenciados', formatNumber(fact.pollitos_cargados)],
+      ['Plan comparado', formatNumber(fact.total_oferta)],
+      ['Disponible peor escenario', formatNumber(peorEscenario?.disponibles ?? fact.disponibles_peor)],
+      ['Cobertura', fact.cobertura_pct_peor != null ? `${fact.cobertura_pct_peor}%` : '-'],
+    ]
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Indicador', 'Valor']],
+      body: resumenFactRows,
+      ...tableStyles(),
+      tableWidth: 110,
+      margin: { left: 20 },
+      columnStyles: {
+        0: { halign: 'left', fontStyle: 'bold', cellWidth: 70 },
+        1: { halign: 'right', cellWidth: 40 },
+      },
+    })
+
+    y = doc.lastAutoTable.finalY + 6
+    const semanasBB = fact.semanas_referenciadas || []
+    if (semanasBB.length > 0) {
+      y = ensurePageSpace(doc, y, 60)
+      autoTable(doc, {
+        startY: y,
+        head: [['Semana BB', 'Faena Est.', 'Pollitos Cargados']],
+        body: semanasBB.map((sem) => [
+          `${formatDateShort(sem.fecha_desde)} - ${formatDateShort(sem.fecha_hasta)}`,
+          formatDateShort(sem.fecha_faena_estimada),
+          formatNumber(sem.pollitos_cargados),
+        ]),
+        ...tableStyles(),
+        headStyles: {
+          ...tableStyles().headStyles,
+          fillColor: [99, 102, 241],
+        },
+        columnStyles: {
+          0: { halign: 'left', fontStyle: 'bold' },
+          1: { halign: 'center' },
+          2: { halign: 'right' },
+        },
+      })
+    }
+  }
+
   // Unassigned lots
   const lotesNA = proyeccion.lotes_no_asignados || []
   if (lotesNA.length > 0) {
@@ -395,7 +478,7 @@ export function exportProyeccionPDF(proyeccion) {
 // RESUMEN SEMANAL PDF
 // ─────────────────────────────────────────────────
 
-export function exportResumenPDF(proyeccion) {
+export function exportResumenPDF(proyeccion, refProduccion = null) {
   if (!proyeccion || !proyeccion.dias) return
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
@@ -547,6 +630,90 @@ export function exportResumenPDF(proyeccion) {
     },
   })
 
+  if (refProduccion?.encontrada) {
+    y = ensurePageSpace(doc, doc.lastAutoTable.finalY + 10, 90)
+
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(...PRIMARY)
+    doc.text('Referencia Producción BB', 20, y)
+    y += 5
+
+    const peorEscenario = refProduccion.coberturas?.[refProduccion.coberturas.length - 1] || null
+    const semanasBB = refProduccion.semana_produccion?.semanas_referenciadas || []
+    const descripcion = doc.splitTextToSize(
+      `Cruce ${refProduccion.metodo_cruce === 'cohortes_planificadas' ? 'consolidado por cohortes planificadas' : 'macro'} para validar disponibilidad viva del plan propio. Referencia: carga + ${refProduccion.dias_hasta_faena_referencia} días con tolerancia de ±${refProduccion.tolerancia_cruce_dias} días.`,
+      pageWidth - 40,
+    )
+    doc.setFontSize(8.5)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(...TEXT_LIGHT)
+    doc.text(descripcion, 20, y)
+    y += descripcion.length * 4 + 2
+
+    autoTable(doc, {
+      startY: y,
+      head: [['Indicador', 'Valor']],
+      body: [
+        ['Cargados referenciados', formatNumber(refProduccion.semana_produccion?.pollitos_cargados)],
+        ['Plan comparado', formatNumber(refProduccion.total_oferta_actual)],
+        ['Disponible peor escenario', formatNumber(peorEscenario?.disponibles)],
+        ['Cobertura', refProduccion.cobertura_pct != null ? `${refProduccion.cobertura_pct}%` : '-'],
+      ],
+      ...tableStyles(),
+      tableWidth: 110,
+      margin: { left: 20 },
+      columnStyles: {
+        0: { halign: 'left', fontStyle: 'bold', cellWidth: 70 },
+        1: { halign: 'right', cellWidth: 40 },
+      },
+    })
+
+    y = doc.lastAutoTable.finalY + 6
+    if (semanasBB.length > 0) {
+      y = ensurePageSpace(doc, y, 60)
+      autoTable(doc, {
+        startY: y,
+        head: [['Semana BB', 'Faena Est.', 'Pollitos Cargados']],
+        body: semanasBB.map((sem) => [
+          `${formatDateShort(sem.fecha_desde)} - ${formatDateShort(sem.fecha_hasta)}`,
+          formatDateShort(sem.fecha_faena_estimada),
+          formatNumber(sem.pollitos_cargados),
+        ]),
+        ...tableStyles(),
+        headStyles: {
+          ...tableStyles().headStyles,
+          fillColor: [99, 102, 241],
+        },
+        columnStyles: {
+          0: { halign: 'left', fontStyle: 'bold' },
+          1: { halign: 'center' },
+          2: { halign: 'right' },
+        },
+      })
+      y = doc.lastAutoTable.finalY + 6
+    }
+
+    if (refProduccion.coberturas?.length > 0) {
+      y = ensurePageSpace(doc, y, 70)
+      autoTable(doc, {
+        startY: y,
+        head: [['Mortalidad', 'Disponibles', 'Cobertura']],
+        body: refProduccion.coberturas.map((item) => [
+          `${item.tasa}%`,
+          formatNumber(item.disponibles),
+          item.cobertura_pct != null ? `${item.cobertura_pct}%` : '-',
+        ]),
+        ...tableStyles(),
+        columnStyles: {
+          0: { halign: 'center', fontStyle: 'bold' },
+          1: { halign: 'right' },
+          2: { halign: 'right' },
+        },
+      })
+    }
+  }
+
   // Offer coverage section (only if there are exclusions)
   const pollosFR = proyeccion.total_pollos_fuera_rango || 0
   const pollosNA = proyeccion.total_pollos_no_asignados || 0
@@ -655,6 +822,16 @@ export function exportParametrosPDF(params) {
       items: [
         ['Pollos diarios mín.', formatNumber(params.pollos_diarios_objetivo_min)],
         ['Pollos diarios máx.', formatNumber(params.pollos_diarios_objetivo_max)],
+      ],
+    },
+    {
+      title: 'Referencia Producción BB',
+      items: [
+        ['Días carga → faena', params.produccion_dias_hasta_faena],
+        ['Tolerancia cruce (días)', params.produccion_tolerancia_cruce_dias],
+        ['Mortalidad mínima', params.produccion_mortalidad_min],
+        ['Mortalidad máxima', params.produccion_mortalidad_max],
+        ['Paso entre escenarios', params.produccion_mortalidad_paso],
       ],
     },
   ]

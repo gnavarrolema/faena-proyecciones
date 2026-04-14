@@ -3,7 +3,8 @@ import { motion } from 'framer-motion'
 import { TrendingUp, Calendar, Home, Download, PieChart, Factory, ShoppingCart, AlertTriangle, Clock } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { exportResumenPDF } from '../utils/pdfExport'
-import { getReferenciaProduccion, cargarDeficit, getAnalisisTerceros, getSemana2 } from '../services/api'
+import { getReferenciaProduccion, cargarDeficit, getAnalisisTerceros, getSemana2, getParametros } from '../services/api'
+import { formatBBReferenceSummary, getBBReferenceConfigFromCoverage, getBBReferenceConfigFromParams, getBBReferencePresetMeta } from '../utils/bbReferencePresets'
 
 function formatNumber(n) {
   if (n == null) return '-'
@@ -17,6 +18,12 @@ function getDiaNombre(fechaStr) {
   const dt = new Date(fechaStr + 'T12:00:00')
   const idx = dt.getDay() === 0 ? 6 : dt.getDay() - 1
   return DIAS_SEMANA[idx]
+}
+
+function formatDateShort(fechaStr) {
+  if (!fechaStr) return '-'
+  const dt = new Date(fechaStr + 'T12:00:00')
+  return dt.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
 }
 
 const containerVariants = {
@@ -37,6 +44,13 @@ export default function ResumenSemanal({ proyeccion }) {
   const [deficitLoading, setDeficitLoading] = useState(false)
   const [analisisTerceros, setAnalisisTerceros] = useState(null)
   const [semana2, setSemana2] = useState(null)
+  const [parametros, setParametros] = useState(null)
+
+  useEffect(() => {
+    getParametros()
+      .then(data => setParametros(data))
+      .catch(() => setParametros(null))
+  }, [])
 
   useEffect(() => {
     if (!proyeccion?.fecha_inicio) { setRefProduccion(null); return }
@@ -61,6 +75,24 @@ export default function ResumenSemanal({ proyeccion }) {
       })
       .catch(() => setSemana2(null))
   }, [proyeccion?.total_pollos_semana])
+
+  const coberturasRef = refProduccion?.coberturas || []
+  const bbReferenceConfig = getBBReferenceConfigFromParams(parametros) || getBBReferenceConfigFromCoverage(refProduccion)
+  const bbReferencePreset = getBBReferencePresetMeta(bbReferenceConfig)
+  const bbReferenceResumen = formatBBReferenceSummary(bbReferenceConfig)
+  const totalSemanasRef = refProduccion?.semana_produccion?.total_semanas || refProduccion?.total_semanas_referenciadas || 0
+  const referenciaEsConsolidada = refProduccion?.metodo_cruce === 'cohortes_planificadas' || totalSemanasRef > 1
+  const semanasBBReferenciadas = refProduccion?.semana_produccion?.semanas_referenciadas || []
+  const peorEscenarioRef = coberturasRef[coberturasRef.length - 1] || null
+  const notaReferencia = referenciaEsConsolidada
+    ? `Referencia consolidada de ${totalSemanasRef} semana${totalSemanasRef !== 1 ? 's' : ''} de carga según las cohortes realmente planificadas.`
+    : `Referencia macro de carga en granja (semana ${refProduccion?.semana_produccion?.fecha_desde} — ${refProduccion?.semana_produccion?.fecha_hasta}).`
+  const notaVentanaRef = refProduccion?.dias_hasta_faena_referencia != null
+    ? `Ventana de referencia: carga + ${refProduccion.dias_hasta_faena_referencia} días (±${refProduccion.tolerancia_cruce_dias}).`
+    : null
+  const notaTercerosRef = refProduccion?.total_compra_terceros > 0
+    ? `Compra a terceros no incluida en esta cobertura: ${formatNumber(refProduccion.total_compra_terceros)} pollos.`
+    : null
 
   const handleCargarDeficit = async () => {
     setDeficitLoading(true)
@@ -135,11 +167,32 @@ export default function ResumenSemanal({ proyeccion }) {
         </div>
       </motion.div>
 
+      <motion.div variants={itemVariants} style={{
+        marginBottom: '1rem',
+        padding: '0.85rem 1rem',
+        borderRadius: 12,
+        border: '1px solid var(--border)',
+        background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.07) 0%, var(--card-bg) 100%)',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: '0.75rem',
+        flexWrap: 'wrap',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span className={`badge ${bbReferencePreset.isCustom ? 'badge-warning' : 'badge-info'}`}>
+            Referencia BB activa: {bbReferencePreset.label}
+          </span>
+          <span style={{ fontSize: '0.84rem', color: 'var(--text)' }}>{bbReferenceResumen}</span>
+        </div>
+        <span style={{ fontSize: '0.76rem', color: 'var(--text-light)' }}>{bbReferencePreset.description}</span>
+      </motion.div>
+
       {/* Tabla resumen diario */}
       <motion.div variants={itemVariants} className="card">
         <div className="card-header">
           <h2><Calendar size={18} style={{ verticalAlign: 'middle', marginRight: 6 }} /> Resumen Diario</h2>
-          <button className="btn btn-sm btn-outline" onClick={() => exportResumenPDF(proyeccion)}>
+          <button className="btn btn-sm btn-outline" onClick={() => exportResumenPDF(proyeccion, refProduccion)}>
             <Download size={14} /> Descargar PDF
           </button>
         </div>
@@ -442,30 +495,25 @@ export default function ResumenSemanal({ proyeccion }) {
           </div>
           <div className="card-body">
             <p style={{ marginBottom: '1rem', fontSize: '0.8rem', color: 'var(--text-light)' }}>
-              Dato macro de carga en granja (semana {refProduccion.semana_produccion.fecha_desde} — {refProduccion.semana_produccion.fecha_hasta}).
-              La oferta es el dato preciso; este es contexto para validar que no falten lotes.
+              {[notaReferencia, notaVentanaRef].filter(Boolean).join(' ')} El plan propio es el dato comparado; este bloque sirve para validar disponibilidad viva de la planificación.
             </p>
             <div className="stats-grid">
               <div className="stat-card">
-                <div className="stat-label">Cargados en granja</div>
+                <div className="stat-label">Cargados referenciados</div>
                 <div className="stat-value">{formatNumber(refProduccion.semana_produccion.pollitos_cargados)}</div>
               </div>
               <div className="stat-card">
-                <div className="stat-label">Disponible est. (7.5% mort.)</div>
+                <div className="stat-label">Disponible est. ({peorEscenarioRef?.tasa ?? '-'}% mort.)</div>
                 <div className="stat-value blue">
-                  {formatNumber(
-                    refProduccion.semana_produccion.simulaciones.find(
-                      s => Math.abs(s.tasa_mortalidad - 0.075) < 0.001
-                    )?.pollitos_disponibles
-                  )}
+                  {formatNumber(peorEscenarioRef?.disponibles)}
                 </div>
               </div>
               <div className="stat-card">
-                <div className="stat-label">Oferta actual proyectada</div>
+                <div className="stat-label">Plan propio actual</div>
                 <div className="stat-value green">{formatNumber(refProduccion.total_oferta_actual)}</div>
               </div>
               <div className="stat-card">
-                <div className="stat-label">Cobertura oferta/disponible</div>
+                <div className="stat-label">Cobertura plan/disponible</div>
                 <div className="stat-value" style={{
                   color: refProduccion.cobertura_pct == null
                     ? 'var(--text-light)'
@@ -479,6 +527,39 @@ export default function ResumenSemanal({ proyeccion }) {
                 </div>
               </div>
             </div>
+            {notaTercerosRef && (
+              <p style={{ marginTop: '0.75rem', marginBottom: 0, fontSize: '0.75rem', color: 'var(--text-light)' }}>
+                {notaTercerosRef}
+              </p>
+            )}
+
+            {semanasBBReferenciadas.length > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <h3 style={{ fontSize: '0.9rem', marginBottom: '0.6rem', color: 'var(--text)' }}>
+                  Semanas BB que alimentan este plan
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
+                  {semanasBBReferenciadas.map((sem) => (
+                    <div key={sem.fecha_desde} style={{
+                      border: '1px solid var(--border)',
+                      borderRadius: 10,
+                      padding: '0.85rem 0.9rem',
+                      background: 'rgba(99, 102, 241, 0.04)',
+                    }}>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
+                        BB {formatDateShort(sem.fecha_desde)} - {formatDateShort(sem.fecha_hasta)}
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-light)' }}>
+                        {formatNumber(sem.pollitos_cargados)} pollitos cargados
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-light)', marginTop: 2 }}>
+                        Faena estimada: {formatDateShort(sem.fecha_faena_estimada)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Tabla multi-escenario de mortalidad */}
             {refProduccion.coberturas && refProduccion.coberturas.length > 0 && (
@@ -492,7 +573,7 @@ export default function ResumenSemanal({ proyeccion }) {
                       <tr>
                         <th>Mortalidad</th>
                         <th className="text-right">Disponibles</th>
-                        <th className="text-right">Oferta</th>
+                        <th className="text-right">Plan</th>
                         <th className="text-right">Cobertura</th>
                         <th className="text-right">Diferencia</th>
                       </tr>
@@ -536,7 +617,7 @@ export default function ResumenSemanal({ proyeccion }) {
                   </table>
                 </div>
                 <p style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--text-light)' }}>
-                  Diferencia positiva = oferta excede producción disponible. Negativa = hay margen.
+                  Diferencia positiva = el plan propio excede la producción disponible. Negativa = hay margen.
                 </p>
               </div>
             )}
@@ -568,7 +649,7 @@ export default function ResumenSemanal({ proyeccion }) {
                       <div className="stat-value blue">{formatNumber(dp.disponibles_peor)}</div>
                     </div>
                     <div className="stat-card">
-                      <div className="stat-label">Oferta total</div>
+                      <div className="stat-label">{dp.contexto === 'plan_propio' ? 'Plan propio' : 'Oferta total'}</div>
                       <div className="stat-value">{formatNumber(dp.total_oferta)}</div>
                     </div>
                     <div className="stat-card">

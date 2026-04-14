@@ -42,8 +42,45 @@ class SemanaSimulacion(BaseModel):
 # ─── Constantes ─────────────────────────────────────────────────────────────────
 
 DIAS_HASTA_FAENA = 42
+MORTALIDAD_REFERENCIA_MIN = 0.045
+MORTALIDAD_REFERENCIA_MAX = 0.075
+MORTALIDAD_REFERENCIA_PASO = 0.005
 
-TASAS_MORTALIDAD_DEFAULT = [0.045, 0.05, 0.055, 0.06, 0.065, 0.07, 0.075]
+
+def construir_tasas_mortalidad(
+    tasa_min: float = MORTALIDAD_REFERENCIA_MIN,
+    tasa_max: float = MORTALIDAD_REFERENCIA_MAX,
+    paso: float = MORTALIDAD_REFERENCIA_PASO,
+) -> List[float]:
+    """Construye una grilla ordenada de tasas de mortalidad."""
+    inicio = min(tasa_min, tasa_max)
+    fin = max(tasa_min, tasa_max)
+    if paso <= 0:
+        return [round(inicio, 6)] if abs(inicio - fin) < 1e-9 else [round(inicio, 6), round(fin, 6)]
+
+    tasas: List[float] = []
+    actual = inicio
+    while actual <= fin + 1e-9:
+        tasas.append(round(actual, 6))
+        actual += paso
+
+    if not tasas or abs(tasas[-1] - fin) > 1e-6:
+        tasas.append(round(fin, 6))
+
+    return tasas
+
+
+TASAS_MORTALIDAD_DEFAULT = construir_tasas_mortalidad()
+
+
+def calcular_fecha_faena_estimada(fecha_desde: date, dias_hasta_faena: int = DIAS_HASTA_FAENA) -> date:
+    """Calcula la fecha estimada de faena y la ajusta a día hábil si cae fin de semana."""
+    fecha_faena = fecha_desde + timedelta(days=dias_hasta_faena)
+    if fecha_faena.weekday() == 5:  # sábado
+        fecha_faena += timedelta(days=2)
+    elif fecha_faena.weekday() == 6:  # domingo
+        fecha_faena += timedelta(days=1)
+    return fecha_faena
 
 # Mapeo de columnas del Excel de producción
 # Columna A está vacía; los datos empiezan en B
@@ -239,12 +276,13 @@ def _leer_produccion_xlrd(wb, sheet_name: Optional[str]) -> List[SemanaProduccio
 def simular_mortalidad(
     semanas: List[SemanaProduccion],
     tasas: Optional[List[float]] = None,
+    dias_hasta_faena: int = DIAS_HASTA_FAENA,
 ) -> List[SemanaSimulacion]:
     """
     Para cada semana de producción, calcula cuántos pollitos estarán
     disponibles para faena aplicando cada tasa de mortalidad.
 
-    La fecha de faena estimada es fecha_desde + 42 días.
+    La fecha de faena estimada es fecha_desde + dias_hasta_faena.
     """
     if tasas is None:
         tasas = TASAS_MORTALIDAD_DEFAULT
@@ -252,12 +290,7 @@ def simular_mortalidad(
     resultado: List[SemanaSimulacion] = []
 
     for sem in semanas:
-        fecha_faena = sem.fecha_desde + timedelta(days=DIAS_HASTA_FAENA)
-        # Si cae sábado o domingo, mover al lunes siguiente
-        if fecha_faena.weekday() == 5:  # sábado
-            fecha_faena += timedelta(days=2)
-        elif fecha_faena.weekday() == 6:  # domingo
-            fecha_faena += timedelta(days=1)
+        fecha_faena = calcular_fecha_faena_estimada(sem.fecha_desde, dias_hasta_faena)
 
         simulaciones = []
         for tasa in tasas:

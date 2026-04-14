@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from backend.main import app
 from backend.parser_produccion import SemanaProduccion, DIAS_HASTA_FAENA
 from backend.calculo import (
-    Parametros, LoteOferta, SemanaFaena, DiaFaena,
+    Parametros, LoteOferta, SemanaFaena, DiaFaena, LoteProyectado,
     generar_proyeccion, ordenar_oferta_por_prioridad,
 )
 from backend import storage
@@ -43,6 +43,59 @@ def _guardar_produccion(fecha_desde: date, pollitos: int):
         pollitos_cargados=pollitos,
     )
     storage.save_produccion([sem.model_dump()])
+
+
+def _crear_proyeccion_cohortes(fecha_inicio: date, cohortes: list[tuple[date, int]], compra_terceros: int = 0):
+    """Crea una proyección con lotes asignados de múltiples cohortes BB."""
+    lotes = []
+    total = 0
+    for idx, (fecha_ingreso, cantidad) in enumerate(cohortes, start=1):
+        lotes.append(LoteProyectado(
+            granja=f"GRANJA_{idx}",
+            galpon=idx,
+            nucleo=1,
+            cantidad=cantidad,
+            sexo="M",
+            edad_actual=42,
+            peso_actual=2.8,
+            fecha_fin_retiro=fecha_inicio,
+            edad_fin_retiro=42,
+            diferencia_edad_ideal=0,
+            peso_vivo_retiro=2.8,
+            fecha_peso_original=fecha_inicio,
+            ganancia_diaria_original=0.09,
+            fecha_ingreso_original=fecha_ingreso,
+        ))
+        total += cantidad
+
+    if compra_terceros > 0:
+        lotes.append(LoteProyectado(
+            granja="TERCEROS",
+            galpon=99,
+            nucleo=1,
+            cantidad=compra_terceros,
+            sexo="M",
+            edad_actual=42,
+            peso_actual=2.8,
+            fecha_fin_retiro=fecha_inicio,
+            edad_fin_retiro=42,
+            diferencia_edad_ideal=0,
+            peso_vivo_retiro=2.8,
+            fecha_peso_original=fecha_inicio,
+            ganancia_diaria_original=0.09,
+            fecha_ingreso_original=fecha_inicio,
+            es_compra_terceros=True,
+        ))
+        total += compra_terceros
+
+    semana = SemanaFaena(
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_inicio + timedelta(days=5),
+        dias=[DiaFaena(fecha=fecha_inicio, lotes=lotes, total_pollos=total)],
+        total_pollos_semana=total,
+    )
+    storage.save_proyeccion(semana.model_dump())
+    return semana
 
 
 def _crear_proyeccion_simple(fecha_inicio: date, pollos_dia: int = 30000):
@@ -255,3 +308,54 @@ def test_mortalidad_observada_evaluacion_excelente(client, auth_headers):
     punto = data["puntos"][0]
     assert punto["evaluacion"] == "excelente"
     assert data["resumen"]["tendencia"] == "favorable"
+
+
+def test_proyeccion_factibilidad_usa_cohortes_planificadas(client, auth_headers):
+    """GET /proyeccion debe consolidar las cohortes BB realmente planificadas."""
+    sem1 = date(2026, 2, 2)
+    sem2 = date(2026, 2, 9)
+    storage.save_produccion([
+        SemanaProduccion(fecha_desde=sem1, fecha_hasta=sem1 + timedelta(days=6), pollitos_cargados=50000).model_dump(),
+        SemanaProduccion(fecha_desde=sem2, fecha_hasta=sem2 + timedelta(days=6), pollitos_cargados=50000).model_dump(),
+    ])
+
+    fecha_faena = sem1 + timedelta(days=DIAS_HASTA_FAENA)
+    _crear_proyeccion_cohortes(fecha_faena, [(sem1, 50000), (sem2, 50000)], compra_terceros=8000)
+
+    r = client.get("/proyeccion", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()["factibilidad_produccion"]
+
+    assert data["contexto"] == "plan_propio"
+    assert data["metodo_cruce"] == "cohortes_planificadas"
+    assert data["pollitos_cargados"] == 100000
+    assert data["total_oferta"] == 100000
+    assert data["total_compra_terceros"] == 8000
+    assert data["disponibles_peor"] == 92500
+    assert data["deficit_peor"] == 7500
+
+
+def test_referencia_produccion_consolida_cohortes_planificadas(client, auth_headers):
+    """La referencia semanal debe consolidar varias semanas de carga si la proyección las usa."""
+    sem1 = date(2026, 2, 2)
+    sem2 = date(2026, 2, 9)
+    storage.save_produccion([
+        SemanaProduccion(fecha_desde=sem1, fecha_hasta=sem1 + timedelta(days=6), pollitos_cargados=50000).model_dump(),
+        SemanaProduccion(fecha_desde=sem2, fecha_hasta=sem2 + timedelta(days=6), pollitos_cargados=50000).model_dump(),
+    ])
+
+    fecha_faena = sem1 + timedelta(days=DIAS_HASTA_FAENA)
+    _crear_proyeccion_cohortes(fecha_faena, [(sem1, 50000), (sem2, 50000)], compra_terceros=8000)
+
+    r = client.get(f"/produccion/referencia?fecha_faena={fecha_faena.isoformat()}", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+
+    assert data["metodo_cruce"] == "cohortes_planificadas"
+    assert data["total_semanas_referenciadas"] == 2
+    assert data["total_oferta_actual"] == 100000
+    assert data["total_compra_terceros"] == 8000
+    assert data["semana_produccion"]["pollitos_cargados"] == 100000
+    assert data["semana_produccion"]["total_semanas"] == 2
+    assert data["coberturas"][-1]["disponibles"] == 92500
+    assert data["coberturas"][-1]["cobertura_pct"] == round(100000 / 92500 * 100, 1)

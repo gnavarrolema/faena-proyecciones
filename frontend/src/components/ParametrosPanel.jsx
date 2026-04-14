@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Settings2, Save, CheckCircle2, AlertCircle, Download } from 'lucide-react'
 import { getParametros, updateParametros } from '../services/api'
 import { exportParametrosPDF } from '../utils/pdfExport'
+import { BB_REFERENCE_PRESETS, getMatchingBBReferencePreset } from '../utils/bbReferencePresets'
 
 export default function ParametrosPanel({ onParametrosUpdated } = {}) {
   const [params, setParams] = useState(null)
@@ -45,6 +46,14 @@ export default function ParametrosPanel({ onParametrosUpdated } = {}) {
 
   const handleChange = (key, value) => {
     setParams(prev => ({ ...prev, [key]: value }))
+  }
+
+  const presetActivo = getMatchingBBReferencePreset(params)?.id || null
+
+  const aplicarPresetBB = (preset) => {
+    setParams((prev) => ({ ...prev, ...preset.values }))
+    setMessage({ type: 'success', text: `Preset "${preset.label}" aplicado. Revise y guarde para recalcular.` })
+    setTimeout(() => setMessage(null), 3500)
   }
 
   if (loading) {
@@ -94,6 +103,15 @@ export default function ParametrosPanel({ onParametrosUpdated } = {}) {
     {
       section: 'Objetivos de Recepción', description: 'Parámetros de peso objetivo para la recepción de aves.', items: [
         { key: 'peso_objetivo_recepcion', label: 'Peso objetivo recepción (kg)', step: 0.01, help: 'Peso vivo ideal esperado al momento de recibir los pollos en planta.' },
+      ]
+    },
+    {
+      section: 'Referencia Producción BB', description: 'Parámetros usados para cruzar la planificación con las cargas de pollitos BB y simular disponibilidad viva.', items: [
+        { key: 'produccion_dias_hasta_faena', label: 'Días carga → faena', step: 1, type: 'int', help: 'Cantidad de días usada como referencia entre la carga BB y la semana estimada de faena.' },
+        { key: 'produccion_tolerancia_cruce_dias', label: 'Tolerancia cruce (días)', step: 1, type: 'int', help: 'Margen permitido para considerar alineadas las fechas entre carga, oferta y planificación.' },
+        { key: 'produccion_mortalidad_min', label: 'Mortalidad mínima referencia', step: 0.001, help: 'Escenario más optimista de merma para los cruces con producción BB (ej: 0.045 = 4.5%).' },
+        { key: 'produccion_mortalidad_max', label: 'Mortalidad máxima referencia', step: 0.001, help: 'Escenario más conservador de merma para los cruces con producción BB.' },
+        { key: 'produccion_mortalidad_paso', label: 'Paso entre escenarios', step: 0.001, help: 'Incremento entre escenarios de mortalidad simulados en Producción y Resumen.' },
       ]
     },
   ]
@@ -151,6 +169,43 @@ export default function ParametrosPanel({ onParametrosUpdated } = {}) {
               </h3>
               {section.description && (
                 <p style={{ fontSize: '0.78rem', color: '#666', margin: '0 0 0.75rem 0' }}>{section.description}</p>
+              )}
+              {section.section === 'Referencia Producción BB' && (
+                <div style={{ marginBottom: '0.9rem' }}>
+                  <div style={{ fontSize: '0.76rem', color: '#64748b', marginBottom: '0.45rem' }}>
+                    Presets rápidos: sirven como punto de partida; el cambio no impacta hasta guardar.
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.55rem' }}>
+                    {BB_REFERENCE_PRESETS.map((preset) => {
+                      const activo = presetActivo === preset.id
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => aplicarPresetBB(preset)}
+                          className="btn btn-sm"
+                          style={{
+                            border: `1px solid ${activo ? 'var(--primary)' : 'var(--border)'}`,
+                            background: activo ? 'rgba(26, 86, 50, 0.08)' : 'var(--card-bg)',
+                            color: activo ? 'var(--primary)' : 'var(--text)',
+                            fontWeight: activo ? 700 : 500,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'flex-start',
+                            gap: 2,
+                            padding: '0.55rem 0.75rem',
+                            minWidth: 180,
+                          }}
+                        >
+                          <span>{preset.label}</span>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 400, color: '#64748b', textAlign: 'left', lineHeight: 1.3 }}>
+                            {preset.description}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
               )}
               <div className="form-row">
                 {section.items.map(field => (

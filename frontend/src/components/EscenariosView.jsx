@@ -303,7 +303,7 @@ export default function EscenariosView({ proyeccion, setProyeccion }) {
                         <Factory size={11} style={{ verticalAlign: 'middle', marginRight: 3 }} />
                         {esc.produccion_analisis.deficit
                           ? `Déficit: ${formatNumber(esc.produccion_analisis.deficit)} pollos (cobertura ${esc.produccion_analisis.cobertura_pct}%)`
-                          : `Producción cubre oferta (${formatNumber(esc.produccion_analisis.disponibles)} disp.)`}
+                          : `Producción cubre ${esc.produccion_analisis.contexto === 'plan_propio' ? 'plan propio' : 'oferta'} (${formatNumber(esc.produccion_analisis.disponibles)} disp.)`}
                       </div>
                     )}
                   </div>
