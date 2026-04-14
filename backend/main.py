@@ -2515,15 +2515,25 @@ def _generar_insights_validacion(validacion: dict) -> list[dict]:
         if disponibles_mejor and disponibles_peor:
             rango = disponibles_mejor - disponibles_peor
             if rango > 0:
+                coberturas = fact.get("coberturas") or []
+                tasa_mejor = coberturas[0].get("tasa") if coberturas else None
+                tasa_peor = coberturas[-1].get("tasa") if coberturas else None
+                if tasa_mejor is not None and tasa_peor is not None:
+                    detalle_sensibilidad = (
+                        f"Entre el mejor ({tasa_mejor:.1f}% merma → {disponibles_mejor:,}) "
+                        f"y peor escenario ({tasa_peor:.1f}% merma → {disponibles_peor:,}) "
+                        f"hay una variación de {rango:,} aves."
+                    )
+                else:
+                    detalle_sensibilidad = (
+                        f"Entre el mejor ({disponibles_mejor:,}) y peor escenario "
+                        f"({disponibles_peor:,}) hay una variación de {rango:,} aves."
+                    )
                 insights.append({
                     "tipo": "info",
                     "categoria": "sensibilidad",
                     "titulo": "Rango de sensibilidad por merma estimada",
-                    "detalle": (
-                        f"Entre el mejor ({fact['coberturas'][0]['tasa']:.1f}% merma → {disponibles_mejor:,}) "
-                        f"y peor escenario ({fact['coberturas'][-1]['tasa']:.1f}% merma → {disponibles_peor:,}) "
-                        f"hay una variación de {rango:,} aves."
-                    ),
+                    "detalle": detalle_sensibilidad,
                     "accion": "",
                 })
 
