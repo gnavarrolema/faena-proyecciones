@@ -38,10 +38,23 @@ const MainApp = () => {
     const [activeTab, setActiveTab] = useState('upload')
     const [oferta, setOferta] = useState(null)
     const [proyeccion, setProyeccion] = useState(null)
+    const [planificacionAlternativa, setPlanificacionAlternativa] = useState(null)
     const [initialLoading, setInitialLoading] = useState(true)
     const [deficitGuardado, setDeficitGuardado] = useState(null)
     const { logout } = useAuth();
     const navigate = useNavigate();
+
+    // Wrapper que extrae la planificación alternativa antes de guardar la principal
+    const handleSetProyeccion = (data) => {
+        if (data && data.planificacion_alternativa) {
+            setPlanificacionAlternativa(data.planificacion_alternativa)
+            const { planificacion_alternativa, ...principal } = data
+            setProyeccion(principal)
+        } else {
+            setProyeccion(data)
+            // No borrar la alternativa si solo se recarga la principal (ej: mover lote)
+        }
+    }
 
     // Cargar datos persistidos del backend al iniciar
     useEffect(() => {
@@ -168,7 +181,7 @@ const MainApp = () => {
                                 <OfertaTable
                                     oferta={oferta}
                                     onGenerarProyeccion={(proy) => {
-                                        setProyeccion(proy)
+                                        handleSetProyeccion(proy)
                                         setActiveTab('proyeccion')
                                     }}
                                     deficitGuardado={deficitGuardado}
@@ -182,6 +195,7 @@ const MainApp = () => {
                                 <ProyeccionView
                                     proyeccion={proyeccion}
                                     setProyeccion={setProyeccion}
+                                    planificacionAlternativa={planificacionAlternativa}
                                 />
                             )}
 

@@ -1207,6 +1207,26 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
         minimos_como_alerta=req.minimos_como_alerta,
     )
 
+    # Generar planificación alternativa con el otro modo
+    try:
+        semana_alt = generar_proyeccion(
+            ofertas=ofertas,
+            fecha_inicio_semana=req.fecha_inicio_semana,
+            dias_faena=dias_faena,
+            pollos_por_dia=req.pollos_por_dia,
+            params=params,
+            feriados=feriados if feriados else None,
+            gallinas=req.gallinas,
+            criterio_gerente=not req.criterio_gerente,
+            permitir_fraccionamiento_lotes=req.permitir_fraccionamiento_lotes if not req.criterio_gerente else None,
+            excluir_backlog_semana_previa=req.excluir_backlog_semana_previa if not req.criterio_gerente else None,
+            minimos_como_alerta=req.minimos_como_alerta if not req.criterio_gerente else None,
+        )
+        alternativa_dict = semana_alt.model_dump()
+    except Exception as e:
+        logger.warning(f"No se pudo generar planificación alternativa: {e}")
+        alternativa_dict = None
+
     # Persistir proyección y parámetros usados
     storage.save_proyeccion(semana.model_dump())
     storage.save_parametros(params.model_dump())
@@ -1232,8 +1252,16 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
         total_oferta=semana.total_pollos_semana,
     )
 
+    # Etiquetas profesionales para los modos de planificación
+    modo_principal = "cascada_madurez" if req.criterio_gerente else "optimizacion_restricciones"
+    modo_alternativo = "optimizacion_restricciones" if req.criterio_gerente else "cascada_madurez"
+
     result = semana.model_dump()
     result["factibilidad_produccion"] = factibilidad.model_dump() if factibilidad else None
+    result["modo_planificacion"] = modo_principal
+    if alternativa_dict:
+        alternativa_dict["modo_planificacion"] = modo_alternativo
+        result["planificacion_alternativa"] = alternativa_dict
     return result
 
 
