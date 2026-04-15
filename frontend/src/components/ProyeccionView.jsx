@@ -147,12 +147,14 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
       descripcion: 'Prioriza lotes por edad, permite fraccionamiento para alcanzar el objetivo diario.',
       color: '#2563eb',
       bg: 'rgba(37, 99, 235, 0.08)',
+      shadow: 'rgba(37, 99, 235, 0.28)',
     },
     optimizacion_restricciones: {
       label: 'Distribución Equilibrada',
       descripcion: 'Asigna lotes enteros distribuyendo la carga de forma equilibrada entre los días.',
       color: '#7c3aed',
       bg: 'rgba(124, 58, 237, 0.08)',
+      shadow: 'rgba(124, 58, 237, 0.28)',
     },
   }
 
@@ -160,6 +162,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
   const modoPrincipal = proyeccion?.modo_planificacion || 'cascada_madurez'
   const modoAlternativo = planificacionAlternativa?.modo_planificacion || (modoPrincipal === 'cascada_madurez' ? 'optimizacion_restricciones' : 'cascada_madurez')
   const infoModo = MODOS_PLANIFICACION[modoPrincipal] || MODOS_PLANIFICACION.cascada_madurez
+  const modosComparables = [modoPrincipal, modoAlternativo].filter((modo, indice, modos) => modo && modos.indexOf(modo) === indice)
   const diasTotalesPlan = proyeccion?.dias?.length || 0
   const diasConPlan = proyeccion?.dias?.filter((dia) => (dia.total_pollos || 0) > 0).length || 0
   const totalSinCapacidad = proyeccion?.total_pollos_no_asignados || 0
@@ -617,48 +620,60 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
     >
       {/* Selector de modo de planificación */}
       {planificacionAlternativa && (
-        <motion.div variants={itemVariants} style={{
-          display: 'flex', alignItems: 'center', gap: '0.75rem',
-          marginBottom: '1rem', flexWrap: 'wrap',
-        }}>
-          <GitBranch size={18} style={{ color: 'var(--text-light)' }} />
-          <span style={{ fontSize: '0.85rem', color: 'var(--text-light)', fontWeight: 500 }}>
-            Modo de planificación:
-          </span>
-          <div style={{
-            display: 'inline-flex', borderRadius: 8, overflow: 'hidden',
-            border: '1px solid var(--border)', background: 'var(--bg)',
-          }}>
-            <button
-              style={{
-                padding: '0.4rem 1rem', fontSize: '0.82rem', fontWeight: 600,
-                border: 'none', cursor: 'default',
-                background: MODOS_PLANIFICACION[modoPrincipal]?.bg,
-                color: MODOS_PLANIFICACION[modoPrincipal]?.color,
-                borderRight: '1px solid var(--border)',
-              }}
-            >
-              {MODOS_PLANIFICACION[modoPrincipal]?.label}
-            </button>
-            <button
-              onClick={onSwapPlanificacion}
-              style={{
-                padding: '0.4rem 1rem', fontSize: '0.82rem', fontWeight: 600,
-                border: 'none', cursor: 'pointer', transition: 'all 0.2s',
-                background: 'transparent',
-                color: 'var(--text-light)',
-              }}
-              title="Cambiar a este modo de planificación"
-            >
-              {MODOS_PLANIFICACION[modoAlternativo]?.label}
-            </button>
+        <motion.div variants={itemVariants} className="planificacion-switcher">
+          <div className="planificacion-switcher__header">
+            <div className="planificacion-switcher__eyebrow">
+              <GitBranch size={18} />
+              <span>Modo de planificación</span>
+            </div>
+            <p className="planificacion-switcher__helper">
+              El análisis actual queda marcado como activo. Si quieres comparar la distribución, selecciona la otra opción.
+            </p>
           </div>
-          <span style={{
-            fontSize: '0.78rem', color: infoModo.color, fontStyle: 'italic',
-            maxWidth: 400,
-          }}>
-            {infoModo.descripcion}
-          </span>
+
+          <div className="planificacion-switcher__options">
+            {modosComparables.map((modo) => {
+              const config = MODOS_PLANIFICACION[modo]
+              const isActive = modo === modoPrincipal
+
+              return (
+                <button
+                  key={modo}
+                  type="button"
+                  className={`planificacion-option ${isActive ? 'is-active' : ''}`}
+                  onClick={isActive ? undefined : onSwapPlanificacion}
+                  aria-pressed={isActive}
+                  title={isActive ? 'Modo actualmente seleccionado para el análisis' : 'Cambiar a este modo de planificación'}
+                  style={{
+                    '--plan-color': config.color,
+                    '--plan-bg': config.bg,
+                    '--plan-shadow': config.shadow,
+                  }}
+                >
+                  <div className="planificacion-option__top">
+                    <div className="planificacion-option__title-group">
+                      <span className="planificacion-option__status">
+                        {isActive ? <CheckCircle2 size={14} /> : <ArrowLeftRight size={14} />}
+                        {isActive ? 'Activo para el análisis' : 'Alternativa disponible'}
+                      </span>
+                      <strong className="planificacion-option__title">{config.label}</strong>
+                    </div>
+                    <span className="planificacion-option__action">
+                      {isActive ? 'Seleccionado' : 'Usar este modo'}
+                    </span>
+                  </div>
+                  <p className="planificacion-option__description">{config.descripcion}</p>
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="planificacion-switcher__footer">
+            <span className="planificacion-switcher__summary">
+              Estás analizando con <strong>{infoModo.label}</strong>
+            </span>
+            <span className="planificacion-switcher__compare">Toca la tarjeta alternativa para recalcular y comparar el resultado.</span>
+          </div>
         </motion.div>
       )}
 
