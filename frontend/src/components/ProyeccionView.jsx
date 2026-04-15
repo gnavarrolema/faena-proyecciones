@@ -691,96 +691,57 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
         </motion.div>
       )}
 
-      <motion.div variants={itemVariants} style={{
-        marginBottom: '1.25rem',
-        padding: '1rem 1.1rem',
-        borderRadius: 12,
-        border: `1px solid ${infoModo.color}33`,
-        background: `linear-gradient(135deg, ${infoModo.bg} 0%, var(--card-bg) 100%)`,
-      }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          gap: '1rem',
-          flexWrap: 'wrap',
-        }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <Lightbulb size={18} color={infoModo.color} />
-              <strong style={{ fontSize: '0.95rem', color: 'var(--text)' }}>Cómo se armó esta planificación</strong>
+      <motion.div
+        variants={itemVariants}
+        className="planificacion-details"
+        style={{
+          '--details-color': infoModo.color,
+          '--details-bg': infoModo.bg,
+          '--details-border': `${infoModo.color}33`,
+          '--details-color-alpha': `${infoModo.color}44`,
+        }}
+      >
+        <div className="planificacion-details__header">
+          <div className="planificacion-details__title-area">
+            <div className="planificacion-details__title">
+              <Lightbulb size={20} />
+              Cómo se armó esta planificación
             </div>
-            <div style={{ fontSize: '0.86rem', color: 'var(--text-light)', maxWidth: 760 }}>
+            <div className="planificacion-details__desc">
               <strong style={{ color: infoModo.color }}>{infoModo.label}:</strong> {infoModo.descripcion}
             </div>
           </div>
           {planificacionAlternativa && (
-            <div style={{
-              fontSize: '0.8rem',
-              color: 'var(--text-light)',
-              padding: '0.45rem 0.7rem',
-              borderRadius: 999,
-              border: '1px solid var(--border)',
-              background: 'rgba(255,255,255,0.75)',
-            }}>
-              También puedes probar {MODOS_PLANIFICACION[modoAlternativo]?.label} para comparar otra distribución.
+            <div className="planificacion-details__suggestion">
+              También puedes probar <strong>{MODOS_PLANIFICACION[modoAlternativo]?.label}</strong> para comparar otra distribución.
             </div>
           )}
         </div>
 
-        <div style={{
-          marginTop: '0.85rem',
-          padding: '0.8rem 0.9rem',
-          borderRadius: 10,
-          border: '1px solid var(--border)',
-          background: 'rgba(255,255,255,0.72)',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          gap: '0.75rem',
-          flexWrap: 'wrap',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div className="planificacion-details__config">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span className={`badge ${bbReferencePreset.isCustom ? 'badge-warning' : 'badge-info'}`}>
               Referencia BB activa: {bbReferencePreset.label}
             </span>
-            <span style={{ fontSize: '0.82rem', color: 'var(--text)' }}>{bbReferenceResumen}</span>
+            <span style={{ fontSize: '0.86rem', color: 'var(--text)', fontWeight: 500 }}>{bbReferenceResumen}</span>
           </div>
-          <span style={{ fontSize: '0.76rem', color: 'var(--text-light)' }}>{bbReferencePreset.description}</span>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>{bbReferencePreset.description}</span>
         </div>
 
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: '0.75rem',
-          marginTop: '0.9rem',
-        }}>
+        <div className="planificacion-details__steps">
           {resumenPlanificacion.map((texto, idx) => (
-            <div key={idx} style={{
-              padding: '0.85rem 0.9rem',
-              borderRadius: 10,
-              border: '1px solid var(--border)',
-              background: 'var(--card-bg)',
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 8,
-            }}>
-              <Check size={15} color={infoModo.color} style={{ marginTop: 2, flexShrink: 0 }} />
-              <span style={{ fontSize: '0.85rem', color: 'var(--text)' }}>{texto}</span>
+            <div key={idx} className="planificacion-details__step">
+              <Check size={18} />
+              <span>{texto}</span>
             </div>
           ))}
         </div>
 
-        <div style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '0.5rem',
-          marginTop: '0.9rem',
-        }}>
-          <span className="badge badge-info">Planificados: {formatNumber(proyeccion.total_pollos_semana)}</span>
-          <span className="badge badge-success">Días usados: {diasConPlan}/{diasTotalesPlan}</span>
-          <span className="badge badge-warning">Sin capacidad: {formatNumber(totalSinCapacidad)}</span>
-          <span className="badge badge-danger">Fuera de rango: {formatNumber(totalFueraRango)}</span>
+        <div className="planificacion-details__tags">
+          <span className="badge badge-info" style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>Planificados: {formatNumber(proyeccion.total_pollos_semana)}</span>
+          <span className="badge badge-success" style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>Días usados: {diasConPlan}/{diasTotalesPlan}</span>
+          <span className="badge badge-warning" style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>Sin capacidad: {formatNumber(totalSinCapacidad)}</span>
+          <span className="badge badge-danger" style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>Fuera de rango: {formatNumber(totalFueraRango)}</span>
         </div>
       </motion.div>
 
