@@ -245,6 +245,7 @@ OFERTAS_KEY = "ofertas"
 OFERTA_METADATA_KEY = "ofertas_metadata"
 PARAMETROS_KEY = "parametros"
 PROYECCION_KEY = "proyeccion"
+PROYECCION_ALTERNATIVA_KEY = "proyeccion_alternativa"
 UPLOADS_PREFIX = "uploads/"
 
 
@@ -307,15 +308,32 @@ def load_parametros() -> Optional[dict]:
 
 
 def save_proyeccion(proyeccion_data: dict) -> None:
-    get_storage().save(PROYECCION_KEY, proyeccion_data)
+    data = dict(proyeccion_data)
+    actual = load_proyeccion() or {}
+    if "modo_planificacion" not in data and actual.get("modo_planificacion"):
+        data["modo_planificacion"] = actual["modo_planificacion"]
+    get_storage().save(PROYECCION_KEY, data)
 
 
 def load_proyeccion() -> Optional[dict]:
     return get_storage().load(PROYECCION_KEY)
 
 
+def save_proyeccion_alternativa(proyeccion_data: dict) -> None:
+    get_storage().save(PROYECCION_ALTERNATIVA_KEY, proyeccion_data)
+
+
+def load_proyeccion_alternativa() -> Optional[dict]:
+    return get_storage().load(PROYECCION_ALTERNATIVA_KEY)
+
+
+def delete_proyeccion_alternativa() -> None:
+    get_storage().delete(PROYECCION_ALTERNATIVA_KEY)
+
+
 def delete_proyeccion() -> None:
     get_storage().delete(PROYECCION_KEY)
+    get_storage().delete(PROYECCION_ALTERNATIVA_KEY)
 
 
 def delete_ofertas() -> None:

@@ -51,13 +51,15 @@ const MainApp = () => {
     const navigate = useNavigate();
 
     // Wrapper que extrae la planificación alternativa antes de guardar la principal
-    const handleSetProyeccion = (data) => {
+    const handleSetProyeccion = (data, options = {}) => {
+        const { clearAlternativa = false } = options
         if (data && data.planificacion_alternativa) {
             setPlanificacionAlternativa(data.planificacion_alternativa)
             const { planificacion_alternativa, ...principal } = data
             setProyeccion(principal)
         } else {
             setProyeccion(data)
+            if (clearAlternativa || !data) setPlanificacionAlternativa(null)
             // No borrar la alternativa si solo se recarga la principal (ej: mover lote)
         }
     }
@@ -68,7 +70,10 @@ const MainApp = () => {
         const nuevaPrincipal = planificacionAlternativa
         const nuevaAlternativa = proyeccion
         try {
-            await activarProyeccion(nuevaPrincipal)
+            await activarProyeccion({
+                proyeccion: nuevaPrincipal,
+                planificacion_alternativa: nuevaAlternativa,
+            })
             setProyeccion(nuevaPrincipal)
             setPlanificacionAlternativa(nuevaAlternativa)
             const modoLabel = MODOS_PLANIFICACION[nuevaPrincipal.modo_planificacion] || 'la estrategia seleccionada'
@@ -94,7 +99,7 @@ const MainApp = () => {
                     setOferta(ofertaData.value);
                 }
                 if (proyeccionData.status === 'fulfilled' && proyeccionData.value?.dias) {
-                    setProyeccion(proyeccionData.value);
+                    handleSetProyeccion(proyeccionData.value, { clearAlternativa: true });
                 }
 
                 // Navegar a la pestaña más relevante según los datos existentes
@@ -219,7 +224,7 @@ const MainApp = () => {
                             {activeTab === 'proyeccion' && (
                                 <ProyeccionView
                                     proyeccion={proyeccion}
-                                    setProyeccion={setProyeccion}
+                                    setProyeccion={handleSetProyeccion}
                                     planificacionAlternativa={planificacionAlternativa}
                                     onSwapPlanificacion={handleSwapPlanificacion}
                                 />
@@ -248,7 +253,7 @@ const MainApp = () => {
                             {activeTab === 'escenarios' && (
                                 <EscenariosView
                                     proyeccion={proyeccion}
-                                    setProyeccion={setProyeccion}
+                                    setProyeccion={(data) => handleSetProyeccion(data, { clearAlternativa: true })}
                                 />
                             )}
 
@@ -257,7 +262,7 @@ const MainApp = () => {
                                     onParametrosUpdated={async () => {
                                         try {
                                             const proy = await getProyeccion()
-                                            if (proy?.dias) setProyeccion(proy)
+                                            if (proy?.dias) handleSetProyeccion(proy)
                                         } catch { /* no projection */ }
                                     }}
                                 />

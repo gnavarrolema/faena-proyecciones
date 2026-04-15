@@ -604,6 +604,23 @@ tbody tr.row-subtotal td {
   box-shadow: 0 20px 32px -28px var(--plan-shadow);
 }
 
+.planificacion-option.is-disabled,
+.planificacion-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+  border-color: rgba(148, 163, 184, 0.3);
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
+  box-shadow: none;
+}
+
+.planificacion-option.is-disabled:hover,
+.planificacion-option:disabled:hover {
+  transform: none;
+  border-color: rgba(148, 163, 184, 0.3);
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.98) 0%, rgba(255, 255, 255, 0.98) 100%);
+  box-shadow: none;
+}
+
 .planificacion-option__top {
   display: flex;
   align-items: flex-start;

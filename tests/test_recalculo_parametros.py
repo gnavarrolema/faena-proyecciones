@@ -121,6 +121,46 @@ def test_config_generacion_se_guarda(client, auth_headers):
     assert config["pollos_por_dia"] == 35000
 
 
+def test_get_proyeccion_persiste_planificacion_alternativa(client, auth_headers):
+    """La alternativa debe seguir disponible al recargar la proyección guardada."""
+    proy = _crear_oferta_y_proyeccion(client, auth_headers)
+
+    assert proy["modo_planificacion"] in {"cascada_madurez", "optimizacion_restricciones"}
+    assert proy.get("planificacion_alternativa") is not None
+    assert storage.load_proyeccion_alternativa() is not None
+
+    r = client.get("/proyeccion", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+
+    assert data["modo_planificacion"] == proy["modo_planificacion"]
+    assert data["planificacion_alternativa"]["modo_planificacion"] == proy["planificacion_alternativa"]["modo_planificacion"]
+
+
+def test_activar_proyeccion_persiste_swap_de_alternativa(client, auth_headers):
+    """Al activar la alternativa, la proyección guardada debe reflejar ambos modos intercambiados."""
+    proy = _crear_oferta_y_proyeccion(client, auth_headers)
+    alternativa = proy["planificacion_alternativa"]
+    principal = {k: v for k, v in proy.items() if k != "planificacion_alternativa"}
+
+    r = client.post(
+        "/proyeccion/activar",
+        json={
+            "proyeccion": alternativa,
+            "planificacion_alternativa": principal,
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+
+    r = client.get("/proyeccion", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+
+    assert data["modo_planificacion"] == alternativa["modo_planificacion"]
+    assert data["planificacion_alternativa"]["modo_planificacion"] == principal["modo_planificacion"]
+
+
 def test_recalculo_usa_config_guardada(client, auth_headers):
     """El recálculo usa pollos_por_dia de la config original."""
     ofertas = [

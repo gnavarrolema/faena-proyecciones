@@ -208,6 +208,18 @@ def _get_proyeccion() -> Optional[SemanaFaena]:
     return None
 
 
+def _get_modo_planificacion_actual() -> str:
+    """Obtiene el modo persistido de la proyección actual o lo infiere desde la config guardada."""
+    data = storage.load_proyeccion() or {}
+    if data.get("modo_planificacion"):
+        return data["modo_planificacion"]
+
+    config = storage.load_proyeccion_config() or {}
+    if config.get("criterio_gerente") is False:
+        return "optimizacion_restricciones"
+    return "cascada_madurez"
+
+
 def _ganancia_default_por_sexo(sexo: str, params: Parametros) -> float:
     return params.ganancia_diaria_hembra if (sexo or "").upper() == "H" else params.ganancia_diaria_macho
 
@@ -1455,8 +1467,19 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
         logger.warning(f"No se pudo generar planificación alternativa: {e}")
         alternativa_dict = None
 
+    # Etiquetas profesionales para los modos de planificación
+    modo_principal = "cascada_madurez" if req.criterio_gerente else "optimizacion_restricciones"
+    modo_alternativo = "optimizacion_restricciones" if req.criterio_gerente else "cascada_madurez"
+
     # Persistir proyección y parámetros usados
-    storage.save_proyeccion(semana.model_dump())
+    proyeccion_principal = semana.model_dump()
+    proyeccion_principal["modo_planificacion"] = modo_principal
+    storage.save_proyeccion(proyeccion_principal)
+    if alternativa_dict:
+        alternativa_dict["modo_planificacion"] = modo_alternativo
+        storage.save_proyeccion_alternativa(alternativa_dict)
+    else:
+        storage.delete_proyeccion_alternativa()
     storage.save_parametros(params.model_dump())
 
     # Guardar configuración de generación para poder recalcular al cambiar parámetros
@@ -1477,15 +1500,10 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
     # ── Factibilidad: cruzar plan propio vs producción propia ──
     factibilidad = _calcular_factibilidad_proyeccion(semana)
 
-    # Etiquetas profesionales para los modos de planificación
-    modo_principal = "cascada_madurez" if req.criterio_gerente else "optimizacion_restricciones"
-    modo_alternativo = "optimizacion_restricciones" if req.criterio_gerente else "cascada_madurez"
-
     result = semana.model_dump()
     result["factibilidad_produccion"] = factibilidad.model_dump() if factibilidad else None
     result["modo_planificacion"] = modo_principal
     if alternativa_dict:
-        alternativa_dict["modo_planificacion"] = modo_alternativo
         result["planificacion_alternativa"] = alternativa_dict
     return result
 
@@ -1499,15 +1517,34 @@ def get_proyeccion(current_user: TokenData = Depends(get_current_user)):
     result = proyeccion.model_dump()
     factibilidad = _calcular_factibilidad_proyeccion(proyeccion)
     result["factibilidad_produccion"] = factibilidad.model_dump() if factibilidad else None
+    result["modo_planificacion"] = result.get("modo_planificacion") or _get_modo_planificacion_actual()
+    alternativa = storage.load_proyeccion_alternativa()
+    if alternativa:
+        result["planificacion_alternativa"] = alternativa
     return result
 
 
 @app.post("/proyeccion/activar")
 def activar_proyeccion(data: dict, current_user: TokenData = Depends(get_current_user)):
     """Reemplaza la proyección activa con los datos proporcionados (swap de modo)."""
-    if not data or "dias" not in data:
+    payload = dict(data or {})
+    proyeccion_data = payload.get("proyeccion") or payload
+    if not isinstance(proyeccion_data, dict):
         raise HTTPException(400, "Datos de proyección inválidos")
-    storage.save_proyeccion(data)
+
+    proyeccion_data = dict(proyeccion_data)
+    alternativa = payload.get("planificacion_alternativa")
+    if alternativa is None and "planificacion_alternativa" in proyeccion_data:
+        alternativa = proyeccion_data.pop("planificacion_alternativa")
+
+    if "dias" not in proyeccion_data:
+        raise HTTPException(400, "Datos de proyección inválidos")
+
+    storage.save_proyeccion(proyeccion_data)
+    if alternativa and isinstance(alternativa, dict) and alternativa.get("dias"):
+        storage.save_proyeccion_alternativa(alternativa)
+    elif "planificacion_alternativa" in payload:
+        storage.delete_proyeccion_alternativa()
     return {"ok": True}
 
 

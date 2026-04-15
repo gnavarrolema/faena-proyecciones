@@ -162,6 +162,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
   const modoPrincipal = proyeccion?.modo_planificacion || 'cascada_madurez'
   const modoAlternativo = planificacionAlternativa?.modo_planificacion || (modoPrincipal === 'cascada_madurez' ? 'optimizacion_restricciones' : 'cascada_madurez')
   const infoModo = MODOS_PLANIFICACION[modoPrincipal] || MODOS_PLANIFICACION.cascada_madurez
+  const alternativaDisponible = Boolean(planificacionAlternativa)
   const modosComparables = [modoPrincipal, modoAlternativo].filter((modo, indice, modos) => modo && modos.indexOf(modo) === indice)
   const diasTotalesPlan = proyeccion?.dias?.length || 0
   const diasConPlan = proyeccion?.dias?.filter((dia) => (dia.total_pollos || 0) > 0).length || 0
@@ -619,7 +620,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
       animate="show"
     >
       {/* Selector de modo de planificación */}
-      {planificacionAlternativa && (
+      {modosComparables.length > 0 && (
         <motion.div variants={itemVariants} className="planificacion-switcher">
           <div className="planificacion-switcher__header">
             <div className="planificacion-switcher__eyebrow">
@@ -627,7 +628,9 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
               <span>Modo de planificación</span>
             </div>
             <p className="planificacion-switcher__helper">
-              El análisis actual queda marcado como activo. Si quieres comparar la distribución, selecciona la otra opción.
+              {alternativaDisponible
+                ? 'El análisis actual queda marcado como activo. Si quieres comparar la distribución, selecciona la otra opción.'
+                : 'Esta proyección no tiene una alternativa guardada todavía. El modo activo sigue visible para que sepas con qué análisis estás trabajando.'}
             </p>
           </div>
 
@@ -635,15 +638,22 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
             {modosComparables.map((modo) => {
               const config = MODOS_PLANIFICACION[modo]
               const isActive = modo === modoPrincipal
+              const isDisabled = !isActive && !alternativaDisponible
 
               return (
                 <button
                   key={modo}
                   type="button"
-                  className={`planificacion-option ${isActive ? 'is-active' : ''}`}
-                  onClick={isActive ? undefined : onSwapPlanificacion}
+                  className={`planificacion-option ${isActive ? 'is-active' : ''} ${isDisabled ? 'is-disabled' : ''}`}
+                  onClick={isActive || isDisabled ? undefined : onSwapPlanificacion}
                   aria-pressed={isActive}
-                  title={isActive ? 'Modo actualmente seleccionado para el análisis' : 'Cambiar a este modo de planificación'}
+                  aria-disabled={isDisabled}
+                  disabled={isDisabled}
+                  title={isActive
+                    ? 'Modo actualmente seleccionado para el análisis'
+                    : isDisabled
+                      ? 'La alternativa no está disponible en esta proyección guardada'
+                      : 'Cambiar a este modo de planificación'}
                   style={{
                     '--plan-color': config.color,
                     '--plan-bg': config.bg,
@@ -654,12 +664,12 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                     <div className="planificacion-option__title-group">
                       <span className="planificacion-option__status">
                         {isActive ? <CheckCircle2 size={14} /> : <ArrowLeftRight size={14} />}
-                        {isActive ? 'Activo para el análisis' : 'Alternativa disponible'}
+                        {isActive ? 'Activo para el análisis' : isDisabled ? 'Alternativa no disponible' : 'Alternativa disponible'}
                       </span>
                       <strong className="planificacion-option__title">{config.label}</strong>
                     </div>
                     <span className="planificacion-option__action">
-                      {isActive ? 'Seleccionado' : 'Usar este modo'}
+                      {isActive ? 'Seleccionado' : isDisabled ? 'No disponible' : 'Usar este modo'}
                     </span>
                   </div>
                   <p className="planificacion-option__description">{config.descripcion}</p>
@@ -672,7 +682,11 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
             <span className="planificacion-switcher__summary">
               Estás analizando con <strong>{infoModo.label}</strong>
             </span>
-            <span className="planificacion-switcher__compare">Toca la tarjeta alternativa para recalcular y comparar el resultado.</span>
+            <span className="planificacion-switcher__compare">
+              {alternativaDisponible
+                ? 'Toca la tarjeta alternativa para recalcular y comparar el resultado.'
+                : 'Vuelve a generar la planificación para guardar también la alternativa comparable.'}
+            </span>
           </div>
         </motion.div>
       )}
