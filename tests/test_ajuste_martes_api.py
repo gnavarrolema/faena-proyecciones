@@ -303,3 +303,80 @@ def test_oferta_trazabilidad_marca_lote_parcial_fraccionado(client, auth_headers
     assert registro["tomado_en_planificacion"] is True
     assert registro["detalle_planificacion"]["planificado"]["cantidad_planificada"] == 30000
     assert registro["detalle_planificacion"]["no_asignado"]["cantidad_no_asignada"] == 10000
+
+
+def test_ajuste_martes_reinserta_no_asignados_si_libera_capacidad(client, auth_headers):
+    r = client.put(
+        "/parametros",
+        headers=auth_headers,
+        json={
+            "pollos_diarios_objetivo_min": 15000,
+            "pollos_diarios_objetivo_max": 15000,
+            "capacidad_maxima_planta": 15000,
+            "capacidad_con_horas_extras": 15000,
+            "peso_min_faena": 2.80,
+            "peso_max_faena": 3.20,
+            "edad_min_faena": 38,
+            "edad_max_faena": 43,
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    lotes_jueves = [
+        {**LOTE_BASE, "galpon": 1, "cantidad": 15000, "edad_proyectada": 42, "edad_real": 42, "peso_muestreo_proy": 3.05, "peso_muestreo_real": 3.05, "ganancia_diaria": 0.09},
+        {**LOTE_BASE, "galpon": 2, "cantidad": 4000, "edad_proyectada": 42, "edad_real": 42, "peso_muestreo_proy": 3.05, "peso_muestreo_real": 3.05, "ganancia_diaria": 0.09},
+    ]
+
+    excel = _crear_excel_oferta(lotes_jueves, sheet_title="OFERTA JUEV")
+    r = client.post(
+        "/oferta/upload",
+        headers=auth_headers,
+        files={"file": ("oferta.xlsx", excel, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200, r.text
+
+    r = client.post(
+        "/proyeccion/generar",
+        headers=auth_headers,
+        json={
+            "fecha_inicio_semana": "2026-02-23",
+            "dias_faena": 1,
+            "pollos_por_dia": 15000,
+            "criterio_gerente": False,
+            "permitir_fraccionamiento_lotes": False,
+        },
+    )
+    assert r.status_code == 200, r.text
+    proy = r.json()
+    assert proy["total_pollos_no_asignados"] == 4000
+    assert proy["lotes_no_asignados"][0]["galpon"] == 2
+
+    martes_data = [{
+        **lotes_jueves[0],
+        "cantidad": 10000,
+        "fecha_peso": date(2026, 2, 25),
+        "edad_proyectada": 42,
+        "edad_real": 42,
+        "peso_muestreo_proy": 3.02,
+        "peso_muestreo_real": 3.02,
+    }]
+    excel_martes = _crear_excel_oferta(martes_data)
+
+    r = client.post(
+        "/oferta/ajuste-martes",
+        headers=auth_headers,
+        files={"file": ("martes.xlsx", excel_martes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert r.status_code == 200, f"Ajuste martes falló: {r.text}"
+    data = r.json()
+
+    assert data["proyeccion"]["total_pollos_semana"] == 14000
+    assert data["proyeccion"]["total_pollos_no_asignados"] == 0
+    assert data["resumen_ajuste"]["lotes_reinsertados_no_asignados"] == 1
+    assert data["resumen_ajuste"]["detalle_reinsertados_no_asignados"] == [{
+        "granja": "TEST",
+        "galpon": 2,
+        "nucleo": 1,
+        "cantidad": 4000,
+        "dia": "Lunes",
+    }]

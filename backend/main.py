@@ -1366,7 +1366,12 @@ async def upload_ajuste_martes(
 
     # Aplicar ajuste
     params = _get_parametros()
-    resultado, resumen = aplicar_ajuste_martes(ofertas_martes, semana, params)
+    resultado, resumen = aplicar_ajuste_martes(
+        ofertas_martes,
+        semana,
+        params,
+        ofertas_referencia=_get_ofertas(),
+    )
 
     # Guardar proyección actualizada
     storage.save_proyeccion(resultado.model_dump())

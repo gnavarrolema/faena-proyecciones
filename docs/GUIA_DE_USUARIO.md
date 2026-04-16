@@ -256,6 +256,7 @@ Esta sección (colapsable) permite actualizar la proyección existente con datos
 
 - **Actualiza** los datos (peso, edad, ganancia) de lotes ya existentes.
 - **Agrega** nuevos lotes si hay capacidad disponible en algún día.
+- **Reevalúa** lotes que habían quedado sin capacidad y los reinserta si el ajuste libera espacio.
 - **Mantiene** la distribución de días que ya fue planificada.
 - **Alerta** si algún lote existente queda fuera de rango tras la actualización.
 
@@ -265,6 +266,7 @@ Esta sección (colapsable) permite actualizar la proyección existente con datos
 3. Haga clic en **"Aplicar Ajuste"**.
 4. Revise el **resumen del ajuste** que aparece, indicando:
    - ✅ Lotes actualizados (datos cambiados)
+   - ✅ Remanentes previos reincorporados automáticamente
    - ✅ Lotes nuevos asignados
    - ℹ️ Lotes nuevos sin capacidad
    - ⚠️ Lotes existentes que ahora quedaron fuera de rango

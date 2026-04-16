@@ -1,8 +1,9 @@
 from datetime import date
 
 from backend.calculo import (
-    LoteOferta, Parametros, SemanaFaena,
+    LoteNoAsignado, LoteOferta, Parametros, SemanaFaena,
     generar_proyeccion, aplicar_ajuste_martes,
+    calcular_dia_faena, calcular_semana_faena,
     calcular_lote_proyectado,
     calcular_edad_fin_retiro_v2,
 )
@@ -382,6 +383,113 @@ def test_ajuste_martes_no_duplica_lote_previamente_no_asignado():
         f"Lote G2 aparece {apariciones_en_dias} veces en días y "
         f"{apariciones_no_asignados} en no_asignados (duplicado!)"
     )
+
+
+def test_ajuste_martes_absorbe_backlog_si_baja_la_cantidad_total():
+    params = Parametros(
+        pollos_diarios_objetivo_min=15000,
+        pollos_diarios_objetivo_max=15000,
+        capacidad_maxima_planta=15000,
+        capacidad_con_horas_extras=15000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.80,
+        peso_max_faena=3.20,
+    )
+
+    oferta_base = _lote(15000, 1, edad_proyectada=40, peso=2.95, ganancia=0.09)
+    lote_planificado = calcular_lote_proyectado(oferta_base, date(2026, 2, 25), params)
+    dia = calcular_dia_faena(date(2026, 2, 25), [lote_planificado], params=params)
+
+    semana = calcular_semana_faena(
+        date(2026, 2, 23),
+        [dia],
+        params,
+        lotes_no_asignados=[
+            LoteNoAsignado(
+                granja="TEST",
+                galpon=1,
+                nucleo=1,
+                cantidad=15000,
+                sexo="M",
+                fecha_ingreso=date(2026, 1, 10),
+                dias_elegibles=[date(2026, 2, 25)],
+                motivo="Excede tope diario máximo",
+            )
+        ],
+    )
+
+    resultado, resumen = aplicar_ajuste_martes([oferta_base], semana, params)
+
+    assert [dia.total_pollos for dia in resultado.dias] == [15000]
+    assert resultado.total_pollos_no_asignados == 0
+    assert resultado.lotes_no_asignados == []
+    assert resumen.lotes_actualizados == 1
+    assert resumen.detalle_actualizados[0]["cambios"] == "Cantidad total 30000 -> 15000; Sin remanente pendiente en no asignados"
+
+
+def test_ajuste_martes_reinserta_backlog_si_se_libera_capacidad():
+    params = Parametros(
+        pollos_diarios_objetivo_min=15000,
+        pollos_diarios_objetivo_max=15000,
+        capacidad_maxima_planta=15000,
+        capacidad_con_horas_extras=15000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.80,
+        peso_max_faena=3.20,
+    )
+
+    oferta_planificada = _lote(15000, 1, edad_proyectada=40, peso=2.95, ganancia=0.09)
+    oferta_backlog = _lote(4000, 2, edad_proyectada=40, peso=2.92, ganancia=0.09)
+
+    lote_planificado = calcular_lote_proyectado(oferta_planificada, date(2026, 2, 25), params)
+    dia = calcular_dia_faena(date(2026, 2, 25), [lote_planificado], params=params)
+    semana = calcular_semana_faena(
+        date(2026, 2, 23),
+        [dia],
+        params,
+        lotes_no_asignados=[
+            LoteNoAsignado(
+                granja="TEST",
+                galpon=2,
+                nucleo=1,
+                cantidad=4000,
+                sexo="M",
+                fecha_ingreso=date(2026, 1, 10),
+                dias_elegibles=[date(2026, 2, 25)],
+                motivo="Excede tope diario máximo",
+            )
+        ],
+    )
+
+    oferta_martes = oferta_planificada.model_copy(update={
+        "cantidad": 10000,
+        "fecha_peso": date(2026, 2, 25),
+        "edad_proyectada": 42,
+        "edad_real": 42,
+        "peso_muestreo_proy": 3.02,
+        "peso_muestreo_real": 3.02,
+    })
+
+    resultado, resumen = aplicar_ajuste_martes(
+        [oferta_martes],
+        semana,
+        params,
+        ofertas_referencia=[oferta_planificada, oferta_backlog],
+    )
+
+    assert [dia.total_pollos for dia in resultado.dias] == [14000]
+    assert resultado.total_pollos_no_asignados == 0
+    assert resultado.lotes_no_asignados == []
+    assert resumen.lotes_reinsertados_no_asignados == 1
+    assert resumen.detalle_reinsertados_no_asignados == [{
+        "granja": "TEST",
+        "galpon": 2,
+        "nucleo": 1,
+        "cantidad": 4000,
+        "dia": "Lunes",
+    }]
 
 
 # ─── Tests P0: calcular_edad_fin_retiro_v2 con dias_proyectados ──────────────

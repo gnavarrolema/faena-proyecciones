@@ -1218,6 +1218,11 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                           <CheckCircle2 size={14} /> {ajusteResumen.lotes_nuevos_asignados} lotes nuevos asignados
                         </span>
                       )}
+                      {ajusteResumen.lotes_reinsertados_no_asignados > 0 && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem', color: 'var(--success)' }}>
+                          <Undo2 size={14} /> {ajusteResumen.lotes_reinsertados_no_asignados} remanentes reinsertados
+                        </span>
+                      )}
                       {(ajusteResumen.lotes_nuevos - (ajusteResumen.lotes_nuevos_asignados || 0) - (ajusteResumen.lotes_nuevos_fuera_rango || 0)) > 0 && (
                         <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.85rem', color: 'var(--info)' }}>
                           <PlusCircle size={14} /> {ajusteResumen.lotes_nuevos - (ajusteResumen.lotes_nuevos_asignados || 0) - (ajusteResumen.lotes_nuevos_fuera_rango || 0)} lotes nuevos sin capacidad
@@ -1238,7 +1243,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                           <AlertTriangle size={14} /> {ajusteResumen.lotes_faltantes} lotes no encontrados en martes
                         </span>
                       )}
-                      {ajusteResumen.lotes_actualizados === 0 && ajusteResumen.lotes_nuevos === 0 && ajusteResumen.lotes_faltantes === 0 && (
+                      {ajusteResumen.lotes_actualizados === 0 && ajusteResumen.lotes_nuevos === 0 && ajusteResumen.lotes_faltantes === 0 && ajusteResumen.lotes_reinsertados_no_asignados === 0 && (
                         <span style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>Sin cambios detectados.</span>
                       )}
                     </div>
@@ -1320,6 +1325,37 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                             </thead>
                             <tbody>
                               {ajusteResumen.detalle_nuevos_asignados.map((d, i) => (
+                                <tr key={i}>
+                                  <td><strong>{d.granja}</strong></td>
+                                  <td className="text-center">{d.galpon}</td>
+                                  <td className="text-center">{d.nucleo}</td>
+                                  <td className="text-right">{formatNumber(d.cantidad)}</td>
+                                  <td>{d.dia}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Backlog previo reinsertado automáticamente */}
+                    {ajusteResumen.detalle_reinsertados_no_asignados?.length > 0 && (
+                      <div style={{ marginBottom: '0.5rem' }}>
+                        <p style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--success)', marginBottom: 4 }}>Remanentes previos reinsertados:</p>
+                        <div className="table-container" style={{ maxHeight: 180, overflowY: 'auto' }}>
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>Granja</th>
+                                <th>Galpón</th>
+                                <th>Núcleo</th>
+                                <th className="text-right">Cantidad</th>
+                                <th>Día asignado</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {ajusteResumen.detalle_reinsertados_no_asignados.map((d, i) => (
                                 <tr key={i}>
                                   <td><strong>{d.granja}</strong></td>
                                   <td className="text-center">{d.galpon}</td>
