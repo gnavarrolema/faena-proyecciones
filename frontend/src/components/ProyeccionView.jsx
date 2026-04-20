@@ -35,6 +35,25 @@ function formatDiasElegibles(dias) {
   }).join(', ')
 }
 
+function buildGallinasMap(eventosGallinas = []) {
+  const gallinasMap = {}
+
+  eventosGallinas.forEach((evento) => {
+    if (!evento?.fecha) return
+    if (!gallinasMap[evento.fecha]) {
+      gallinasMap[evento.fecha] = { livianas: 0, pesadas: 0 }
+    }
+    if (evento.tipo === 'pesada') gallinasMap[evento.fecha].pesadas += evento.cantidad || 0
+    else gallinasMap[evento.fecha].livianas += evento.cantidad || 0
+  })
+
+  return Object.keys(gallinasMap).length > 0 ? gallinasMap : null
+}
+
+function getDiaTotalFaena(dia) {
+  return (dia?.total_pollos || 0) + (dia?.gallinas_cantidad || 0)
+}
+
 function getEdadColor(dif) {
   if (Math.abs(dif) <= 1) return 'green'
   if (Math.abs(dif) <= 3) return 'orange'
@@ -389,12 +408,6 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
 
   const handleRegenerarConSabado = async () => {
     try {
-      const gallinasMap = {}
-      proyeccion.eventos_gallinas?.forEach(e => {
-        if (!gallinasMap[e.fecha]) gallinasMap[e.fecha] = { livianas: 0, pesadas: 0 }
-        if (e.tipo === 'pesada') gallinasMap[e.fecha].pesadas += e.cantidad
-        else gallinasMap[e.fecha].livianas += e.cantidad
-      })
       const data = await generarProyeccion({
         fecha_inicio_semana: proyeccion.fecha_inicio,
         dias_faena: 6,
@@ -402,12 +415,32 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
           ? Math.round(proyeccion.total_pollos_semana / proyeccion.dias.length)
           : 35000,
         habilitar_sabado: true,
-        gallinas: Object.keys(gallinasMap).length > 0 ? gallinasMap : null,
+        gallinas: buildGallinasMap(proyeccion.eventos_gallinas),
       })
       setProyeccion(data)
       toast.success('Planificación regenerada con sábado habilitado')
     } catch (err) {
       toast.error('Error: ' + (err.response?.data?.detail || err.message))
+    }
+  }
+
+  const handleRegenerarPriorizandoGallinas = async () => {
+    try {
+      setLoading(true)
+      const data = await generarProyeccion({
+        fecha_inicio_semana: proyeccion.fecha_inicio,
+        dias_faena: proyeccion.dias.some(d => d.es_sabado) ? 6 : 5,
+        pollos_por_dia: parametros.pollos_diarios_objetivo_max || 35000,
+        habilitar_sabado: proyeccion.dias.some(d => d.es_sabado),
+        criterio_gerente: true,
+        gallinas: buildGallinasMap(proyeccion.eventos_gallinas),
+      })
+      setProyeccion(data)
+      toast.success('Planificación regenerada priorizando días con gallinas')
+    } catch (err) {
+      toast.error('Error: ' + (err.response?.data?.detail || err.message))
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -603,6 +636,9 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
   const { dias } = proyeccion
   const lotesNoAsignados = proyeccion.lotes_no_asignados || []
   const lotesFueraRango = proyeccion.lotes_fuera_rango || []
+  const hayGallinasProgramadas = dias.some(d => d.gallinas_habilitado)
+  const hayGallinasSinPollos = dias.some(d => d.gallinas_habilitado && (d.total_pollos || 0) === 0)
+  const sugerirRebalanceoGallinas = hayGallinasSinPollos || (hayGallinasProgramadas && modoPrincipal !== 'cascada_madurez')
 
   const toggleFR = (idx) => {
     setExpandedFR(prev => {
@@ -917,19 +953,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                 ))}
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: 4 }}>
                   {!dias.some(d => d.es_sabado) && (
-                    <button className="btn btn-sm btn-outline" style={{ fontSize: '0.75rem', borderColor: '#ea580c', color: '#ea580c' }} onClick={async () => {
-                      try {
-                        setLoading(true)
-                        const data = await generarProyeccion({
-                          fecha_inicio_semana: proyeccion.fecha_inicio, dias_faena: 6,
-                          pollos_por_dia: Math.round(proyeccion.total_pollos_semana / dias.length),
-                          habilitar_sabado: true,
-                          gallinas: proyeccion.eventos_gallinas?.length > 0 ? Object.fromEntries(proyeccion.eventos_gallinas.map(e => [e.fecha, { livianas: e.gallinas_livianas_cantidad || 0, pesadas: e.gallinas_pesadas_cantidad || 0 }])) : null,
-                        })
-                        setProyeccion(data)
-                        toast.success('Planificación regenerada con sábado habilitado')
-                      } catch (err) { toast.error(err.response?.data?.detail || 'Error al regenerar') } finally { setLoading(false) }
-                    }}>
+                    <button className="btn btn-sm btn-outline" style={{ fontSize: '0.75rem', borderColor: '#ea580c', color: '#ea580c' }} onClick={handleRegenerarConSabado} disabled={loading}>
                       Habilitar sábado
                     </button>
                   )}
@@ -961,6 +985,34 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                     </span>
                   ))}
                 </div>
+                {sugerirRebalanceoGallinas && (
+                  <div style={{
+                    marginTop: 4,
+                    padding: '0.65rem 0.8rem',
+                    background: 'rgba(255,255,255,0.55)',
+                    border: '1px solid rgba(139, 92, 246, 0.18)',
+                    borderRadius: 8,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 10,
+                    flexWrap: 'wrap',
+                  }}>
+                    <span style={{ fontSize: '0.82rem', color: '#6d28d9' }}>
+                      {hayGallinasSinPollos
+                        ? 'Hay días con gallinas programadas pero sin pollos de engorde. Puede regenerar con prioridad por madurez para acercarse al criterio del gerente.'
+                        : 'La semana tiene gallinas y el modo actual distribuye lotes enteros. Puede regenerar con prioridad por madurez para rebalancear esa carga.'}
+                    </span>
+                    <button
+                      className="btn btn-sm"
+                      style={{ background: '#7c3aed', color: 'white', whiteSpace: 'nowrap' }}
+                      onClick={handleRegenerarPriorizandoGallinas}
+                      disabled={loading}
+                    >
+                      Priorizar días con gallinas
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -2163,6 +2215,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
           {dias.map((dia, diaIdx) => {
             const nivelLabel = getNivelCargaLabel(dia)
             const nivelStyle = getNivelCargaStyle(dia.nivel_carga)
+            const totalFaenaDia = getDiaTotalFaena(dia)
             return (
             <div className="day-column" key={diaIdx} style={nivelStyle}>
               <div className="day-header" style={dia.nivel_carga === 'horas_extras' ? { background: '#fef2f2', borderBottom: '2px solid #ef4444' } : dia.nivel_carga === 'alto' ? { borderBottom: '2px solid #f97316' } : {}}>
@@ -2174,14 +2227,19 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                     </span>
                   )}
                   {dia.gallinas_habilitado && (
-                    <span style={{ fontSize: '0.65rem', color: '#7c3aed', fontWeight: 600 }}>
-                      {dia.gallinas_livianas_cantidad > 0 && dia.gallinas_pesadas_cantidad > 0
-                        ? `+ ${formatNumber(dia.gallinas_livianas_cantidad)} liv. + ${formatNumber(dia.gallinas_pesadas_cantidad)} pes.`
-                        : dia.gallinas_pesadas_cantidad > 0
-                          ? <span style={{ color: '#be185d' }}>+ {formatNumber(dia.gallinas_pesadas_cantidad)} pesadas</span>
-                          : `+ ${formatNumber(dia.gallinas_cantidad)} gallinas`
-                      }
-                    </span>
+                    <>
+                      <span style={{ fontSize: '0.65rem', color: '#7c3aed', fontWeight: 600 }}>
+                        {dia.gallinas_livianas_cantidad > 0 && dia.gallinas_pesadas_cantidad > 0
+                          ? `+ ${formatNumber(dia.gallinas_livianas_cantidad)} liv. + ${formatNumber(dia.gallinas_pesadas_cantidad)} pes.`
+                          : dia.gallinas_pesadas_cantidad > 0
+                            ? <span style={{ color: '#be185d' }}>+ {formatNumber(dia.gallinas_pesadas_cantidad)} pesadas</span>
+                            : `+ ${formatNumber(dia.gallinas_cantidad)} gallinas`
+                        }
+                      </span>
+                      <span style={{ fontSize: '0.62rem', color: 'var(--text-light)' }}>
+                        Engorde: {formatNumber(dia.total_pollos)} | Total faena: {formatNumber(totalFaenaDia)}
+                      </span>
+                    </>
                   )}
                   {(dia.gallinas_habilitado || dia.nivel_carga === 'horas_extras') && dia.lotes.length > 0 && (
                     <button
@@ -2197,12 +2255,14 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                     </button>
                   )}
                 </div>
-                <span className="day-total" style={dia.nivel_carga === 'horas_extras' ? { color: '#ef4444' } : {}}>{formatNumber(dia.total_pollos)}</span>
+                <span className="day-total" style={dia.nivel_carga === 'horas_extras' ? { color: '#ef4444' } : {}}>{formatNumber(totalFaenaDia)}</span>
               </div>
               <div className="day-body">
                 {dia.lotes.length === 0 ? (
                   <p style={{ textAlign: 'center', color: 'var(--text-light)', padding: '1rem', fontSize: '0.8rem' }}>
-                    Sin lotes asignados
+                    {dia.gallinas_habilitado
+                      ? `Faena exclusiva de gallinas (${formatNumber(dia.gallinas_cantidad)})`
+                      : 'Sin lotes asignados'}
                   </p>
                 ) : (
                   dia.lotes.map((lote, loteIdx) => (
