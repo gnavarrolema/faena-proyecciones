@@ -6,8 +6,8 @@ from backend.parser_excel import leer_oferta_excel
 
 
 def test_parser_excel_captura_fecha_global_oferta():
-    base = Path(__file__).resolve().parents[1]
-    contenido = (base / "Anexos" / "OFERTA DEL 16-4-26.xls").read_bytes()
+    fixture = Path(__file__).resolve().parent / "fixtures" / "oferta_fecha_global.xls"
+    contenido = fixture.read_bytes()
 
     ofertas, _, _ = leer_oferta_excel(contenido)
 

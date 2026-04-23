@@ -46,6 +46,7 @@ docker-compose.override.yml
 # Archivos temporales de Excel
 *.xlsx
 *.xls
+!tests/fixtures/oferta_fecha_global.xls
 !Anexos/
 Anexos/Notas.txt
 
