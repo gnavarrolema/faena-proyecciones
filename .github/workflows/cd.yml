@@ -82,14 +82,18 @@ jobs:
           docker push $IMAGE
 
       - name: Deploy backend to Cloud Run
+        env:
+          PROD_ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          PROD_ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          PREVIEW_ADMIN_USERNAME: ${{ secrets['PREVIEW_ADMIN_USERNAME'] }}
+          PREVIEW_ADMIN_PASSWORD: ${{ secrets['PREVIEW_ADMIN_PASSWORD'] }}
         run: |
           if [ "${{ steps.target.outputs.deployment_kind }}" = "production" ]; then
-            admin_username="${{ secrets.ADMIN_USERNAME }}"
-            admin_password="${{ secrets.ADMIN_PASSWORD }}"
+            admin_username="${PROD_ADMIN_USERNAME}"
+            admin_password="${PROD_ADMIN_PASSWORD}"
           else
-            admin_username="admin"
-            admin_password="/faena"
-            admin_password="${admin_password}2026/"
+            admin_username="${PREVIEW_ADMIN_USERNAME:-$PROD_ADMIN_USERNAME}"
+            admin_password="${PREVIEW_ADMIN_PASSWORD:-$PROD_ADMIN_PASSWORD}"
           fi
 
           IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.BACKEND_IMAGE }}:${{ github.sha }}
