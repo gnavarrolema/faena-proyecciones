@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 import pytest
 
+from backend.config import ADMIN_PASSWORD, ADMIN_USERNAME
 from backend.main import app
 from backend import storage
 
@@ -21,7 +22,10 @@ def client():
 
 @pytest.fixture()
 def auth_headers(client):
-    r = client.post("/token", data={"username": "admin", "password": "admin123"})
+    r = client.post(
+        "/token",
+        data={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+    )
     assert r.status_code == 200
     token = r.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
