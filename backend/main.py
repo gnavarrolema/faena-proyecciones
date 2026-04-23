@@ -220,6 +220,99 @@ def _get_modo_planificacion_actual() -> str:
     return "cascada_madurez"
 
 
+def _fecha_base_planificacion_oferta(oferta: LoteOferta) -> date:
+    if oferta.fecha_oferta:
+        return oferta.fecha_oferta
+    return oferta.fecha_peso + timedelta(days=oferta.dias_proyectados or 0)
+
+
+def _siguiente_dia_habil_planificacion(
+    fecha: date,
+    feriados: Optional[dict[date, str]] = None,
+    incluir_sabado: bool = False,
+) -> date:
+    dia_actual = fecha + timedelta(days=1)
+    while True:
+        dow = dia_actual.weekday()
+        if dow == 6:
+            dia_actual += timedelta(days=1)
+            continue
+        if dow == 5 and not incluir_sabado:
+            dia_actual += timedelta(days=1)
+            continue
+        if feriados and dia_actual in feriados:
+            dia_actual += timedelta(days=1)
+            continue
+        return dia_actual
+
+
+def _resolver_calendario_planificacion(
+    req: "ProyeccionRequest",
+    params: Parametros,
+    ofertas: list[LoteOferta],
+    feriados_custom_list: list[dict],
+) -> dict:
+    dias_faena = req.dias_faena
+    if req.habilitar_sabado and dias_faena < 6:
+        dias_faena = 6
+
+    usar_continua_gerente = bool(
+        req.criterio_gerente and params.planificacion_continua_gerente
+    )
+    if not usar_continua_gerente:
+        fecha_fin = req.fecha_inicio_semana + timedelta(days=5)
+        feriados = obtener_feriados_rango(
+            req.fecha_inicio_semana,
+            fecha_fin,
+            feriados_custom=feriados_custom_list if feriados_custom_list else None,
+        )
+        return {
+            "fecha_inicio": req.fecha_inicio_semana,
+            "dias_faena": dias_faena,
+            "feriados": feriados if feriados else None,
+            "planificacion_continua_gerente": False,
+        }
+
+    dias_habiles_plan = max(
+        dias_faena,
+        params.planificacion_continua_dias_habiles,
+        1,
+    )
+    fecha_base = max(_fecha_base_planificacion_oferta(oferta) for oferta in ofertas)
+    if fecha_base >= req.fecha_inicio_semana:
+        fecha_fin = req.fecha_inicio_semana + timedelta(days=5)
+        feriados = obtener_feriados_rango(
+            req.fecha_inicio_semana,
+            fecha_fin,
+            feriados_custom=feriados_custom_list if feriados_custom_list else None,
+        )
+        return {
+            "fecha_inicio": req.fecha_inicio_semana,
+            "dias_faena": dias_faena,
+            "feriados": feriados if feriados else None,
+            "planificacion_continua_gerente": False,
+        }
+    fecha_fin_feriados = fecha_base + timedelta(days=max(dias_habiles_plan * 3, 30))
+    fecha_inicio_feriados = min(req.fecha_inicio_semana, fecha_base)
+    feriados = obtener_feriados_rango(
+        fecha_inicio_feriados,
+        fecha_fin_feriados,
+        feriados_custom=feriados_custom_list if feriados_custom_list else None,
+    )
+    fecha_inicio_sugerida = _siguiente_dia_habil_planificacion(
+        fecha_base,
+        feriados=feriados,
+        incluir_sabado=req.habilitar_sabado,
+    )
+    fecha_inicio_real = min(req.fecha_inicio_semana, fecha_inicio_sugerida)
+    return {
+        "fecha_inicio": fecha_inicio_real,
+        "dias_faena": dias_habiles_plan,
+        "feriados": feriados if feriados else None,
+        "planificacion_continua_gerente": True,
+    }
+
+
 def _ganancia_default_por_sexo(sexo: str, params: Parametros) -> float:
     return params.ganancia_diaria_hembra if (sexo or "").upper() == "H" else params.ganancia_diaria_macho
 
@@ -599,6 +692,9 @@ class ParametrosUpdate(BaseModel):
     descuento_sofia: Optional[int] = None
     capacidad_con_horas_extras: Optional[int] = None
     peso_objetivo_recepcion: Optional[float] = None
+    planificacion_continua_gerente: Optional[bool] = None
+    planificacion_continua_dias_habiles: Optional[int] = None
+    planificacion_gerente_priorizar_peso_objetivo: Optional[bool] = None
     produccion_dias_hasta_faena: Optional[int] = None
     produccion_tolerancia_cruce_dias: Optional[int] = None
     produccion_mortalidad_min: Optional[float] = None
@@ -1426,51 +1522,62 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
         for fc in req.feriados_custom:
             feriados_custom_list.append({"fecha": fc.isoformat(), "descripcion": "Feriado personalizado"})
 
-    # Obtener feriados del rango de la semana (L-S inclusive)
-    fecha_fin = req.fecha_inicio_semana + timedelta(days=5)  # lunes a sábado
-    feriados = obtener_feriados_rango(
-        req.fecha_inicio_semana, fecha_fin,
-        feriados_custom=feriados_custom_list if feriados_custom_list else None,
+    calendario = _resolver_calendario_planificacion(
+        req,
+        params,
+        ofertas,
+        feriados_custom_list,
     )
+    fecha_inicio_planificacion = calendario["fecha_inicio"]
+    dias_faena_planificacion = calendario["dias_faena"]
+    feriados = calendario["feriados"]
+    planificacion_continua_gerente = calendario["planificacion_continua_gerente"]
 
-    # Determinar días de faena: si habilitó sábado, forzar 6 días
     dias_faena = req.dias_faena
     if req.habilitar_sabado and dias_faena < 6:
         dias_faena = 6
 
     semana = generar_proyeccion(
         ofertas=ofertas,
-        fecha_inicio_semana=req.fecha_inicio_semana,
-        dias_faena=dias_faena,
+        fecha_inicio_semana=fecha_inicio_planificacion,
+        dias_faena=dias_faena_planificacion,
         pollos_por_dia=req.pollos_por_dia,
         params=params,
-        feriados=feriados if feriados else None,
+        feriados=feriados,
         gallinas=req.gallinas,
         criterio_gerente=req.criterio_gerente,
         permitir_fraccionamiento_lotes=req.permitir_fraccionamiento_lotes,
         excluir_backlog_semana_previa=req.excluir_backlog_semana_previa,
         minimos_como_alerta=req.minimos_como_alerta,
+        planificacion_continua_gerente=planificacion_continua_gerente,
+        incluir_sabado_continuo_gerente=req.habilitar_sabado,
     )
 
     # Generar planificación alternativa con el otro modo
-    try:
-        semana_alt = generar_proyeccion(
-            ofertas=ofertas,
-            fecha_inicio_semana=req.fecha_inicio_semana,
-            dias_faena=dias_faena,
-            pollos_por_dia=req.pollos_por_dia,
-            params=params,
-            feriados=feriados if feriados else None,
-            gallinas=req.gallinas,
-            criterio_gerente=not req.criterio_gerente,
-            permitir_fraccionamiento_lotes=req.permitir_fraccionamiento_lotes if not req.criterio_gerente else None,
-            excluir_backlog_semana_previa=req.excluir_backlog_semana_previa if not req.criterio_gerente else None,
-            minimos_como_alerta=req.minimos_como_alerta if not req.criterio_gerente else None,
-        )
-        alternativa_dict = semana_alt.model_dump()
-    except Exception as e:
-        logger.warning(f"No se pudo generar planificación alternativa: {e}")
+    if planificacion_continua_gerente:
         alternativa_dict = None
+        logger.info(
+            "Se omite la planificación alternativa porque la planificación continua del gerente usa un horizonte distinto al modo semanal alternativo."
+        )
+    else:
+        try:
+            semana_alt = generar_proyeccion(
+                ofertas=ofertas,
+                fecha_inicio_semana=fecha_inicio_planificacion,
+                dias_faena=dias_faena_planificacion,
+                pollos_por_dia=req.pollos_por_dia,
+                params=params,
+                feriados=feriados,
+                gallinas=req.gallinas,
+                criterio_gerente=not req.criterio_gerente,
+                permitir_fraccionamiento_lotes=req.permitir_fraccionamiento_lotes if not req.criterio_gerente else None,
+                excluir_backlog_semana_previa=req.excluir_backlog_semana_previa if not req.criterio_gerente else None,
+                minimos_como_alerta=req.minimos_como_alerta if not req.criterio_gerente else None,
+            )
+            alternativa_dict = semana_alt.model_dump()
+        except Exception as e:
+            logger.warning(f"No se pudo generar planificación alternativa: {e}")
+            alternativa_dict = None
 
     # Etiquetas profesionales para los modos de planificación
     modo_principal = "cascada_madurez" if req.criterio_gerente else "optimizacion_restricciones"
@@ -1479,6 +1586,9 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
     # Persistir proyección y parámetros usados
     proyeccion_principal = semana.model_dump()
     proyeccion_principal["modo_planificacion"] = modo_principal
+    proyeccion_principal["calendario_planificacion"] = "continuo_habil" if planificacion_continua_gerente else "semanal"
+    proyeccion_principal["fecha_inicio_planificacion_real"] = fecha_inicio_planificacion.isoformat()
+    proyeccion_principal["dias_faena_reales"] = dias_faena_planificacion
     storage.save_proyeccion(proyeccion_principal)
     if alternativa_dict:
         alternativa_dict["modo_planificacion"] = modo_alternativo
@@ -1491,10 +1601,14 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
     storage.save_proyeccion_config({
         "fecha_inicio_semana": req.fecha_inicio_semana.isoformat(),
         "dias_faena": dias_faena,
+        "fecha_inicio_semana_real": fecha_inicio_planificacion.isoformat(),
+        "dias_faena_reales": dias_faena_planificacion,
         "pollos_por_dia": req.pollos_por_dia,
         "habilitar_sabado": req.habilitar_sabado,
         "incluir_deficit": req.incluir_deficit,
         "criterio_gerente": req.criterio_gerente,
+        "planificacion_continua_gerente": planificacion_continua_gerente,
+        "planificacion_continua_dias_habiles": params.planificacion_continua_dias_habiles if planificacion_continua_gerente else None,
         "permitir_fraccionamiento_lotes": req.permitir_fraccionamiento_lotes,
         "excluir_backlog_semana_previa": req.excluir_backlog_semana_previa,
         "minimos_como_alerta": req.minimos_como_alerta,
@@ -1508,6 +1622,9 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
     result = semana.model_dump()
     result["factibilidad_produccion"] = factibilidad.model_dump() if factibilidad else None
     result["modo_planificacion"] = modo_principal
+    result["calendario_planificacion"] = "continuo_habil" if planificacion_continua_gerente else "semanal"
+    result["fecha_inicio_planificacion_real"] = fecha_inicio_planificacion.isoformat()
+    result["dias_faena_reales"] = dias_faena_planificacion
     if alternativa_dict:
         result["planificacion_alternativa"] = alternativa_dict
     return result

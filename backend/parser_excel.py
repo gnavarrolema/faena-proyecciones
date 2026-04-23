@@ -33,6 +33,8 @@ COLUMNAS_OFERTA = {
 }
 
 FILA_INICIO_DATOS = 4  # Fila donde empiezan los datos (1-indexed, fila 4 en Excel)
+FILA_FECHA_OFERTA = 3
+COLUMNA_FECHA_OFERTA = 1
 
 
 def _parse_date(val) -> Optional[date]:
@@ -165,6 +167,8 @@ def _leer_oferta_openpyxl(wb, sheet_name: Optional[str]) -> tuple[List[LoteOfert
         else:
             ws = wb.active
 
+    fecha_oferta = _parse_date(ws.cell(row=FILA_FECHA_OFERTA, column=COLUMNA_FECHA_OFERTA + 1).value)
+
     lotes: List[LoteOferta] = []
     descartadas: List[dict] = []
     filas_totales = 0
@@ -175,7 +179,7 @@ def _leer_oferta_openpyxl(wb, sheet_name: Optional[str]) -> tuple[List[LoteOfert
         # Contar solo filas que tienen al menos un valor no nulo
         if any(v is not None for v in row):
             filas_totales += 1
-        lote, descartada = _parse_row_to_lote(row)
+        lote, descartada = _parse_row_to_lote(row, fecha_oferta=fecha_oferta)
         if lote:
             lotes.append(lote)
         elif descartada:
@@ -227,6 +231,8 @@ def _leer_oferta_xlrd(wb, sheet_name: Optional[str]) -> tuple[List[LoteOferta], 
         else:
             ws = wb.sheet_by_index(0)
 
+    fecha_oferta = _parse_date(_xlrd_cell_value(ws, FILA_FECHA_OFERTA - 1, COLUMNA_FECHA_OFERTA))
+
     lotes: List[LoteOferta] = []
     descartadas: List[dict] = []
     filas_totales = 0
@@ -237,7 +243,7 @@ def _leer_oferta_xlrd(wb, sheet_name: Optional[str]) -> tuple[List[LoteOferta], 
         row = [_xlrd_cell_value(ws, row_idx, c) for c in range(14)]
         if any(v is not None for v in row):
             filas_totales += 1
-        lote, descartada = _parse_row_to_lote(row)
+        lote, descartada = _parse_row_to_lote(row, fecha_oferta=fecha_oferta)
         if lote:
             lotes.append(lote)
         elif descartada:
@@ -255,7 +261,10 @@ def _leer_oferta_xlrd(wb, sheet_name: Optional[str]) -> tuple[List[LoteOferta], 
     return lotes, descartadas, resumen
 
 
-def _parse_row_to_lote(row: list) -> tuple[Optional[LoteOferta], Optional[dict]]:
+def _parse_row_to_lote(
+    row: list,
+    fecha_oferta: Optional[date] = None,
+) -> tuple[Optional[LoteOferta], Optional[dict]]:
     """
     Convierte una fila de datos a LoteOferta.
     Retorna (lote, None) si es válida, (None, None) si es vacía,
@@ -305,6 +314,7 @@ def _parse_row_to_lote(row: list) -> tuple[Optional[LoteOferta], Optional[dict]]
         edad_real=_parse_int(row[COLUMNAS_OFERTA["edad_real"]]),
         peso_muestreo_real=_parse_float(row[COLUMNAS_OFERTA["peso_muestreo_real"]]),
         fecha_ingreso=fecha_ingreso or fecha_peso,
+        fecha_oferta=fecha_oferta,
     ), None
 
 

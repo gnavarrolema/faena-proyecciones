@@ -1,10 +1,13 @@
 from datetime import date
 
+import pytest
+
 from backend.calculo import (
     LoteNoAsignado, LoteOferta, Parametros, SemanaFaena,
     generar_proyeccion, aplicar_ajuste_martes,
     calcular_dia_faena, calcular_semana_faena,
     calcular_lote_proyectado,
+    calcular_lote_proyectado_criterio_gerente,
     calcular_edad_fin_retiro_v2,
 )
 
@@ -948,6 +951,199 @@ def test_criterio_gerente_fracciona_y_deja_backlog_como_respaldo():
     # FRESCO remaining (15000) goes to no_asignados
     assert len(semana.lotes_no_asignados) == 1
     assert semana.lotes_no_asignados[0].granja == "FRESCO"
+
+
+def test_criterio_gerente_prioriza_lotes_sin_alerta_antes_de_lotes_verdes():
+    params = Parametros(
+        pollos_diarios_objetivo_min=15000,
+        pollos_diarios_objetivo_max=15000,
+        capacidad_maxima_planta=15000,
+        capacidad_con_horas_extras=15000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.80,
+        peso_max_faena=3.20,
+    )
+
+    lote_verde_pesado = _lote(
+        15000,
+        1,
+        edad_proyectada=36,
+        peso=3.05,
+        ganancia=0.0,
+        granja="VERDE",
+        sexo="H",
+    )
+    lote_listo = _lote(
+        15000,
+        2,
+        edad_proyectada=38,
+        peso=2.90,
+        ganancia=0.0,
+        granja="LISTO",
+        sexo="H",
+    )
+
+    semana = generar_proyeccion(
+        ofertas=[lote_verde_pesado, lote_listo],
+        fecha_inicio_semana=date(2026, 2, 23),
+        dias_faena=1,
+        pollos_por_dia=15000,
+        params=params,
+        criterio_gerente=True,
+    )
+
+    assert [lote.granja for lote in semana.dias[0].lotes] == ["LISTO"]
+    assert len(semana.lotes_no_asignados) == 1
+    assert semana.lotes_no_asignados[0].granja == "VERDE"
+
+
+def test_criterio_gerente_usa_fecha_oferta_global_y_ganancia_gerente():
+    params = Parametros(
+        pollos_diarios_objetivo_min=15000,
+        pollos_diarios_objetivo_max=35000,
+        capacidad_maxima_planta=42000,
+        capacidad_con_horas_extras=45000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.80,
+        peso_max_faena=3.20,
+    )
+
+    oferta = LoteOferta(
+        fecha_peso=date(2026, 4, 8),
+        fecha_oferta=date(2026, 4, 16),
+        granja="MANANTIALES",
+        galpon=2,
+        nucleo=2,
+        cantidad=21779,
+        sexo="H",
+        edad_proyectada=22,
+        peso_muestreo_proy=1.158,
+        ganancia_diaria=0.06,
+        dias_proyectados=1,
+        edad_real=21,
+        peso_muestreo_real=1.098,
+        fecha_ingreso=date(2026, 3, 24),
+    )
+
+    lote = calcular_lote_proyectado_criterio_gerente(
+        oferta,
+        date(2026, 5, 5),
+        params,
+    )
+
+    assert lote.edad_fin_retiro == 41
+    assert lote.peso_vivo_retiro == pytest.approx(2.823, abs=1e-5)
+
+
+def test_criterio_gerente_prioriza_lote_limpio_mas_cerca_del_peso_objetivo_si_flag_activo():
+    params = Parametros(
+        pollos_diarios_objetivo_min=15000,
+        pollos_diarios_objetivo_max=15000,
+        capacidad_maxima_planta=15000,
+        capacidad_con_horas_extras=15000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.80,
+        peso_max_faena=3.20,
+        peso_objetivo_recepcion=2.85,
+        planificacion_gerente_priorizar_peso_objetivo=True,
+    )
+
+    lote_cercano = _lote(15000, 1, edad_proyectada=38, peso=2.895, ganancia=0.0, granja="CERCANO", sexo="H")
+    lote_pesado = _lote(15000, 2, edad_proyectada=38, peso=3.08, ganancia=0.0, granja="PESADO", sexo="H")
+
+    semana = generar_proyeccion(
+        ofertas=[lote_pesado, lote_cercano],
+        fecha_inicio_semana=date(2026, 2, 23),
+        dias_faena=1,
+        pollos_por_dia=15000,
+        params=params,
+        criterio_gerente=True,
+    )
+
+    assert [lote.granja for lote in semana.dias[0].lotes] == ["CERCANO"]
+
+
+def test_criterio_gerente_elige_dia_limpio_mas_cercano_al_peso_objetivo_si_flag_activo():
+    params = Parametros(
+        pollos_diarios_objetivo_min=15000,
+        pollos_diarios_objetivo_max=15000,
+        capacidad_maxima_planta=15000,
+        capacidad_con_horas_extras=15000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.80,
+        peso_max_faena=3.20,
+        peso_objetivo_recepcion=2.85,
+        planificacion_gerente_priorizar_peso_objetivo=True,
+    )
+
+    lote = LoteOferta(
+        fecha_peso=date(2026, 2, 23),
+        fecha_oferta=date(2026, 2, 23),
+        granja="OBJETIVO",
+        galpon=1,
+        nucleo=1,
+        cantidad=12000,
+        sexo="H",
+        edad_proyectada=38,
+        peso_muestreo_proy=2.845,
+        ganancia_diaria=0.06,
+        dias_proyectados=0,
+        edad_real=38,
+        peso_muestreo_real=2.845,
+        fecha_ingreso=date(2026, 1, 1),
+    )
+
+    semana = generar_proyeccion(
+        ofertas=[lote],
+        fecha_inicio_semana=date(2026, 2, 23),
+        dias_faena=2,
+        pollos_por_dia=15000,
+        params=params,
+        criterio_gerente=True,
+    )
+
+    assert semana.dias[0].total_pollos == 0
+    assert [lote.granja for lote in semana.dias[1].lotes] == ["OBJETIVO"]
+
+
+def test_criterio_gerente_espera_un_dia_mejor_para_lote_verde():
+    params = Parametros(
+        pollos_diarios_objetivo_min=15000,
+        pollos_diarios_objetivo_max=15000,
+        capacidad_maxima_planta=15000,
+        capacidad_con_horas_extras=15000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.80,
+        peso_max_faena=3.20,
+    )
+
+    lote_verde = _lote(
+        12000,
+        1,
+        edad_proyectada=36,
+        peso=2.68,
+        ganancia=0.0,
+        granja="ESPERA",
+        sexo="H",
+    )
+
+    semana = generar_proyeccion(
+        ofertas=[lote_verde],
+        fecha_inicio_semana=date(2026, 2, 23),
+        dias_faena=3,
+        pollos_por_dia=15000,
+        params=params,
+        criterio_gerente=True,
+    )
+
+    assert semana.dias[0].total_pollos == 0
+    assert semana.dias[1].total_pollos == 0
+    assert [lote.granja for lote in semana.dias[2].lotes] == ["ESPERA"]
 
 
 def test_ajuste_martes_redistribuye_cantidad_en_fragmentos():
