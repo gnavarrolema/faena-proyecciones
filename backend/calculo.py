@@ -53,7 +53,7 @@ class Parametros(BaseModel):
     descuento_sofia: int = 10000
     peso_objetivo_recepcion: float = 2.85   # kg peso vivo objetivo en recepción
     capacidad_con_horas_extras: int = 45000  # capacidad máxima real con horas extras
-    planificacion_continua_gerente: bool = True
+    planificacion_continua_gerente: bool = False
     planificacion_continua_dias_habiles: int = 16
     planificacion_gerente_priorizar_peso_objetivo: bool = False
     produccion_dias_hasta_faena: int = DIAS_HASTA_FAENA_REFERENCIA
