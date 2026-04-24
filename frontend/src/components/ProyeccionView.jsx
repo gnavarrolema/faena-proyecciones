@@ -26,6 +26,12 @@ function formatDate(d) {
   return dt.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
+function formatDateCompact(d) {
+  if (!d) return '-'
+  const dt = new Date(d + 'T12:00:00')
+  return dt.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
+}
+
 function formatDiasElegibles(dias) {
   if (!dias || dias.length === 0) return '-'
   return dias.map((dia) => {
@@ -187,6 +193,9 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
   const diasConPlan = proyeccion?.dias?.filter((dia) => (dia.total_pollos || 0) > 0).length || 0
   const totalSinCapacidad = proyeccion?.total_pollos_no_asignados || 0
   const totalFueraRango = proyeccion?.total_pollos_fuera_rango || 0
+  const usaCalendarioContinuo = proyeccion?.calendario_planificacion === 'continuo_habil'
+  const fechaInicioRealPlan = proyeccion?.fecha_inicio_planificacion_real || proyeccion?.fecha_inicio
+  const horizonteRealPlan = proyeccion?.dias_faena_reales || diasTotalesPlan
   const bbReferenceConfig = getBBReferenceConfigFromParams(parametros)
     || getBBReferenceConfigFromCoverage(proyeccion?.factibilidad_produccion)
   const bbReferencePreset = getBBReferencePresetMeta(bbReferenceConfig)
@@ -723,6 +732,11 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                 ? 'Toca la tarjeta alternativa para recalcular y comparar el resultado.'
                 : 'Vuelve a generar la planificación para guardar también la alternativa comparable.'}
             </span>
+            {usaCalendarioContinuo && (
+              <span className="planificacion-switcher__compare">
+                Calendario continuo: {formatNumber(horizonteRealPlan)} días hábiles desde {formatDateCompact(fechaInicioRealPlan)}. Por eso pueden repetirse nombres como Lunes o Jueves en distintas fechas.
+              </span>
+            )}
           </div>
         </motion.div>
       )}
@@ -778,6 +792,11 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
           <span className="badge badge-success" style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>Días usados: {diasConPlan}/{diasTotalesPlan}</span>
           <span className="badge badge-warning" style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>Sin capacidad: {formatNumber(totalSinCapacidad)}</span>
           <span className="badge badge-danger" style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>Fuera de rango: {formatNumber(totalFueraRango)}</span>
+          {usaCalendarioContinuo && (
+            <span className="badge badge-info" style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}>
+              Horizonte real: {formatNumber(horizonteRealPlan)} días hábiles desde {formatDateCompact(fechaInicioRealPlan)}
+            </span>
+          )}
         </div>
       </motion.div>
 
@@ -2221,6 +2240,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
               <div className="day-header" style={dia.nivel_carga === 'horas_extras' ? { background: '#fef2f2', borderBottom: '2px solid #ef4444' } : dia.nivel_carga === 'alto' ? { borderBottom: '2px solid #f97316' } : {}}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <span>{getDiaNombre(dia.fecha)}{dia.es_sabado ? ' (Sáb)' : ''}</span>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-light)', fontWeight: 600 }}>{formatDateCompact(dia.fecha)}</span>
                   {nivelLabel && (
                     <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.65rem', fontWeight: 700, color: nivelLabel.color }}>
                       {nivelLabel.icon} {nivelLabel.text}
@@ -2701,6 +2721,7 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
                               <div className="day-header" style={{ background: 'rgba(99, 102, 241, 0.06)', color: '#4338ca', borderBottomColor: '#818cf8' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                   <span>{getDiaNombre(dia.fecha)}</span>
+                                  <span style={{ fontSize: '0.7rem', color: '#6366f1', fontWeight: 600 }}>{formatDateCompact(dia.fecha)}</span>
                                   <span style={{ fontSize: '0.7rem', color: '#6366f1' }}>S2</span>
                                 </div>
                                 <span className="day-total" style={{ color: '#6366f1' }}>{formatNumber(dia.total_pollos)}</span>

@@ -18,6 +18,12 @@ function getDiaNombre(fechaStr) {
   return DIAS_SEMANA[idx]
 }
 
+function formatDateShort(fechaStr) {
+  if (!fechaStr) return '-'
+  const dt = new Date(fechaStr + 'T12:00:00')
+  return dt.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
+}
+
 const ETIQUETA_COLORS = {
   Conservador: { bg: 'rgba(34, 197, 94, 0.12)', border: 'rgba(34, 197, 94, 0.35)', text: '#16a34a' },
   Equilibrado: { bg: 'rgba(59, 130, 246, 0.12)', border: 'rgba(59, 130, 246, 0.35)', text: '#2563eb' },
@@ -192,7 +198,7 @@ export default function VariantesPicker({ data, onSelect, onClose }) {
                         fontSize: '0.78rem', padding: '0.15rem 0',
                         color: dia.nivel_carga === 'horas_extras' ? '#ef4444' : 'inherit',
                       }}>
-                        <span>{getDiaNombre(dia.fecha)}</span>
+                        <span>{getDiaNombre(dia.fecha)} · {formatDateShort(dia.fecha)}</span>
                         <span style={{ fontWeight: 600 }}>{formatNumber(dia.total_pollos)}</span>
                       </div>
                     ))}
