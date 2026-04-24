@@ -106,9 +106,7 @@ export default function ParametrosPanel({ onParametrosUpdated } = {}) {
       ]
     },
     {
-      section: 'Planificación Gerente', description: 'Ajustes para reproducir mejor la planificación continua del gerente cuando la oferta todavía cae antes del lunes operativo cargado en la UI.', items: [
-        { key: 'planificacion_continua_gerente', label: 'Usar calendario continuo en modo gerente', type: 'bool', help: 'Si está activo, el backend puede arrancar en el siguiente día hábil real de la oferta y extender el horizonte continuo para acercarse a la planilla del gerente.' },
-        { key: 'planificacion_continua_dias_habiles', label: 'Días hábiles del horizonte continuo', step: 1, type: 'int', help: 'Cantidad máxima de días hábiles consecutivos que se usan en la planificación continua principal del modo gerente.' },
+      section: 'Planificación Gerente', description: 'Ajustes de priorización para el modo gerente dentro del horizonte semanal operativo.', items: [
         { key: 'planificacion_gerente_priorizar_peso_objetivo', label: 'Priorizar peso objetivo entre lotes limpios', type: 'bool', help: 'Si está activo, cuando varios lotes ya cumplen mínimos el modo gerente desempata por cercanía al peso objetivo de recepción antes de favorecer lotes más pesados.' },
       ]
     },

@@ -70,7 +70,7 @@ def _guardar_ofertas_y_parametros():
     })
 
 
-def test_manager_mode_uses_continuous_business_day_calendar(client, auth_headers):
+def test_manager_mode_ignores_legacy_continuous_calendar_flag(client, auth_headers):
     _guardar_ofertas_y_parametros()
 
     r = client.post(
@@ -88,17 +88,15 @@ def test_manager_mode_uses_continuous_business_day_calendar(client, auth_headers
     data = r.json()
     fechas = [dia["fecha"] for dia in data["dias"]]
 
-    assert data["calendario_planificacion"] == "continuo_habil"
-    assert data["fecha_inicio_planificacion_real"] == "2026-04-17"
-    assert data["dias_faena_reales"] == 7
+    assert data["calendario_planificacion"] == "semanal"
+    assert data["fecha_inicio_planificacion_real"] == "2026-04-20"
+    assert data["dias_faena_reales"] == 5
     assert fechas == [
-        "2026-04-17",
         "2026-04-20",
         "2026-04-21",
         "2026-04-22",
         "2026-04-23",
         "2026-04-24",
-        "2026-04-27",
     ]
 
 
@@ -185,6 +183,6 @@ def test_continuous_manager_keeps_weekly_config_for_followup_flows(client, auth_
     assert config is not None
     assert config["fecha_inicio_semana"] == "2026-04-20"
     assert config["dias_faena"] == 5
-    assert config["fecha_inicio_semana_real"] == "2026-04-17"
-    assert config["dias_faena_reales"] == 7
-    assert config["planificacion_continua_gerente"] is True
+    assert config["fecha_inicio_semana_real"] == "2026-04-20"
+    assert config["dias_faena_reales"] == 5
+    assert config["planificacion_continua_gerente"] is False
