@@ -16,6 +16,9 @@ MERMA_REFERENCIA_PASO = 0.005
 TOLERANCIA_FECHA_CRUCE_DIAS = 3
 EDAD_TOLERANCIA_GERENTE = 4
 PESO_TOLERANCIA_GERENTE = 0.75
+GANANCIA_DIARIA_GERENTE_HEMBRA = 0.09
+GANANCIA_DIARIA_GERENTE_MACHO = 0.10
+GANANCIA_DIARIA_GERENTE_MIXTO = 0.095
 
 
 def normalizar_granja_clave(granja: str) -> str:
@@ -50,6 +53,9 @@ class Parametros(BaseModel):
     descuento_sofia: int = 10000
     peso_objetivo_recepcion: float = 2.85   # kg peso vivo objetivo en recepción
     capacidad_con_horas_extras: int = 45000  # capacidad máxima real con horas extras
+    planificacion_continua_gerente: bool = True
+    planificacion_continua_dias_habiles: int = 16
+    planificacion_gerente_priorizar_peso_objetivo: bool = False
     produccion_dias_hasta_faena: int = DIAS_HASTA_FAENA_REFERENCIA
     produccion_tolerancia_cruce_dias: int = TOLERANCIA_FECHA_CRUCE_DIAS
     produccion_mortalidad_min: float = MERMA_REFERENCIA_MIN
@@ -72,6 +78,7 @@ class LoteOferta(BaseModel):
     edad_real: int
     peso_muestreo_real: float
     fecha_ingreso: date
+    fecha_oferta: Optional[date] = None
 
 
 class LoteProyectado(BaseModel):
@@ -227,6 +234,7 @@ def calcular_edad_fin_retiro_v2(
     fecha_peso: date,
     edad_proyectada: int,
     dias_proyectados: int = 0,
+    fecha_base_override: Optional[date] = None,
 ) -> int:
     """
     Edad al fin del retiro calculada a partir de la fecha base de la oferta.
@@ -236,7 +244,7 @@ def calcular_edad_fin_retiro_v2(
     la base correcta para contar "días extra" hasta el retiro es la fecha de
     la oferta, no la fecha de pesaje individual.
     """
-    fecha_base = fecha_peso + timedelta(days=dias_proyectados)
+    fecha_base = fecha_base_override or (fecha_peso + timedelta(days=dias_proyectados))
     dias_extra = (fecha_fin_retiro - fecha_base).days
     return edad_proyectada + dias_extra
 
@@ -438,6 +446,70 @@ def calcular_lote_proyectado(
     return lote
 
 
+def _ganancia_diaria_criterio_gerente(sexo: str) -> float:
+    sexo_norm = (sexo or "").upper()
+    if sexo_norm == "H":
+        return GANANCIA_DIARIA_GERENTE_HEMBRA
+    if sexo_norm == "M":
+        return GANANCIA_DIARIA_GERENTE_MACHO
+    return GANANCIA_DIARIA_GERENTE_MIXTO
+
+
+def calcular_lote_proyectado_criterio_gerente(
+    oferta: LoteOferta,
+    fecha_fin_retiro: date,
+    params: Parametros,
+) -> LoteProyectado:
+    """Replica la proyección que usa la planilla del gerente cuando existe fecha global de oferta."""
+
+    fecha_base = oferta.fecha_oferta or (oferta.fecha_peso + timedelta(days=oferta.dias_proyectados))
+    edad_fin = calcular_edad_fin_retiro_v2(
+        fecha_fin_retiro,
+        oferta.fecha_peso,
+        oferta.edad_proyectada,
+        dias_proyectados=oferta.dias_proyectados,
+        fecha_base_override=fecha_base,
+    )
+
+    dif_edad = diferencia_edad_ideal(oferta.sexo, edad_fin, params)
+    peso_vivo = peso_vivo_retiro(
+        oferta.sexo,
+        edad_fin,
+        oferta.edad_proyectada,
+        oferta.peso_muestreo_proy,
+        params,
+        ganancia_diaria_lote=_ganancia_diaria_criterio_gerente(oferta.sexo),
+    )
+    p_faenado = peso_faenado(peso_vivo, params.rendimiento_canal)
+    calibre = calibre_promedio(p_faenado, params.kg_por_caja)
+    cajas = cajas_lote(oferta.cantidad, calibre)
+
+    lote = LoteProyectado(
+        granja=oferta.granja,
+        galpon=oferta.galpon,
+        nucleo=oferta.nucleo,
+        cantidad=oferta.cantidad,
+        sexo=oferta.sexo,
+        edad_actual=oferta.edad_proyectada,
+        peso_actual=oferta.peso_muestreo_proy,
+        fecha_fin_retiro=fecha_fin_retiro,
+        edad_fin_retiro=edad_fin,
+        diferencia_edad_ideal=dif_edad,
+        peso_vivo_retiro=peso_vivo,
+        peso_faenado=p_faenado,
+        calibre_promedio=calibre,
+        cajas=cajas,
+        fecha_peso_original=oferta.fecha_peso,
+        ganancia_diaria_original=oferta.ganancia_diaria,
+        fecha_ingreso_original=oferta.fecha_ingreso,
+        dias_proyectados_original=oferta.dias_proyectados,
+        cantidad_original_lote=oferta.cantidad,
+    )
+    lote.alerta_baja_edad = lote.edad_fin_retiro < params.edad_min_faena
+    lote.alerta_bajo_peso = lote.peso_vivo_retiro < params.peso_min_faena
+    return lote
+
+
 def _crear_fragmento_proyectado(
     oferta: LoteOferta,
     fecha_fin_retiro: date,
@@ -446,8 +518,13 @@ def _crear_fragmento_proyectado(
     fragmento_indice: int,
     total_fragmentos: int,
     cantidad_original_lote: Optional[int] = None,
+    usar_formula_gerente: bool = False,
 ) -> LoteProyectado:
-    lote = calcular_lote_proyectado(oferta, fecha_fin_retiro, params)
+    lote = (
+        calcular_lote_proyectado_criterio_gerente(oferta, fecha_fin_retiro, params)
+        if usar_formula_gerente
+        else calcular_lote_proyectado(oferta, fecha_fin_retiro, params)
+    )
     lote.cantidad = cantidad_fragmento
     lote.cajas = cajas_lote(cantidad_fragmento, lote.calibre_promedio)
     lote.fragmentado = total_fragmentos > 1 or cantidad_fragmento != oferta.cantidad
@@ -480,6 +557,25 @@ def _generar_fechas_faena(
         )
     else:
         fechas_dias = [fecha_inicio_semana + timedelta(days=i) for i in range(dias_faena)]
+    return fechas_dias, incluir_sabado, fecha_limite
+
+
+def _generar_fechas_faena_continuas(
+    fecha_inicio: date,
+    dias_habiles: int,
+    feriados: Optional[dict],
+    incluir_sabado: bool,
+) -> tuple[list[date], bool, date]:
+    from .feriados import generar_dias_habiles
+
+    fechas_dias = generar_dias_habiles(
+        fecha_inicio,
+        dias_habiles,
+        feriados or {},
+        incluir_sabado=incluir_sabado,
+        fecha_limite=None,
+    )
+    fecha_limite = fechas_dias[-1] if fechas_dias else fecha_inicio
     return fechas_dias, incluir_sabado, fecha_limite
 
 
@@ -741,7 +837,7 @@ def _evaluar_elegibilidad_lote_criterio_gerente(
     params: Parametros,
     minimos_como_alerta: bool,
 ) -> Optional[LoteProyectado]:
-    lote = calcular_lote_proyectado(oferta, fecha_dia, params)
+    lote = calcular_lote_proyectado_criterio_gerente(oferta, fecha_dia, params)
     brecha_edad = params.edad_min_faena - lote.edad_fin_retiro
     brecha_peso = params.peso_min_faena - lote.peso_vivo_retiro
 
@@ -770,17 +866,27 @@ def _generar_proyeccion_criterio_gerente(
     permitir_fraccionamiento_lotes: bool,
     excluir_backlog_semana_previa: bool,
     minimos_como_alerta: bool,
+    planificacion_continua: bool,
+    incluir_sabado_continuo: bool,
 ) -> SemanaFaena:
     gallinas = gallinas or {}
     objetivo_preferido = max(
         params.pollos_diarios_objetivo_min,
         min(pollos_por_dia, params.pollos_diarios_objetivo_max),
     )
-    fechas_dias, _, fecha_limite = _generar_fechas_faena(
-        fecha_inicio_semana,
-        dias_faena,
-        feriados,
-    )
+    if planificacion_continua:
+        fechas_dias, _, fecha_limite = _generar_fechas_faena_continuas(
+            fecha_inicio_semana,
+            dias_faena,
+            feriados,
+            incluir_sabado=incluir_sabado_continuo,
+        )
+    else:
+        fechas_dias, _, fecha_limite = _generar_fechas_faena(
+            fecha_inicio_semana,
+            dias_faena,
+            feriados,
+        )
     fechas_semana_previa = [fecha_dia - timedelta(days=7) for fecha_dia in fechas_dias]
     num_dias = len(fechas_dias)
 
@@ -829,14 +935,23 @@ def _generar_proyeccion_criterio_gerente(
                 detalle_rechazo.append(_detalle_rechazo_dia(oferta, fecha_dia, params))
                 continue
 
+            brecha_edad = max(0, params.edad_min_faena - lote.edad_fin_retiro)
+            brecha_peso = max(0.0, params.peso_min_faena - lote.peso_vivo_retiro)
+
             candidatos.append({
                 "dia_idx": d_idx,
                 "lote": lote,
                 "alertas": int(lote.alerta_baja_edad) + int(lote.alerta_bajo_peso),
+                "brecha_edad": brecha_edad,
+                "brecha_peso": brecha_peso,
+                "distancia_objetivo": abs(lote.peso_vivo_retiro - params.peso_objetivo_recepcion),
             })
             candidatos_por_dia.setdefault(i, {})[d_idx] = {
                 "lote": lote,
                 "alertas": int(lote.alerta_baja_edad) + int(lote.alerta_bajo_peso),
+                "brecha_edad": brecha_edad,
+                "brecha_peso": brecha_peso,
+                "distancia_objetivo": abs(lote.peso_vivo_retiro - params.peso_objetivo_recepcion),
             }
 
         if candidatos:
@@ -876,8 +991,29 @@ def _generar_proyeccion_criterio_gerente(
         """Prioridad cascada: sobreedad primero, luego más pesado, más viejo."""
         candidatos = candidatos_por_lote[lote_idx]
         primer = min(candidatos, key=lambda c: c["dia_idx"])
+        primer_limpio = min(
+            (c for c in candidatos if c["alertas"] == 0),
+            key=lambda c: c["dia_idx"],
+            default=primer,
+        )
+        if primer["alertas"] > 0:
+            dias_hasta_limpio = primer_limpio["dia_idx"] - primer["dia_idx"]
+            primer_dia_limpio_idx = primer_limpio["dia_idx"]
+        else:
+            dias_hasta_limpio = math.inf
+            primer_dia_limpio_idx = math.inf
+        mejor_limpio_dist = min(
+            (c["distancia_objetivo"] for c in candidatos if c["alertas"] == 0),
+            default=math.inf,
+        )
         return (
             0 if primer["lote"].sobreedad else 1,
+            primer["alertas"],
+            dias_hasta_limpio,
+            primer_dia_limpio_idx,
+            primer["brecha_peso"],
+            primer["brecha_edad"],
+            mejor_limpio_dist if params.planificacion_gerente_priorizar_peso_objetivo else math.inf,
             -primer["lote"].peso_vivo_retiro,
             -primer["lote"].edad_fin_retiro,
             len(candidatos),
@@ -885,20 +1021,11 @@ def _generar_proyeccion_criterio_gerente(
 
     def _target_dia_dinamico(d_idx: int) -> int:
         """Target dinámico: usar capacidad máxima de planta si:
-        - Ya hay lotes sobreedad asignados a este día (mantener capacidad), o
-        - Hay lotes pendientes que serían sobreedad en este día.
+        - Ya hay lotes sobreedad asignados a este día.
         Si no, usar el objetivo normal (pollos_diarios_objetivo_max).
         Los lotes que no caben al objetivo normal se difieren a la
         semana siguiente, como hace el gerente."""
-        # Si ya hay lotes sobreedad asignados al día, mantener capacidad
         for lote_idx in asignaciones[d_idx]:
-            info = candidatos_por_dia.get(lote_idx, {}).get(d_idx)
-            if info and info["lote"].sobreedad:
-                return _capacidad_dia(d_idx)
-        # Si hay lotes pendientes sobreedad en este día
-        for lote_idx, cant in pendientes.items():
-            if cant <= 0:
-                continue
             info = candidatos_por_dia.get(lote_idx, {}).get(d_idx)
             if info and info["lote"].sobreedad:
                 return _capacidad_dia(d_idx)
@@ -916,7 +1043,16 @@ def _generar_proyeccion_criterio_gerente(
                 mejor_espacio = 0
                 candidatos_ordenados = sorted(
                     candidatos_por_lote[lote_idx],
-                    key=lambda c: c["dia_idx"],
+                    key=lambda c: (
+                        c["alertas"],
+                        c["brecha_peso"],
+                        c["brecha_edad"],
+                        c["distancia_objetivo"] if (
+                            params.planificacion_gerente_priorizar_peso_objetivo
+                            and c["alertas"] == 0
+                        ) else math.inf,
+                        c["dia_idx"],
+                    ),
                 )
                 for candidato in candidatos_ordenados:
                     dia_idx = candidato["dia_idx"]
@@ -983,6 +1119,7 @@ def _generar_proyeccion_criterio_gerente(
                 fragmento_indice=fragmento_indice,
                 total_fragmentos=len(fragmentos_lote),
                 cantidad_original_lote=ofertas[lote_idx].cantidad,
+                usar_formula_gerente=True,
             )
             lote.sobreedad = candidatos_por_dia[lote_idx][d_idx]["lote"].sobreedad
             lotes_dia.append(lote)
@@ -1086,6 +1223,8 @@ def generar_proyeccion(
     permitir_fraccionamiento_lotes: Optional[bool] = None,
     excluir_backlog_semana_previa: Optional[bool] = None,
     minimos_como_alerta: Optional[bool] = None,
+    planificacion_continua_gerente: bool = False,
+    incluir_sabado_continuo_gerente: bool = False,
 ) -> SemanaFaena:
     """
     Genera la proyección completa de faena para una semana.
@@ -1140,6 +1279,8 @@ def generar_proyeccion(
             permitir_fraccionamiento_lotes=permitir_fraccionamiento_lotes,
             excluir_backlog_semana_previa=excluir_backlog_semana_previa,
             minimos_como_alerta=minimos_como_alerta,
+            planificacion_continua=planificacion_continua_gerente,
+            incluir_sabado_continuo=incluir_sabado_continuo_gerente,
         )
 
     objetivo_preferido = max(

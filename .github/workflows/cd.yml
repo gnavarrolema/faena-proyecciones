@@ -2,8 +2,21 @@
 name: CD
 
 on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      deployment_target:
+        description: Entorno a desplegar manualmente
+        type: choice
+        required: true
+        default: preview
+        options:
+          - preview
+          - production
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -12,28 +25,66 @@ env:
   AR_REPO: proyeccion-faena
   BACKEND_IMAGE: backend
   FRONTEND_IMAGE: frontend
-  # Cloud Run services
-  BACKEND_SERVICE: proyeccion-faena-api
-  FRONTEND_SERVICE: proyeccion-faena-web
+  # Cloud Run services base names
+  BACKEND_SERVICE_BASE: proyeccion-faena-api
+  FRONTEND_SERVICE_BASE: proyeccion-faena-web
 
 jobs:
   deploy-backend:
     runs-on: ubuntu-latest
+    outputs:
+      backend_service: ${{ steps.target.outputs.backend_service }}
+      frontend_service: ${{ steps.target.outputs.frontend_service }}
+      gcs_prefix: ${{ steps.target.outputs.gcs_prefix }}
+      deployment_kind: ${{ steps.target.outputs.deployment_kind }}
     permissions:
       contents: read
       id-token: write  # Para Workload Identity Federation
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+
+      - name: Resolve deployment target
+        id: target
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            deployment_kind="production"
+            backend_service="${{ env.BACKEND_SERVICE_BASE }}"
+            frontend_service="${{ env.FRONTEND_SERVICE_BASE }}"
+            gcs_prefix="data/"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.deployment_target }}" = "production" ]; then
+            deployment_kind="production"
+            backend_service="${{ env.BACKEND_SERVICE_BASE }}"
+            frontend_service="${{ env.FRONTEND_SERVICE_BASE }}"
+            gcs_prefix="data/"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            deployment_kind="preview"
+            suffix="-pr-${{ github.event.pull_request.number }}"
+            backend_service="${{ env.BACKEND_SERVICE_BASE }}${suffix}"
+            frontend_service="${{ env.FRONTEND_SERVICE_BASE }}${suffix}"
+            gcs_prefix="preview/pr-${{ github.event.pull_request.number }}/"
+          else
+            deployment_kind="preview"
+            suffix="-preview"
+            backend_service="${{ env.BACKEND_SERVICE_BASE }}${suffix}"
+            frontend_service="${{ env.FRONTEND_SERVICE_BASE }}${suffix}"
+            gcs_prefix="preview/manual/"
+          fi
+
+          echo "deployment_kind=${deployment_kind}" >> "$GITHUB_OUTPUT"
+          echo "backend_service=${backend_service}" >> "$GITHUB_OUTPUT"
+          echo "frontend_service=${frontend_service}" >> "$GITHUB_OUTPUT"
+          echo "gcs_prefix=${gcs_prefix}" >> "$GITHUB_OUTPUT"
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_SA_EMAIL }}
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
@@ -45,9 +96,30 @@ jobs:
           docker push $IMAGE
 
       - name: Deploy backend to Cloud Run
+        env:
+          PROD_ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          PROD_ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          PREVIEW_ADMIN_USERNAME: ${{ secrets['PREVIEW_ADMIN_USERNAME'] }}
+          PREVIEW_ADMIN_PASSWORD: ${{ secrets['PREVIEW_ADMIN_PASSWORD'] }}
         run: |
+          if [ "${{ steps.target.outputs.deployment_kind }}" = "production" ]; then
+            if [ -z "${PROD_ADMIN_USERNAME}" ] || [ -z "${PROD_ADMIN_PASSWORD}" ]; then
+              echo "Missing production admin secrets. Configure ADMIN_USERNAME and ADMIN_PASSWORD."
+              exit 1
+            fi
+            admin_username="${PROD_ADMIN_USERNAME}"
+            admin_password="${PROD_ADMIN_PASSWORD}"
+          else
+            if [ -z "${PREVIEW_ADMIN_USERNAME}" ] || [ -z "${PREVIEW_ADMIN_PASSWORD}" ]; then
+              echo "Missing preview admin secrets. Configure PREVIEW_ADMIN_USERNAME and PREVIEW_ADMIN_PASSWORD."
+              exit 1
+            fi
+            admin_username="${PREVIEW_ADMIN_USERNAME}"
+            admin_password="${PREVIEW_ADMIN_PASSWORD}"
+          fi
+
           IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.BACKEND_IMAGE }}:${{ github.sha }}
-          gcloud run deploy ${{ env.BACKEND_SERVICE }} \
+          gcloud run deploy ${{ steps.target.outputs.backend_service }} \
             --image $IMAGE \
             --region ${{ env.REGION }} \
             --platform managed \
@@ -59,10 +131,10 @@ jobs:
             --max-instances 2 \
             --set-env-vars "STORAGE_BACKEND=gcs" \
             --set-env-vars "GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}" \
-            --set-env-vars "GCS_PREFIX=data/" \
+            --set-env-vars "GCS_PREFIX=${{ steps.target.outputs.gcs_prefix }}" \
             --set-env-vars "SECRET_KEY=${{ secrets.SECRET_KEY }}" \
-            --set-env-vars "ADMIN_USERNAME=${{ secrets.ADMIN_USERNAME }}" \
-            --set-env-vars "ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}"
+            --set-env-vars "ADMIN_USERNAME=${admin_username}" \
+            --set-env-vars "ADMIN_PASSWORD=${admin_password}"
 
   deploy-frontend:
     runs-on: ubuntu-latest
@@ -72,21 +144,21 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_SA_EMAIL }}
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
 
       - name: Get backend URL
         id: backend_url
         run: |
-          URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE }} \
+          URL=$(gcloud run services describe ${{ needs.deploy-backend.outputs.backend_service }} \
             --region ${{ env.REGION }} \
             --format 'value(status.url)')
           echo "url=$URL" >> $GITHUB_OUTPUT
@@ -105,7 +177,7 @@ jobs:
       - name: Deploy frontend to Cloud Run
         run: |
           IMAGE=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
-          gcloud run deploy ${{ env.FRONTEND_SERVICE }} \
+          gcloud run deploy ${{ needs.deploy-backend.outputs.frontend_service }} \
             --image $IMAGE \
             --region ${{ env.REGION }} \
             --platform managed \
@@ -119,14 +191,14 @@ jobs:
       - name: Update backend CORS_ORIGINS with real frontend URLs
         run: |
           # URL formato .a.run.app (hash)
-          FRONTEND_URL=$(gcloud run services describe ${{ env.FRONTEND_SERVICE }} \
+          FRONTEND_URL=$(gcloud run services describe ${{ needs.deploy-backend.outputs.frontend_service }} \
             --region ${{ env.REGION }} \
             --format 'value(status.url)')
           # URL formato .us-central1.run.app (número de proyecto) — también válida en Cloud Run
           PROJECT_NUMBER=$(gcloud projects describe ${{ env.PROJECT_ID }} --format='value(projectNumber)')
-          FRONTEND_URL_ALT="https://${{ env.FRONTEND_SERVICE }}-${PROJECT_NUMBER}.${{ env.REGION }}.run.app"
+          FRONTEND_URL_ALT="https://${{ needs.deploy-backend.outputs.frontend_service }}-${PROJECT_NUMBER}.${{ env.REGION }}.run.app"
           CORS_VALUE="${FRONTEND_URL},${FRONTEND_URL_ALT}"
           echo "Setting CORS_ORIGINS: $CORS_VALUE"
-          gcloud run services update ${{ env.BACKEND_SERVICE }} \
+          gcloud run services update ${{ needs.deploy-backend.outputs.backend_service }} \
             --region ${{ env.REGION }} \
             --update-env-vars "^|^CORS_ORIGINS=${CORS_VALUE}"
