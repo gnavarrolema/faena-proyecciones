@@ -19,6 +19,7 @@ PESO_TOLERANCIA_GERENTE = 0.75
 GANANCIA_DIARIA_GERENTE_HEMBRA = 0.09
 GANANCIA_DIARIA_GERENTE_MACHO = 0.10
 GANANCIA_DIARIA_GERENTE_MIXTO = 0.095
+PUENTE_VIERNES_TOLERANCIA_PESO_GERENTE = 0.10
 
 
 def normalizar_granja_clave(granja: str) -> str:
@@ -887,6 +888,7 @@ def _generar_proyeccion_criterio_gerente(
             dias_faena,
             feriados,
         )
+    usa_viernes_puente = bool(planificacion_continua and fechas_dias and fechas_dias[0].weekday() == 4)
     fechas_semana_previa = [fecha_dia - timedelta(days=7) for fecha_dia in fechas_dias]
     num_dias = len(fechas_dias)
 
@@ -935,20 +937,36 @@ def _generar_proyeccion_criterio_gerente(
                 detalle_rechazo.append(_detalle_rechazo_dia(oferta, fecha_dia, params))
                 continue
 
+            es_candidato_viernes_puente = usa_viernes_puente and d_idx == 0
+            if (
+                es_candidato_viernes_puente
+                and (
+                    lote.edad_fin_retiro < params.edad_min_faena
+                    or lote.peso_vivo_retiro < params.peso_min_faena - PUENTE_VIERNES_TOLERANCIA_PESO_GERENTE
+                )
+            ):
+                detalle_rechazo.append(_detalle_rechazo_dia(oferta, fecha_dia, params))
+                continue
+
             brecha_edad = max(0, params.edad_min_faena - lote.edad_fin_retiro)
             brecha_peso = max(0.0, params.peso_min_faena - lote.peso_vivo_retiro)
+            alertas = int(lote.alerta_baja_edad) + int(lote.alerta_bajo_peso)
+            if es_candidato_viernes_puente:
+                brecha_edad = 0
+                brecha_peso = 0.0
+                alertas = 0
 
             candidatos.append({
                 "dia_idx": d_idx,
                 "lote": lote,
-                "alertas": int(lote.alerta_baja_edad) + int(lote.alerta_bajo_peso),
+                "alertas": alertas,
                 "brecha_edad": brecha_edad,
                 "brecha_peso": brecha_peso,
                 "distancia_objetivo": abs(lote.peso_vivo_retiro - params.peso_objetivo_recepcion),
             })
             candidatos_por_dia.setdefault(i, {})[d_idx] = {
                 "lote": lote,
-                "alertas": int(lote.alerta_baja_edad) + int(lote.alerta_bajo_peso),
+                "alertas": alertas,
                 "brecha_edad": brecha_edad,
                 "brecha_peso": brecha_peso,
                 "distancia_objetivo": abs(lote.peso_vivo_retiro - params.peso_objetivo_recepcion),
