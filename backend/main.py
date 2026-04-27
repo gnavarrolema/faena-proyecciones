@@ -261,6 +261,28 @@ def _resolver_calendario_planificacion(
     if req.habilitar_sabado and dias_faena < 6:
         dias_faena = 6
 
+    fechas_oferta_global = [oferta.fecha_oferta for oferta in ofertas if oferta.fecha_oferta]
+    fecha_oferta_global = max(fechas_oferta_global) if fechas_oferta_global else None
+    if req.criterio_gerente and fecha_oferta_global and fecha_oferta_global < req.fecha_inicio_semana:
+        fecha_fin_feriados = fecha_oferta_global + timedelta(days=max(dias_faena * 3, 30))
+        feriados = obtener_feriados_rango(
+            fecha_oferta_global,
+            fecha_fin_feriados,
+            feriados_custom=feriados_custom_list if feriados_custom_list else None,
+        )
+        fecha_inicio_real = _siguiente_dia_habil_planificacion(
+            fecha_oferta_global,
+            feriados=feriados,
+            incluir_sabado=req.habilitar_sabado,
+        )
+        if fecha_inicio_real < req.fecha_inicio_semana:
+            return {
+                "fecha_inicio": fecha_inicio_real,
+                "dias_faena": dias_faena,
+                "feriados": feriados if feriados else None,
+                "planificacion_continua_gerente": True,
+            }
+
     usar_continua_gerente = bool(
         req.criterio_gerente and params.planificacion_continua_gerente
     )
