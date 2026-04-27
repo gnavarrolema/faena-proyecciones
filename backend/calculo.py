@@ -16,9 +16,9 @@ MERMA_REFERENCIA_PASO = 0.005
 TOLERANCIA_FECHA_CRUCE_DIAS = 3
 EDAD_TOLERANCIA_GERENTE = 4
 PESO_TOLERANCIA_GERENTE = 0.75
-GANANCIA_DIARIA_GERENTE_HEMBRA = 0.09
-GANANCIA_DIARIA_GERENTE_MACHO = 0.10
-GANANCIA_DIARIA_GERENTE_MIXTO = 0.095
+# Las ganancias diarias del criterio gerente se leen de Parametros
+# (ganancia_diaria_macho=0.090, ganancia_diaria_hembra=0.079)
+# para mantener consistencia con la planilla Excel del gerente.
 PUENTE_VIERNES_TOLERANCIA_PESO_GERENTE = 0.10
 
 
@@ -447,13 +447,18 @@ def calcular_lote_proyectado(
     return lote
 
 
-def _ganancia_diaria_criterio_gerente(sexo: str) -> float:
+def _ganancia_diaria_criterio_gerente(sexo: str, params: Parametros) -> float:
+    """Ganancia diaria usada por la planilla del gerente.
+
+    Excel del gerente: MACHO = 90 GR (0.090), HEMBRA = 79 GR (0.079).
+    MIX y sin sexar usan la fórmula "SIN SEX" que aplica ganancia de macho.
+    Los valores se leen de Parametros para mantener sincronización.
+    """
     sexo_norm = (sexo or "").upper()
     if sexo_norm == "H":
-        return GANANCIA_DIARIA_GERENTE_HEMBRA
-    if sexo_norm == "M":
-        return GANANCIA_DIARIA_GERENTE_MACHO
-    return GANANCIA_DIARIA_GERENTE_MIXTO
+        return params.ganancia_diaria_hembra
+    # M, MIX y sin sexar usan ganancia de macho (fórmula SIN SEX del Excel)
+    return params.ganancia_diaria_macho
 
 
 def calcular_lote_proyectado_criterio_gerente(
@@ -479,7 +484,7 @@ def calcular_lote_proyectado_criterio_gerente(
         oferta.edad_proyectada,
         oferta.peso_muestreo_proy,
         params,
-        ganancia_diaria_lote=_ganancia_diaria_criterio_gerente(oferta.sexo),
+        ganancia_diaria_lote=_ganancia_diaria_criterio_gerente(oferta.sexo, params),
     )
     p_faenado = peso_faenado(peso_vivo, params.rendimiento_canal)
     calibre = calibre_promedio(p_faenado, params.kg_por_caja)
