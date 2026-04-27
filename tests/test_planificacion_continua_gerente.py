@@ -221,12 +221,14 @@ def test_manager_mode_starts_after_global_offer_date_when_it_precedes_selected_m
     assert data["calendario_planificacion"] == "continuo_habil"
     assert data["fecha_inicio_planificacion_real"] == "2026-04-24"
     assert data["dias_faena_reales"] == 5
+    # El viernes puente (24/abr) se muestra al final para que la vista
+    # de la semana aparezca en orden Lun → Mar → Mié → Jue → Vie.
     assert fechas == [
-        "2026-04-24",
         "2026-04-27",
         "2026-04-28",
         "2026-04-29",
         "2026-04-30",
+        "2026-04-24",
     ]
 
 
