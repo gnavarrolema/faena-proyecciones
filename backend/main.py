@@ -718,6 +718,7 @@ class ParametrosUpdate(BaseModel):
     planificacion_continua_gerente: Optional[bool] = None
     planificacion_continua_dias_habiles: Optional[int] = None
     planificacion_gerente_priorizar_peso_objetivo: Optional[bool] = None
+    pollos_viernes_puente: Optional[int] = None
     produccion_dias_hasta_faena: Optional[int] = None
     produccion_tolerancia_cruce_dias: Optional[int] = None
     produccion_mortalidad_min: Optional[float] = None

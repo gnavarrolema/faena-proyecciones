@@ -57,6 +57,7 @@ class Parametros(BaseModel):
     planificacion_continua_gerente: bool = False
     planificacion_continua_dias_habiles: int = 16
     planificacion_gerente_priorizar_peso_objetivo: bool = False
+    pollos_viernes_puente: int = 0  # Capacidad máxima para el viernes puente (0 = sin límite adicional)
     produccion_dias_hasta_faena: int = DIAS_HASTA_FAENA_REFERENCIA
     produccion_tolerancia_cruce_dias: int = TOLERANCIA_FECHA_CRUCE_DIAS
     produccion_mortalidad_min: float = MERMA_REFERENCIA_MIN
@@ -915,6 +916,9 @@ def _generar_proyeccion_criterio_gerente(
         # Sabados: limite estricto. L-V: capacidad real con horas extras.
         # capacidad_maxima_planta es solo el umbral de alerta "HORAS EXTRAS".
         cap_base = params.limite_sabado if es_sabado else params.capacidad_con_horas_extras
+        # Viernes puente: respetar capacidad configurada si es > 0
+        if usa_viernes_puente and d_idx == 0 and params.pollos_viernes_puente > 0:
+            cap_base = min(cap_base, params.pollos_viernes_puente)
         return max(0, cap_base - _gallinas_total(fecha.isoformat()))
 
     def _objetivo_dia(d_idx: int) -> int:
