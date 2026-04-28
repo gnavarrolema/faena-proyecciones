@@ -1156,7 +1156,7 @@ def test_criterio_gerente_trata_viernes_puente_como_dia_reducido():
         edad_max_faena=43,
         peso_min_faena=2.80,
         peso_max_faena=3.20,
-        pollos_viernes_puente=15000,
+        pollos_viernes_puente=15177,
     )
 
     ofertas = [
@@ -1254,7 +1254,14 @@ def test_criterio_gerente_trata_viernes_puente_como_dia_reducido():
 
     dias_por_fecha = {dia.fecha: dia for dia in semana.dias}
 
-    assert dias_por_fecha[date(2026, 4, 24)].total_pollos == 15000
+    lotes_viernes = dias_por_fecha[date(2026, 4, 24)].lotes
+
+    assert semana.dias[0].fecha == date(2026, 4, 24)
+    assert dias_por_fecha[date(2026, 4, 24)].total_pollos == 15177
+    assert [(lote.granja, lote.galpon, lote.nucleo, lote.cantidad) for lote in lotes_viernes] == [
+        ("REMANSOS", 5, 2, 4732),
+        ("REMANSOS", 3, 2, 10445),
+    ]
     assert {lote.granja for lote in dias_por_fecha[date(2026, 4, 27)].lotes} == {"MANANTIALES"}
     assert any(lote.granja == "REMANSOS" for lote in dias_por_fecha[date(2026, 4, 28)].lotes)
 

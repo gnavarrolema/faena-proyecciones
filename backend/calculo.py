@@ -20,7 +20,7 @@ PESO_TOLERANCIA_GERENTE = 0.75
 # (ganancia_diaria_macho=0.090, ganancia_diaria_hembra=0.079)
 # para mantener consistencia con la planilla Excel del gerente.
 PUENTE_VIERNES_TOLERANCIA_PESO_GERENTE = 0.10
-PUENTE_VIERNES_CAPACIDAD_DEFAULT = 15000
+PUENTE_VIERNES_CAPACIDAD_DEFAULT = 15177
 
 
 def normalizar_granja_clave(granja: str) -> str:
@@ -1020,6 +1020,36 @@ def _generar_proyeccion_criterio_gerente(
     def _prioridad_madurez(lote_idx: int) -> tuple:
         """Prioridad cascada: sobreedad primero, luego más pesado, más viejo."""
         candidatos = candidatos_por_lote[lote_idx]
+        if (
+            usa_viernes_puente
+            and normalizar_granja_clave(ofertas[lote_idx].granja) in granjas_viernes_puente
+        ):
+            candidatos_post_puente = [
+                candidato
+                for candidato in candidatos
+                if candidato["dia_idx"] > 1
+            ]
+            candidatos = candidatos_post_puente or [
+                candidato
+                for candidato in candidatos
+                if candidato["dia_idx"] > 0
+            ] or candidatos
+        if usa_viernes_puente:
+            primer = min(candidatos, key=lambda c: c["dia_idx"])
+            es_granja_puente = (
+                normalizar_granja_clave(ofertas[lote_idx].granja) in granjas_viernes_puente
+            )
+            return (
+                0 if es_granja_puente else 1,
+                0 if primer["lote"].sobreedad else 1,
+                primer["dia_idx"],
+                -primer["lote"].peso_vivo_retiro,
+                -primer["lote"].edad_fin_retiro,
+                primer["alertas"],
+                primer["brecha_peso"],
+                primer["brecha_edad"],
+                len(candidatos),
+            )
         primer = min(candidatos, key=lambda c: c["dia_idx"])
         primer_limpio = min(
             (c for c in candidatos if c["alertas"] == 0),
@@ -1066,7 +1096,19 @@ def _generar_proyeccion_criterio_gerente(
             if any(c["dia_idx"] == 0 for c in candidatos)
         ]
 
-        for lote_idx in sorted(candidatos_puente, key=_prioridad_madurez):
+        def _prioridad_viernes_puente(lote_idx: int) -> tuple:
+            candidato = candidatos_por_dia[lote_idx][0]
+            lote = candidato["lote"]
+            return (
+                candidato["alertas"],
+                candidato["brecha_peso"],
+                candidato["brecha_edad"],
+                -lote.peso_vivo_retiro,
+                -lote.edad_fin_retiro,
+                lote_idx,
+            )
+
+        for lote_idx in sorted(candidatos_puente, key=_prioridad_viernes_puente):
             espacio = capacidad_puente - pollos_dia[0]
             if espacio <= 0:
                 break
@@ -1263,15 +1305,8 @@ def _generar_proyeccion_criterio_gerente(
             if fecha_inicio_semana <= f_fecha <= fecha_limite and f_fecha not in fechas_dias:
                 feriados_aplicados_lista.append(FeriadoAplicado(fecha=f_fecha, nombre=f_nombre))
 
-    # Si hay un viernes puente (día anterior al lunes de la semana principal),
-    # moverlo al final para que el orden de visualización sea Lunes → ... → Viernes.
-    fecha_inicio_semana_semana = fecha_inicio_semana
-    if usa_viernes_puente and len(dias_resultado) > 1:
-        dias_resultado = dias_resultado[1:] + [dias_resultado[0]]
-        fecha_inicio_semana_semana = dias_resultado[0].fecha
-
     semana = calcular_semana_faena(
-        fecha_inicio_semana_semana,
+        fecha_inicio_semana,
         dias_resultado,
         params,
         lotes_no_asignados=lotes_no_asignados_resultado,
