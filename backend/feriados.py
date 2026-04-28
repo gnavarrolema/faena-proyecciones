@@ -116,7 +116,6 @@ def obtener_feriados_rango(
     fecha_inicio: date,
     fecha_fin: date,
     feriados_custom: Optional[list[dict]] = None,
-    incluir_nacionales: bool = True,
 ) -> dict[date, str]:
     """
     Retorna los feriados (nacionales + custom) que caen en un rango de fechas.
@@ -130,17 +129,16 @@ def obtener_feriados_rango(
         dict[date, str]: mapea fecha → nombre/descripción
     """
     # Obtener feriados nacionales de los años que cubre el rango
-    todos_feriados: dict[date, str] = {}
-    if incluir_nacionales:
-        anios = set()
-        anios.add(fecha_inicio.year)
-        anios.add(fecha_fin.year)
+    anios = set()
+    anios.add(fecha_inicio.year)
+    anios.add(fecha_fin.year)
 
-        for anio in anios:
-            nacionales = obtener_feriados_nacionales(anio)
-            for fecha, nombre in nacionales.items():
-                if fecha_inicio <= fecha <= fecha_fin:
-                    todos_feriados[fecha] = nombre
+    todos_feriados: dict[date, str] = {}
+    for anio in anios:
+        nacionales = obtener_feriados_nacionales(anio)
+        for fecha, nombre in nacionales.items():
+            if fecha_inicio <= fecha <= fecha_fin:
+                todos_feriados[fecha] = nombre
 
     # Agregar feriados custom
     if feriados_custom:

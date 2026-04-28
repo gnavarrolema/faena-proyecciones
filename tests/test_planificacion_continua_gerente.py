@@ -194,7 +194,6 @@ def test_manager_mode_starts_after_global_offer_date_when_it_precedes_selected_m
     ])
     storage.save_parametros({
         "pollos_diarios_objetivo_max": 45000,
-        "usar_feriados_nacionales": False,
     })
 
     r = client.post(
@@ -214,14 +213,13 @@ def test_manager_mode_starts_after_global_offer_date_when_it_precedes_selected_m
 
     assert data["calendario_planificacion"] == "continuo_habil"
     assert data["fecha_inicio_planificacion_real"] == "2026-04-24"
-    assert data["dias_faena_reales"] == 6
+    assert data["dias_faena_reales"] == 5
     assert fechas == [
         "2026-04-24",
         "2026-04-27",
         "2026-04-28",
         "2026-04-29",
         "2026-04-30",
-        "2026-05-01",
     ]
 
 
@@ -247,12 +245,3 @@ def test_continuous_manager_keeps_weekly_config_for_followup_flows(client, auth_
     # Con planificacion_continua=True, los valores reales pueden diferir
     assert config["dias_faena_reales"] >= 5
     assert config["planificacion_continua_gerente"] is True
-
-
-def test_feriados_endpoint_respects_national_holidays_toggle(client, auth_headers):
-    storage.save_parametros({"usar_feriados_nacionales": False})
-
-    r = client.get("/feriados?anio=2026", headers=auth_headers)
-
-    assert r.status_code == 200
-    assert all(item["tipo"] != "nacional" for item in r.json())

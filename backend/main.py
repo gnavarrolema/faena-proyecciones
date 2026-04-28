@@ -247,30 +247,6 @@ def _siguiente_dia_habil_planificacion(
         return dia_actual
 
 
-def _contar_dias_habiles_planificacion(
-    fecha_inicio: date,
-    fecha_fin_exclusiva: date,
-    feriados: Optional[dict[date, str]] = None,
-    incluir_sabado: bool = False,
-) -> int:
-    total = 0
-    dia_actual = fecha_inicio
-    while dia_actual < fecha_fin_exclusiva:
-        dow = dia_actual.weekday()
-        if dow == 6:
-            dia_actual += timedelta(days=1)
-            continue
-        if dow == 5 and not incluir_sabado:
-            dia_actual += timedelta(days=1)
-            continue
-        if feriados and dia_actual in feriados:
-            dia_actual += timedelta(days=1)
-            continue
-        total += 1
-        dia_actual += timedelta(days=1)
-    return total
-
-
 def _resolver_calendario_planificacion(
     req: "ProyeccionRequest",
     params: Parametros,
@@ -289,7 +265,6 @@ def _resolver_calendario_planificacion(
             fecha_oferta_global,
             fecha_fin_feriados,
             feriados_custom=feriados_custom_list if feriados_custom_list else None,
-            incluir_nacionales=params.usar_feriados_nacionales,
         )
         fecha_inicio_real = _siguiente_dia_habil_planificacion(
             fecha_oferta_global,
@@ -297,15 +272,9 @@ def _resolver_calendario_planificacion(
             incluir_sabado=req.habilitar_sabado,
         )
         if fecha_inicio_real < req.fecha_inicio_semana:
-            dias_previos = _contar_dias_habiles_planificacion(
-                fecha_inicio_real,
-                req.fecha_inicio_semana,
-                feriados=feriados,
-                incluir_sabado=req.habilitar_sabado,
-            )
             return {
                 "fecha_inicio": fecha_inicio_real,
-                "dias_faena": dias_faena + dias_previos,
+                "dias_faena": dias_faena,
                 "feriados": feriados if feriados else None,
                 "planificacion_continua_gerente": True,
             }
@@ -319,7 +288,6 @@ def _resolver_calendario_planificacion(
             req.fecha_inicio_semana,
             fecha_fin,
             feriados_custom=feriados_custom_list if feriados_custom_list else None,
-            incluir_nacionales=params.usar_feriados_nacionales,
         )
         return {
             "fecha_inicio": req.fecha_inicio_semana,
@@ -340,7 +308,6 @@ def _resolver_calendario_planificacion(
             req.fecha_inicio_semana,
             fecha_fin,
             feriados_custom=feriados_custom_list if feriados_custom_list else None,
-            incluir_nacionales=params.usar_feriados_nacionales,
         )
         return {
             "fecha_inicio": req.fecha_inicio_semana,
@@ -354,7 +321,6 @@ def _resolver_calendario_planificacion(
         fecha_inicio_feriados,
         fecha_fin_feriados,
         feriados_custom=feriados_custom_list if feriados_custom_list else None,
-        incluir_nacionales=params.usar_feriados_nacionales,
     )
     fecha_inicio_sugerida = _siguiente_dia_habil_planificacion(
         fecha_base,
@@ -749,7 +715,6 @@ class ParametrosUpdate(BaseModel):
     descuento_sofia: Optional[int] = None
     capacidad_con_horas_extras: Optional[int] = None
     peso_objetivo_recepcion: Optional[float] = None
-    usar_feriados_nacionales: Optional[bool] = None
     planificacion_continua_gerente: Optional[bool] = None
     planificacion_continua_dias_habiles: Optional[int] = None
     planificacion_gerente_priorizar_peso_objetivo: Optional[bool] = None
@@ -2424,14 +2389,11 @@ def get_feriados(anio: int, current_user: TokenData = Depends(get_current_user))
     Obtener feriados nacionales para un año dado,
     combinados con los feriados custom guardados.
     """
-    params = _get_parametros()
-    resultado = []
-    if params.usar_feriados_nacionales:
-        nacionales = obtener_feriados_nacionales(anio)
-        resultado.extend(
-            {"fecha": f.isoformat(), "nombre": n, "tipo": "nacional"}
-            for f, n in sorted(nacionales.items())
-        )
+    nacionales = obtener_feriados_nacionales(anio)
+    resultado = [
+        {"fecha": f.isoformat(), "nombre": n, "tipo": "nacional"}
+        for f, n in sorted(nacionales.items())
+    ]
 
     # Agregar custom del mismo año
     custom = storage.load_feriados_custom() or []
