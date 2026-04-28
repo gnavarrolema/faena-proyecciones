@@ -163,6 +163,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
         const inicio = new Date(fechaInicio + 'T00:00:00')
         const fin = new Date(inicio)
         fin.setDate(fin.getDate() + (diasFaena >= 6 ? 5 : 4))
+        fin.setHours(23, 59, 59, 999)
 
         const diasReales = habilitarSabado ? 5 : (diasFaena >= 6 ? 5 : 4)
         const enSemana = todos.filter(f => {
@@ -211,6 +212,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
         const inicio = new Date(fechaInicio + 'T00:00:00')
         const fin = new Date(inicio)
         fin.setDate(fin.getDate() + (diasFaena >= 6 ? 5 : 4))
+        fin.setHours(23, 59, 59, 999)
         const enSemana = todos.filter(f => {
           const fd = new Date(f.fecha + 'T12:00:00')
           return fd >= inicio && fd <= fin && fd.getDay() !== 0
