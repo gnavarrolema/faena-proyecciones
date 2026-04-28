@@ -20,6 +20,7 @@ PESO_TOLERANCIA_GERENTE = 0.75
 # (ganancia_diaria_macho=0.090, ganancia_diaria_hembra=0.079)
 # para mantener consistencia con la planilla Excel del gerente.
 PUENTE_VIERNES_TOLERANCIA_PESO_GERENTE = 0.10
+PUENTE_VIERNES_CAPACIDAD_DEFAULT = 15000
 
 
 def normalizar_granja_clave(granja: str) -> str:
@@ -57,7 +58,7 @@ class Parametros(BaseModel):
     planificacion_continua_gerente: bool = False
     planificacion_continua_dias_habiles: int = 16
     planificacion_gerente_priorizar_peso_objetivo: bool = False
-    pollos_viernes_puente: int = 0  # Capacidad máxima para el viernes puente (0 = sin límite adicional)
+    pollos_viernes_puente: int = PUENTE_VIERNES_CAPACIDAD_DEFAULT  # Capacidad máxima para el viernes puente
     produccion_dias_hasta_faena: int = DIAS_HASTA_FAENA_REFERENCIA
     produccion_tolerancia_cruce_dias: int = TOLERANCIA_FECHA_CRUCE_DIAS
     produccion_mortalidad_min: float = MERMA_REFERENCIA_MIN
@@ -1048,6 +1049,41 @@ def _generar_proyeccion_criterio_gerente(
             len(candidatos),
         )
 
+    granjas_viernes_puente: set[str] = set()
+
+    def _preasignar_viernes_puente():
+        """Reserva el viernes puente como día reducido antes de llenar la semana normal."""
+        if not usa_viernes_puente or num_dias == 0:
+            return
+
+        capacidad_puente = _capacidad_dia(0)
+        if capacidad_puente <= 0:
+            return
+
+        candidatos_puente = [
+            lote_idx
+            for lote_idx, candidatos in candidatos_por_lote.items()
+            if any(c["dia_idx"] == 0 for c in candidatos)
+        ]
+
+        for lote_idx in sorted(candidatos_puente, key=_prioridad_madurez):
+            espacio = capacidad_puente - pollos_dia[0]
+            if espacio <= 0:
+                break
+            cantidad_pendiente = pendientes[lote_idx]
+            if cantidad_pendiente <= 0:
+                continue
+
+            if permitir_fraccionamiento_lotes:
+                cantidad = min(cantidad_pendiente, espacio)
+            elif cantidad_pendiente <= espacio:
+                cantidad = cantidad_pendiente
+            else:
+                continue
+
+            _registrar_asignacion(lote_idx, 0, cantidad)
+            granjas_viernes_puente.add(normalizar_granja_clave(ofertas[lote_idx].granja))
+
     def _target_dia_dinamico(d_idx: int) -> int:
         """Target de asignacion en modo gerente: capacidad real (con horas extras).
         El gerente siempre llena hasta la capacidad maxima disponible (45k en L-V)
@@ -1068,19 +1104,34 @@ def _generar_proyeccion_criterio_gerente(
                 mejor_espacio = 0
                 candidatos_ordenados = sorted(
                     candidatos_por_lote[lote_idx],
-                    key=lambda c: (
-                        c["alertas"],
-                        c["brecha_peso"],
-                        c["brecha_edad"],
-                        c["distancia_objetivo"] if (
-                            params.planificacion_gerente_priorizar_peso_objetivo
-                            and c["alertas"] == 0
-                        ) else math.inf,
-                        c["dia_idx"],
+                    key=(
+                        lambda c: (
+                            c["dia_idx"],
+                            c["alertas"],
+                            c["brecha_peso"],
+                            c["brecha_edad"],
+                        )
+                        if usa_viernes_puente
+                        else (
+                            c["alertas"],
+                            c["brecha_peso"],
+                            c["brecha_edad"],
+                            c["distancia_objetivo"] if (
+                                params.planificacion_gerente_priorizar_peso_objetivo
+                                and c["alertas"] == 0
+                            ) else math.inf,
+                            c["dia_idx"],
+                        )
                     ),
                 )
                 for candidato in candidatos_ordenados:
                     dia_idx = candidato["dia_idx"]
+                    if (
+                        usa_viernes_puente
+                        and dia_idx == 1
+                        and normalizar_granja_clave(ofertas[lote_idx].granja) in granjas_viernes_puente
+                    ):
+                        continue
                     target = _target_dia_dinamico(dia_idx)
                     espacio = target - pollos_dia[dia_idx]
                     if espacio > 0:
@@ -1114,6 +1165,7 @@ def _generar_proyeccion_criterio_gerente(
         key=_prioridad_madurez,
     )
 
+    _preasignar_viernes_puente()
     _llenar_cascada(todos_los_lotes)
 
     dias_por_lote: dict[int, list[tuple[int, int]]] = {}

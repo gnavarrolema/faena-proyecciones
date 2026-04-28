@@ -1146,6 +1146,119 @@ def test_criterio_gerente_espera_un_dia_mejor_para_lote_verde():
     assert [lote.granja for lote in semana.dias[2].lotes] == ["ESPERA"]
 
 
+def test_criterio_gerente_trata_viernes_puente_como_dia_reducido():
+    params = Parametros(
+        pollos_diarios_objetivo_min=25000,
+        pollos_diarios_objetivo_max=45000,
+        capacidad_maxima_planta=42000,
+        capacidad_con_horas_extras=45000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.80,
+        peso_max_faena=3.20,
+        pollos_viernes_puente=15000,
+    )
+
+    ofertas = [
+        LoteOferta(
+            fecha_peso=date(2026, 4, 23),
+            fecha_oferta=date(2026, 4, 23),
+            granja="REMANSOS",
+            galpon=5,
+            nucleo=2,
+            cantidad=4732,
+            sexo="H",
+            edad_proyectada=41,
+            peso_muestreo_proy=2.85,
+            ganancia_diaria=0.085,
+            dias_proyectados=0,
+            edad_real=41,
+            peso_muestreo_real=2.85,
+            fecha_ingreso=date(2026, 3, 12),
+        ),
+        LoteOferta(
+            fecha_peso=date(2026, 4, 23),
+            fecha_oferta=date(2026, 4, 23),
+            granja="REMANSOS",
+            galpon=3,
+            nucleo=2,
+            cantidad=21937,
+            sexo="H",
+            edad_proyectada=40,
+            peso_muestreo_proy=2.75,
+            ganancia_diaria=0.085,
+            dias_proyectados=0,
+            edad_real=40,
+            peso_muestreo_real=2.75,
+            fecha_ingreso=date(2026, 3, 13),
+        ),
+        LoteOferta(
+            fecha_peso=date(2026, 4, 18),
+            fecha_oferta=date(2026, 4, 23),
+            granja="MANANTIALES",
+            galpon=4,
+            nucleo=1,
+            cantidad=11492,
+            sexo="M",
+            edad_proyectada=33,
+            peso_muestreo_proy=2.506,
+            ganancia_diaria=0.09,
+            dias_proyectados=5,
+            edad_real=28,
+            peso_muestreo_real=2.056,
+            fecha_ingreso=date(2026, 3, 20),
+        ),
+        LoteOferta(
+            fecha_peso=date(2026, 4, 18),
+            fecha_oferta=date(2026, 4, 23),
+            granja="MANANTIALES",
+            galpon=2,
+            nucleo=1,
+            cantidad=21496,
+            sexo="M",
+            edad_proyectada=33,
+            peso_muestreo_proy=2.494,
+            ganancia_diaria=0.09,
+            dias_proyectados=5,
+            edad_real=28,
+            peso_muestreo_real=2.044,
+            fecha_ingreso=date(2026, 3, 20),
+        ),
+        LoteOferta(
+            fecha_peso=date(2026, 4, 17),
+            fecha_oferta=date(2026, 4, 23),
+            granja="MANANTIALES",
+            galpon=1,
+            nucleo=1,
+            cantidad=12012,
+            sexo="M",
+            edad_proyectada=34,
+            peso_muestreo_proy=2.54,
+            ganancia_diaria=0.09,
+            dias_proyectados=6,
+            edad_real=28,
+            peso_muestreo_real=2.0,
+            fecha_ingreso=date(2026, 3, 19),
+        ),
+    ]
+
+    semana = generar_proyeccion(
+        ofertas=ofertas,
+        fecha_inicio_semana=date(2026, 4, 24),
+        dias_faena=5,
+        pollos_por_dia=45000,
+        params=params,
+        criterio_gerente=True,
+        planificacion_continua_gerente=True,
+    )
+
+    dias_por_fecha = {dia.fecha: dia for dia in semana.dias}
+
+    assert dias_por_fecha[date(2026, 4, 24)].total_pollos == 15000
+    assert {lote.granja for lote in dias_por_fecha[date(2026, 4, 27)].lotes} == {"MANANTIALES"}
+    assert any(lote.granja == "REMANSOS" for lote in dias_por_fecha[date(2026, 4, 28)].lotes)
+
+
 def test_ajuste_martes_redistribuye_cantidad_en_fragmentos():
     params = Parametros(
         pollos_diarios_objetivo_min=15000,
