@@ -1109,6 +1109,7 @@ def _generar_proyeccion_criterio_gerente(
         list(candidatos_por_lote.keys()),
         key=_prioridad_madurez,
     )
+
     _llenar_cascada(todos_los_lotes)
 
     dias_por_lote: dict[int, list[tuple[int, int]]] = {}
