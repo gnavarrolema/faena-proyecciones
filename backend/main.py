@@ -93,11 +93,7 @@ def _get_parametros() -> Parametros:
     data = storage.load_parametros()
     if data:
         try:
-            # El calendario continuo del modo gerente quedó deshabilitado:
-            # si existía persistido en storage, lo neutralizamos al leer para
-            # volver S1 al horizonte semanal y migrarlo en el siguiente guardado.
             data = dict(data)
-            data["planificacion_continua_gerente"] = False
             return Parametros(**data)
         except Exception as e:
             logger.warning(f"Error leyendo parámetros de storage: {e}")

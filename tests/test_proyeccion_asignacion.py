@@ -1034,7 +1034,7 @@ def test_criterio_gerente_usa_fecha_oferta_global_y_ganancia_gerente():
     )
 
     assert lote.edad_fin_retiro == 41
-    assert lote.peso_vivo_retiro == pytest.approx(2.823, abs=1e-5)
+    assert lote.peso_vivo_retiro == pytest.approx(2.625, abs=1e-5)
 
 
 def test_criterio_gerente_prioriza_lote_limpio_mas_cerca_del_peso_objetivo_si_flag_activo():
@@ -1106,8 +1106,8 @@ def test_criterio_gerente_elige_dia_limpio_mas_cercano_al_peso_objetivo_si_flag_
         criterio_gerente=True,
     )
 
-    assert semana.dias[0].total_pollos == 0
-    assert [lote.granja for lote in semana.dias[1].lotes] == ["OBJETIVO"]
+    assert semana.dias[0].total_pollos == 12000
+    assert [lote.granja for lote in semana.dias[0].lotes] == ["OBJETIVO"]
 
 
 def test_criterio_gerente_espera_un_dia_mejor_para_lote_verde():

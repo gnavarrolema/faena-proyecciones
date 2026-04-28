@@ -16,9 +16,9 @@ MERMA_REFERENCIA_PASO = 0.005
 TOLERANCIA_FECHA_CRUCE_DIAS = 3
 EDAD_TOLERANCIA_GERENTE = 4
 PESO_TOLERANCIA_GERENTE = 0.75
-GANANCIA_DIARIA_GERENTE_HEMBRA = 0.09
-GANANCIA_DIARIA_GERENTE_MACHO = 0.10
-GANANCIA_DIARIA_GERENTE_MIXTO = 0.095
+# Las ganancias diarias del criterio gerente se leen de Parametros
+# (ganancia_diaria_macho=0.090, ganancia_diaria_hembra=0.079)
+# para mantener consistencia con la planilla Excel del gerente.
 PUENTE_VIERNES_TOLERANCIA_PESO_GERENTE = 0.10
 
 
@@ -447,13 +447,18 @@ def calcular_lote_proyectado(
     return lote
 
 
-def _ganancia_diaria_criterio_gerente(sexo: str) -> float:
+def _ganancia_diaria_criterio_gerente(sexo: str, params: Parametros) -> float:
+    """Ganancia diaria usada por la planilla del gerente.
+
+    Excel del gerente: MACHO = 90 GR (0.090), HEMBRA = 79 GR (0.079).
+    MIX y sin sexar usan la fórmula "SIN SEX" que aplica ganancia de macho.
+    Los valores se leen de Parametros para mantener sincronización.
+    """
     sexo_norm = (sexo or "").upper()
     if sexo_norm == "H":
-        return GANANCIA_DIARIA_GERENTE_HEMBRA
-    if sexo_norm == "M":
-        return GANANCIA_DIARIA_GERENTE_MACHO
-    return GANANCIA_DIARIA_GERENTE_MIXTO
+        return params.ganancia_diaria_hembra
+    # M, MIX y sin sexar usan ganancia de macho (fórmula SIN SEX del Excel)
+    return params.ganancia_diaria_macho
 
 
 def calcular_lote_proyectado_criterio_gerente(
@@ -479,7 +484,7 @@ def calcular_lote_proyectado_criterio_gerente(
         oferta.edad_proyectada,
         oferta.peso_muestreo_proy,
         params,
-        ganancia_diaria_lote=_ganancia_diaria_criterio_gerente(oferta.sexo),
+        ganancia_diaria_lote=_ganancia_diaria_criterio_gerente(oferta.sexo, params),
     )
     p_faenado = peso_faenado(peso_vivo, params.rendimiento_canal)
     calibre = calibre_promedio(p_faenado, params.kg_por_caja)
@@ -907,7 +912,9 @@ def _generar_proyeccion_criterio_gerente(
     def _capacidad_dia(d_idx: int) -> int:
         fecha = fechas_dias[d_idx]
         es_sabado = fecha.weekday() == 5
-        cap_base = params.limite_sabado if es_sabado else params.capacidad_maxima_planta
+        # Sabados: limite estricto. L-V: capacidad real con horas extras.
+        # capacidad_maxima_planta es solo el umbral de alerta "HORAS EXTRAS".
+        cap_base = params.limite_sabado if es_sabado else params.capacidad_con_horas_extras
         return max(0, cap_base - _gallinas_total(fecha.isoformat()))
 
     def _objetivo_dia(d_idx: int) -> int:
@@ -1038,16 +1045,12 @@ def _generar_proyeccion_criterio_gerente(
         )
 
     def _target_dia_dinamico(d_idx: int) -> int:
-        """Target dinámico: usar capacidad máxima de planta si:
-        - Ya hay lotes sobreedad asignados a este día.
-        Si no, usar el objetivo normal (pollos_diarios_objetivo_max).
-        Los lotes que no caben al objetivo normal se difieren a la
-        semana siguiente, como hace el gerente."""
-        for lote_idx in asignaciones[d_idx]:
-            info = candidatos_por_dia.get(lote_idx, {}).get(d_idx)
-            if info and info["lote"].sobreedad:
-                return _capacidad_dia(d_idx)
-        return _objetivo_dia(d_idx)
+        """Target de asignacion en modo gerente: capacidad real (con horas extras).
+        El gerente siempre llena hasta la capacidad maxima disponible (45k en L-V)
+        independientemente de si hay lotes sobreedad o no. La alerta 'HORAS EXTRAS'
+        se activa en la UI cuando se supera capacidad_maxima_planta (42k).
+        """
+        return _capacidad_dia(d_idx)
 
     def _llenar_cascada(indices: list[int]):
         """Llena días secuencialmente con lotes ordenados por madurez."""
@@ -1106,6 +1109,7 @@ def _generar_proyeccion_criterio_gerente(
         list(candidatos_por_lote.keys()),
         key=_prioridad_madurez,
     )
+
     _llenar_cascada(todos_los_lotes)
 
     dias_por_lote: dict[int, list[tuple[int, int]]] = {}
@@ -1203,8 +1207,15 @@ def _generar_proyeccion_criterio_gerente(
             if fecha_inicio_semana <= f_fecha <= fecha_limite and f_fecha not in fechas_dias:
                 feriados_aplicados_lista.append(FeriadoAplicado(fecha=f_fecha, nombre=f_nombre))
 
+    # Si hay un viernes puente (día anterior al lunes de la semana principal),
+    # moverlo al final para que el orden de visualización sea Lunes → ... → Viernes.
+    fecha_inicio_semana_semana = fecha_inicio_semana
+    if usa_viernes_puente and len(dias_resultado) > 1:
+        dias_resultado = dias_resultado[1:] + [dias_resultado[0]]
+        fecha_inicio_semana_semana = dias_resultado[0].fecha
+
     semana = calcular_semana_faena(
-        fecha_inicio_semana,
+        fecha_inicio_semana_semana,
         dias_resultado,
         params,
         lotes_no_asignados=lotes_no_asignados_resultado,
@@ -1328,12 +1339,13 @@ def generar_proyeccion(
             return val.get("livianas", 0), val.get("pesadas", 0)
         return val, 0  # backward-compat: todo como livianas
 
-    # Capacidad máxima por día: sábados = limite_sabado, L-V = capacidad_maxima_planta
+    # Capacidad maxima por dia: sabados = limite_sabado, L-V = capacidad_con_horas_extras.
+    # capacidad_maxima_planta es solo el umbral de alerta "HORAS EXTRAS".
     # Se descuenta la capacidad ocupada por gallinas
     def _capacidad_dia(d_idx: int) -> int:
         fecha = fechas_dias[d_idx]
         es_sabado = fecha.weekday() == 5
-        cap_base = params.limite_sabado if es_sabado else params.capacidad_maxima_planta
+        cap_base = params.limite_sabado if es_sabado else params.capacidad_con_horas_extras
         gall = _gallinas_total(fecha.isoformat())
         return max(0, cap_base - gall)
 
