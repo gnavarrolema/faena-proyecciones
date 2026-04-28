@@ -1,4 +1,4 @@
-# ─── CD: Build & Deploy a Cloud Run ─────────────────────────────────────────
+﻿# â”€â”€â”€ CD: Build & Deploy a Cloud Run â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 name: CD
 
 on:
@@ -43,7 +43,7 @@ jobs:
       id-token: write  # Para Workload Identity Federation
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Resolve deployment target
         id: target
@@ -187,7 +187,7 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3
@@ -237,7 +237,7 @@ jobs:
           FRONTEND_URL=$(gcloud run services describe ${{ needs.deploy-backend.outputs.frontend_service }} \
             --region ${{ env.REGION }} \
             --format 'value(status.url)')
-          # URL formato .us-central1.run.app (número de proyecto) — también válida en Cloud Run
+          # URL formato .us-central1.run.app (nÃºmero de proyecto) â€” tambiÃ©n vÃ¡lida en Cloud Run
           PROJECT_NUMBER=$(gcloud projects describe ${{ env.PROJECT_ID }} --format='value(projectNumber)')
           FRONTEND_URL_ALT="https://${{ needs.deploy-backend.outputs.frontend_service }}-${PROJECT_NUMBER}.${{ env.REGION }}.run.app"
           CORS_VALUE="${FRONTEND_URL},${FRONTEND_URL_ALT}"
