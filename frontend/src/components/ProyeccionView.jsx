@@ -573,6 +573,15 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
       setProyeccion(data.proyeccion)
       setAjusteResumen(data.resumen_ajuste)
       setAjusteFile(null)
+      try {
+        setTrazabilidadLoading(true)
+        const trazData = await getOfertaTrazabilidad()
+        setTrazabilidad(trazData)
+      } catch {
+        setTrazabilidad(null)
+      } finally {
+        setTrazabilidadLoading(false)
+      }
       toast.success('Planificación ajustada con oferta del martes')
       // Alertar si hubo filas descartadas en la oferta del martes
       if (data.filas_descartadas?.length > 0) {

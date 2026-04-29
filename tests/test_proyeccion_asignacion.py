@@ -495,6 +495,50 @@ def test_ajuste_martes_reinserta_backlog_si_se_libera_capacidad():
     }]
 
 
+def test_ajuste_martes_usa_capacidad_con_horas_extras_para_lotes_nuevos():
+    params = Parametros(
+        pollos_diarios_objetivo_min=42000,
+        pollos_diarios_objetivo_max=42000,
+        capacidad_maxima_planta=42000,
+        capacidad_con_horas_extras=45000,
+        edad_min_faena=38,
+        edad_max_faena=43,
+        peso_min_faena=2.50,
+        peso_max_faena=3.50,
+    )
+
+    oferta_base = _lote(42000, 1, edad_proyectada=40, peso=2.95)
+    oferta_nueva_martes = _lote(
+        3000,
+        2,
+        edad_proyectada=40,
+        peso=2.95,
+        granja="NUEVO",
+        fecha_ingreso=date(2026, 1, 11),
+    )
+
+    lote_base = calcular_lote_proyectado(oferta_base, date(2026, 2, 23), params)
+    dia = calcular_dia_faena(date(2026, 2, 23), [lote_base], params=params)
+    semana = calcular_semana_faena(date(2026, 2, 23), [dia], params)
+
+    resultado, resumen = aplicar_ajuste_martes(
+        [oferta_base, oferta_nueva_martes],
+        semana,
+        params,
+    )
+
+    assert resultado.total_pollos_semana == 45000
+    assert resultado.total_pollos_no_asignados == 0
+    assert resumen.lotes_nuevos_asignados == 1
+    assert resumen.detalle_nuevos_asignados == [{
+        "granja": "NUEVO",
+        "galpon": 2,
+        "nucleo": 1,
+        "cantidad": 3000,
+        "dia": "Lunes",
+    }]
+
+
 # ─── Tests P0: calcular_edad_fin_retiro_v2 con dias_proyectados ──────────────
 
 def test_edad_fin_retiro_con_dias_proyectados():

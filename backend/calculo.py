@@ -1989,7 +1989,7 @@ def _intentar_asignar_lotes_nuevos(
 
 def _capacidad_disponible_dia(dia: DiaFaena, params: Parametros) -> int:
     es_sab = dia.fecha.weekday() == 5
-    cap = params.limite_sabado if es_sab else params.capacidad_maxima_planta
+    cap = params.limite_sabado if es_sab else params.capacidad_con_horas_extras
     return max(0, cap - dia.gallinas_cantidad)
 
 
