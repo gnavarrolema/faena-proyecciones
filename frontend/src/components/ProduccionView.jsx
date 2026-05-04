@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Factory, UploadCloud, FileSpreadsheet, Trash2, Calendar, TrendingDown, TrendingUp, Loader2, X, ArrowDown, ArrowUp, CheckCircle2, AlertTriangle, AlertCircle, MinusCircle, Info } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { uploadProduccion, getProduccion, getSimulacionMortalidad, deleteProduccion, getForecastProduccion, getValidacionCruzada } from '../services/api'
+import { uploadProduccion, getProduccion, getSimulacionMortalidad, deleteProduccion, getForecastProduccion, getValidacionCruzada, getProyeccion } from '../services/api'
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -199,10 +199,28 @@ function EstadoBadge({ cohorte }) {
   )
 }
 
+function getForecastOfertaEstado(oferta) {
+  if (!oferta) return null
+  if (oferta.estado === 'en_rango') {
+    return { label: 'Suficiente', tone: '#047857', bg: '#d1fae5' }
+  }
+  if (oferta.estado === 'por_debajo') {
+    return { label: 'Por debajo', tone: '#92400e', bg: '#fef3c7' }
+  }
+  if (oferta.estado === 'por_encima') {
+    return { label: 'Excede', tone: '#b91c1c', bg: '#fee2e2' }
+  }
+  if (oferta.estado === 'sin_carga') {
+    return { label: 'Sin carga', tone: '#7c3aed', bg: '#ede9fe' }
+  }
+  return { label: 'Sin oferta', tone: '#64748b', bg: '#f1f5f9' }
+}
+
 export default function ProduccionView() {
   const [produccion, setProduccion] = useState(null)
   const [simulacion, setSimulacion] = useState(null)
   const [forecast, setForecast] = useState(null)
+  const [proyeccionActual, setProyeccionActual] = useState(null)
   const [ofertaPorSemana, setOfertaPorSemana] = useState({})
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -210,8 +228,13 @@ export default function ProduccionView() {
   const [ordenDesc, setOrdenDesc] = useState(true)
   const [filtroCruce, setFiltroCruce] = useState('todas')
   const [semanaExpandida, setSemanaExpandida] = useState(null)
+  const [forecastModoFecha, setForecastModoFecha] = useState('actual')
+  const [forecastDetalle, setForecastDetalle] = useState(null)
   const inputRef = useRef(null)
   const configSim = simulacion?.configuracion || null
+  const fechaForecast = forecastModoFecha === 'planificada'
+    ? proyeccionActual?.fecha_inicio
+    : null
   const cohortesCruzadas = Object.values(ofertaPorSemana)
   const resumenCruce = cohortesCruzadas.reduce((acc, cohorte) => {
     const estado = getCruceEstado(cohorte)
@@ -236,6 +259,23 @@ export default function ProduccionView() {
     cargarDatos()
   }, [])
 
+  useEffect(() => {
+    if (!produccion) return
+    if (forecastModoFecha === 'planificada' && !proyeccionActual?.fecha_inicio) return
+
+    const cargarForecastConFecha = async () => {
+      try {
+        const fc = await getForecastProduccion(4, fechaForecast)
+        setForecast(fc)
+        setForecastDetalle(null)
+      } catch (err) {
+        console.debug('No se pudo actualizar el forecast de produccion', err)
+      }
+    }
+
+    cargarForecastConFecha()
+  }, [forecastModoFecha, proyeccionActual?.fecha_inicio, produccion, fechaForecast])
+
   const cargarOfertaCruzada = async () => {
     try {
       const vc = await getValidacionCruzada()
@@ -259,16 +299,18 @@ export default function ProduccionView() {
   const cargarDatos = async () => {
     setLoading(true)
     try {
-      const [prodData, simData, forecastData] = await Promise.allSettled([
+      const [prodData, simData, forecastData, proyData] = await Promise.allSettled([
         getProduccion(),
         getSimulacionMortalidad(),
         getForecastProduccion(),
+        getProyeccion(),
       ])
       if (prodData.status === 'fulfilled') setProduccion(prodData.value)
       if (simData.status === 'fulfilled') setSimulacion(simData.value)
       if (forecastData.status === 'fulfilled') setForecast(forecastData.value)
+      if (proyData.status === 'fulfilled') setProyeccionActual(proyData.value)
     } catch (err) {
-      // No data yet
+      console.debug('No hay datos de produccion disponibles todavia', err)
     } finally {
       setLoading(false)
     }
@@ -311,11 +353,15 @@ export default function ProduccionView() {
       try {
         const sim = await getSimulacionMortalidad()
         setSimulacion(sim)
-      } catch {}
+      } catch (err) {
+        console.debug('No se pudo recargar la simulacion de mortalidad', err)
+      }
       try {
-        const fc = await getForecastProduccion()
+        const fc = await getForecastProduccion(4, fechaForecast)
         setForecast(fc)
-      } catch {}
+      } catch (err) {
+        console.debug('No se pudo recargar el forecast de produccion', err)
+      }
       cargarOfertaCruzada()
     } catch (err) {
       toast.error('Error: ' + (err.response?.data?.detail || err.message))
@@ -331,6 +377,7 @@ export default function ProduccionView() {
       setProduccion(null)
       setSimulacion(null)
       setForecast(null)
+      setForecastDetalle(null)
       setOfertaPorSemana({})
       setSemanaExpandida(null)
       toast.success('Datos de producción eliminados')
@@ -688,14 +735,38 @@ export default function ProduccionView() {
             <p style={{ color: 'var(--text-light)', fontSize: '0.85rem', marginBottom: '1rem' }}>
               Planificación estimada de pollitos disponibles para faena según las cargas registradas y distintos escenarios de mortalidad.
             </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-light)', textTransform: 'uppercase' }}>Fecha ancla</span>
+              <button
+                type="button"
+                className={`btn btn-sm ${forecastModoFecha === 'actual' ? 'btn-primary' : 'btn-outline'}`}
+                onClick={() => setForecastModoFecha('actual')}
+              >
+                Semana actual
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${forecastModoFecha === 'planificada' ? 'btn-primary' : 'btn-outline'}`}
+                disabled={!proyeccionActual?.fecha_inicio}
+                onClick={() => setForecastModoFecha('planificada')}
+              >
+                Semana planificada
+              </button>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>
+                Inicio forecast: <strong>{formatDate(forecast.inicio_forecast)}</strong>
+              </span>
+            </div>
             <div className="table-responsive" style={{ maxHeight: '60vh', overflowY: 'auto', borderRadius: '8px', border: '1px solid var(--border)' }}>
-              <table className="data-table" style={{ position: 'relative', width: '100%', borderCollapse: 'collapse' }}>
+              <table className="data-table" style={{ position: 'relative', width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#f8fafc', boxShadow: '0 2px 4px rgba(0,0,0,0.06)' }}>
                   <tr>
                     <th>Semana de Faena</th>
                     <th className="text-right">Cargas Incluidas</th>
+                    <th className="text-right">Pollitos Cargados</th>
                     <th className="text-right">Mejor Caso</th>
                     <th className="text-right">Peor Caso</th>
+                    <th className="text-right">Oferta</th>
+                    <th>Estado</th>
                     <th className="text-right">Rango</th>
                   </tr>
                 </thead>
@@ -703,23 +774,100 @@ export default function ProduccionView() {
                   {(ordenDesc ? [...forecast.semanas].reverse() : forecast.semanas).map((sem, idx) => {
                     const mejor = sem.mejor_caso?.pollitos_disponibles ?? 0
                     const peor = sem.peor_caso?.pollitos_disponibles ?? 0
+                    const estadoOferta = getForecastOfertaEstado(sem.oferta)
+                    const detalleActivo = forecastDetalle === sem.inicio
+                    const detalleForecast = (
+                      <>
+                      <tr>
+                        <td colSpan={8} style={{ background: '#f8fafc', whiteSpace: 'normal' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.8rem', fontSize: '0.8rem' }}>
+                            <div>
+                              <strong>Formula mejor caso</strong>
+                              <div style={{ color: 'var(--text-light)' }}>{sem.mejor_caso?.formula || '-'}</div>
+                            </div>
+                            <div>
+                              <strong>Formula peor caso</strong>
+                              <div style={{ color: 'var(--text-light)' }}>{sem.peor_caso?.formula || '-'}</div>
+                            </div>
+                            {sem.oferta && (
+                              <div>
+                                <strong>Oferta vinculada</strong>
+                                <div style={{ color: 'var(--text-light)' }}>
+                                  {formatNumber(sem.oferta.aves)} aves en {sem.oferta.lotes} lote{sem.oferta.lotes !== 1 ? 's' : ''}
+                                  {sem.oferta.cobertura_pct_peor != null ? ` - cobertura ${sem.oferta.cobertura_pct_peor}%` : ''}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ marginTop: '0.85rem' }}>
+                            <strong style={{ fontSize: '0.8rem' }}>Cargas incluidas</strong>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '0.6rem', marginTop: '0.5rem' }}>
+                              {(sem.cargas_detalle || []).map((carga) => (
+                                <div key={`${sem.inicio}-${carga.fecha_desde}`} style={{ border: '1px solid var(--border)', borderRadius: 8, background: '#fff', padding: '0.65rem 0.75rem' }}>
+                                  <div style={{ fontWeight: 700 }}>{formatDateShort(carga.fecha_desde)} - {formatDateShort(carga.fecha_hasta)}</div>
+                                  <div style={{ color: 'var(--text-light)', fontSize: '0.75rem' }}>Faena est.: {formatDate(carga.fecha_faena_estimada)}</div>
+                                  <div style={{ marginTop: 4, fontWeight: 700 }}>{formatNumber(carga.pollitos_cargados)} pollitos</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                      </>
+                    )
                     return (
-                      <tr key={idx}>
+                      <React.Fragment key={sem.inicio || idx}>
+                      <tr>
                         <td>
                           <strong>{formatDateShort(sem.inicio)}</strong>
                           <span style={{ color: 'var(--text-light)', fontSize: '0.8rem' }}> – {formatDateShort(sem.fin)}</span>
                         </td>
-                        <td className="text-right">{sem.semanas_incluidas}</td>
+                        <td className="text-right">
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline"
+                            onClick={() => setForecastDetalle(detalleActivo ? null : sem.inicio)}
+                            disabled={!sem.cargas_detalle?.length}
+                            style={{ padding: '0.25rem 0.5rem' }}
+                          >
+                            {sem.semanas_incluidas}
+                          </button>
+                        </td>
+                        <td className="text-right" style={{ fontWeight: 700 }}>{formatNumber(sem.pollitos_cargados)}</td>
                         <td className="text-right" style={{ color: 'var(--primary)', fontWeight: 600 }}>
                           {formatNumber(mejor)}
                         </td>
                         <td className="text-right" style={{ color: 'var(--orange)', fontWeight: 600 }}>
                           {formatNumber(peor)}
                         </td>
+                        <td className="text-right">
+                          {sem.oferta ? formatNumber(sem.oferta.aves) : <span style={{ color: 'var(--text-light)' }}>-</span>}
+                        </td>
+                        <td>
+                          {estadoOferta ? (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              padding: '3px 8px',
+                              borderRadius: 999,
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              background: estadoOferta.bg,
+                              color: estadoOferta.tone,
+                              whiteSpace: 'nowrap',
+                            }}>
+                              {estadoOferta.label}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--text-light)' }}>-</span>
+                          )}
+                        </td>
                         <td className="text-right" style={{ fontSize: '0.85rem', color: 'var(--text-light)' }}>
                           {mejor > 0 ? `${formatNumber(peor)} – ${formatNumber(mejor)}` : '—'}
                         </td>
                       </tr>
+                      {detalleActivo && detalleForecast}
+                      </React.Fragment>
                     )
                   })}
                 </tbody>

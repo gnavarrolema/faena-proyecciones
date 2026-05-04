@@ -2826,6 +2826,7 @@ def clear_produccion(current_user: TokenData = Depends(get_current_user)):
 @app.get("/produccion/forecast")
 def forecast_produccion(
     semanas: int = 4,
+    fecha_inicio: Optional[date] = None,
     current_user: TokenData = Depends(get_current_user),
 ):
     """
@@ -2838,8 +2839,9 @@ def forecast_produccion(
 
     config = _get_produccion_reference_config()
     semanas_prod = [SemanaProduccion(**r) for r in raw]
-    hoy = date.today()
+    hoy = fecha_inicio or date.today()
     tolerancia = config["tolerancia_dias"]
+    ofertas = _get_ofertas()
 
     # Pre-calcular rangos de cada semana de forecast (lunes a domingo)
     # Buscar el lunes de la semana actual (weekday(): 0=lunes, 6=domingo)
@@ -2874,23 +2876,74 @@ def forecast_produccion(
         total_cargados = sum(s.pollitos_cargados for s in matched)
         mejor_tasa = min(config["tasas_mortalidad"])
         peor_tasa = max(config["tasas_mortalidad"])
+        mejor_disponible = int(total_cargados * (1 - mejor_tasa)) if total_cargados > 0 else 0
+        peor_disponible = int(total_cargados * (1 - peor_tasa)) if total_cargados > 0 else 0
+
+        oferta_semana = 0
+        lotes_oferta = 0
+        granjas_oferta: set[str] = set()
+        for oferta in ofertas:
+            if not oferta.fecha_peso:
+                continue
+            fecha_objetivo = oferta.fecha_peso + timedelta(days=max(oferta.dias_proyectados, 0))
+            if inicio_sem <= fecha_objetivo <= fin_sem:
+                oferta_semana += oferta.cantidad
+                lotes_oferta += 1
+                granjas_oferta.add(oferta.granja)
+
+        if oferta_semana <= 0:
+            estado_oferta = "sin_oferta"
+        elif total_cargados <= 0:
+            estado_oferta = "sin_carga"
+        elif oferta_semana < peor_disponible:
+            estado_oferta = "por_debajo"
+        elif oferta_semana > mejor_disponible:
+            estado_oferta = "por_encima"
+        else:
+            estado_oferta = "en_rango"
 
         result_semanas.append({
             "inicio": inicio_sem.isoformat(),
             "fin": fin_sem.isoformat(),
             "semanas_incluidas": len(matched),
             "pollitos_cargados": total_cargados,
+            "cargas_detalle": [
+                {
+                    "fecha_desde": s.fecha_desde.isoformat(),
+                    "fecha_hasta": s.fecha_hasta.isoformat(),
+                    "fecha_faena_estimada": calcular_fecha_faena_estimada(
+                        s.fecha_desde,
+                        config["dias_hasta_faena"],
+                    ).isoformat(),
+                    "pollitos_cargados": s.pollitos_cargados,
+                }
+                for s in sorted(matched, key=lambda item: item.fecha_desde)
+            ],
             "mejor_caso": {
                 "tasa_mortalidad": mejor_tasa,
-                "pollitos_disponibles": int(total_cargados * (1 - mejor_tasa)),
+                "pollitos_disponibles": mejor_disponible,
+                "formula": f"{total_cargados} x (1 - {round(mejor_tasa * 100, 1)}%)",
             } if total_cargados > 0 else None,
             "peor_caso": {
                 "tasa_mortalidad": peor_tasa,
-                "pollitos_disponibles": int(total_cargados * (1 - peor_tasa)),
+                "pollitos_disponibles": peor_disponible,
+                "formula": f"{total_cargados} x (1 - {round(peor_tasa * 100, 1)}%)",
             } if total_cargados > 0 else None,
+            "oferta": {
+                "aves": oferta_semana,
+                "lotes": lotes_oferta,
+                "granjas": sorted(granjas_oferta),
+                "estado": estado_oferta,
+                "cobertura_pct_peor": round(oferta_semana / peor_disponible * 100, 1) if peor_disponible > 0 and oferta_semana > 0 else None,
+                "diferencia_vs_peor": oferta_semana - peor_disponible if oferta_semana > 0 and peor_disponible > 0 else None,
+            } if ofertas else None,
         })
 
-    return {"semanas": result_semanas}
+    return {
+        "fecha_ancla": hoy.isoformat(),
+        "inicio_forecast": lunes_actual.isoformat(),
+        "semanas": result_semanas,
+    }
 
 
 # ─── Desvío de Peso (Proyectado vs. Real) ──────────────────────────────────────

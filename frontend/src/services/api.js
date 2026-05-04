@@ -126,8 +126,11 @@ export const uploadProduccion = (file, sheetName) => {
 export const getProduccion = () => api.get('/produccion').then(r => r.data);
 export const getSimulacionMortalidad = () => api.get('/produccion/simulacion').then(r => r.data);
 export const deleteProduccion = () => api.delete('/produccion').then(r => r.data);
-export const getForecastProduccion = (semanas = 4) =>
-  api.get(`/produccion/forecast?semanas=${semanas}`).then(r => r.data);
+export const getForecastProduccion = (semanas = 4, fechaInicio = null) => {
+  const params = new URLSearchParams({ semanas: String(semanas) });
+  if (fechaInicio) params.set('fecha_inicio', fechaInicio);
+  return api.get(`/produccion/forecast?${params.toString()}`).then(r => r.data);
+};
 
 // ─── Validación Cruzada ────────────────────────────────────────────────────────
 
@@ -236,4 +239,3 @@ export const getAlertaTemprana = () =>
   api.get('/pronostico/alerta-temprana').then(r => r.data);
 
 export default api;
-

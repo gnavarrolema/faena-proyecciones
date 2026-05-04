@@ -7,7 +7,7 @@ from backend.main import app, _calcular_deficit_produccion
 from backend.parser_produccion import (
     SemanaProduccion, DIAS_HASTA_FAENA, TASAS_MORTALIDAD_DEFAULT,
 )
-from backend.calculo import SemanaFaena
+from backend.calculo import LoteOferta, SemanaFaena
 from backend import storage
 
 
@@ -42,6 +42,25 @@ def _guardar_produccion(fecha_desde: date, pollitos: int):
         pollitos_cargados=pollitos,
     )
     storage.save_produccion([sem.model_dump()])
+
+
+def _guardar_oferta(fecha_objetivo: date, cantidad: int):
+    oferta = LoteOferta(
+        fecha_peso=fecha_objetivo,
+        granja="GRANJA TEST",
+        galpon=1,
+        nucleo=1,
+        cantidad=cantidad,
+        sexo="M",
+        edad_proyectada=42,
+        peso_muestreo_proy=2.8,
+        ganancia_diaria=0.09,
+        dias_proyectados=0,
+        edad_real=42,
+        peso_muestreo_real=2.8,
+        fecha_ingreso=fecha_objetivo - timedelta(days=DIAS_HASTA_FAENA),
+    )
+    storage.save_ofertas([oferta.model_dump()])
 
 
 # ─── Tests: _calcular_deficit_produccion ─────────────────────────────────────────
@@ -123,6 +142,26 @@ def test_forecast_con_datos(client, auth_headers):
     assert sem0["mejor_caso"]["pollitos_disponibles"] == 47750
     # Peor caso: 50000 * (1 - 0.075) = 46250
     assert sem0["peor_caso"]["pollitos_disponibles"] == 46250
+    assert sem0["pollitos_cargados"] == 50000
+    assert sem0["cargas_detalle"][0]["pollitos_cargados"] == 50000
+    assert sem0["mejor_caso"]["formula"] == "50000 x (1 - 4.5%)"
+
+
+def test_forecast_compara_oferta_de_la_semana(client, auth_headers):
+    """Si hay oferta cargada, el forecast informa cobertura y estado semanal."""
+    hoy = date.today()
+    lunes = hoy - timedelta(days=hoy.weekday())
+    fecha_prod = lunes - timedelta(days=DIAS_HASTA_FAENA)
+    _guardar_produccion(fecha_prod, 100000)
+    _guardar_oferta(lunes + timedelta(days=2), 93000)
+
+    r = client.get(f"/produccion/forecast?semanas=1&fecha_inicio={hoy.isoformat()}", headers=auth_headers)
+    assert r.status_code == 200
+    sem = r.json()["semanas"][0]
+
+    assert sem["oferta"]["aves"] == 93000
+    assert sem["oferta"]["estado"] == "en_rango"
+    assert sem["oferta"]["cobertura_pct_peor"] == 100.5
 
 
 def test_forecast_sin_match(client, auth_headers):
