@@ -655,6 +655,7 @@ class ProyeccionRequest(BaseModel):
     fecha_inicio_semana: date
     dias_faena: int = 5
     pollos_por_dia: int = 35000
+    objetivos_diarios: Optional[List[int]] = None
     parametros: Optional[Parametros] = None
     feriados_custom: Optional[List[date]] = None
     habilitar_sabado: bool = False
@@ -1566,6 +1567,7 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
         fecha_inicio_semana=fecha_inicio_planificacion,
         dias_faena=dias_faena_planificacion,
         pollos_por_dia=req.pollos_por_dia,
+        objetivos_diarios=req.objetivos_diarios,
         params=params,
         feriados=feriados,
         gallinas=req.gallinas,
@@ -1590,6 +1592,7 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
                 fecha_inicio_semana=fecha_inicio_planificacion,
                 dias_faena=dias_faena_planificacion,
                 pollos_por_dia=req.pollos_por_dia,
+                objetivos_diarios=req.objetivos_diarios,
                 params=params,
                 feriados=feriados,
                 gallinas=req.gallinas,
@@ -1613,9 +1616,11 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
     proyeccion_principal["calendario_planificacion"] = "continuo_habil" if planificacion_continua_gerente else "semanal"
     proyeccion_principal["fecha_inicio_planificacion_real"] = fecha_inicio_planificacion.isoformat()
     proyeccion_principal["dias_faena_reales"] = dias_faena_planificacion
+    proyeccion_principal["objetivos_diarios"] = req.objetivos_diarios
     storage.save_proyeccion(proyeccion_principal)
     if alternativa_dict:
         alternativa_dict["modo_planificacion"] = modo_alternativo
+        alternativa_dict["objetivos_diarios"] = req.objetivos_diarios
         storage.save_proyeccion_alternativa(alternativa_dict)
     else:
         storage.delete_proyeccion_alternativa()
@@ -1628,6 +1633,7 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
         "fecha_inicio_semana_real": fecha_inicio_planificacion.isoformat(),
         "dias_faena_reales": dias_faena_planificacion,
         "pollos_por_dia": req.pollos_por_dia,
+        "objetivos_diarios": req.objetivos_diarios,
         "habilitar_sabado": req.habilitar_sabado,
         "incluir_deficit": req.incluir_deficit,
         "criterio_gerente": req.criterio_gerente,
@@ -1649,6 +1655,7 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
     result["calendario_planificacion"] = "continuo_habil" if planificacion_continua_gerente else "semanal"
     result["fecha_inicio_planificacion_real"] = fecha_inicio_planificacion.isoformat()
     result["dias_faena_reales"] = dias_faena_planificacion
+    result["objetivos_diarios"] = req.objetivos_diarios
     if alternativa_dict:
         result["planificacion_alternativa"] = alternativa_dict
     return result
@@ -3444,6 +3451,7 @@ def generar_escenarios_endpoint(
             fecha_inicio_semana=req.fecha_inicio_semana,
             dias_faena=dias_eff,
             pollos_por_dia=pollos_dia,
+            objetivos_diarios=req.objetivos_diarios,
             params=variante_params,
             feriados=feriados if feriados else None,
             gallinas=req.gallinas,
@@ -3461,6 +3469,7 @@ def generar_escenarios_endpoint(
             "descripcion": descripcion,
             "parametros_usados": {
                 "pollos_por_dia": pollos_dia,
+                "objetivos_diarios": req.objetivos_diarios,
                 "dias_faena": dias_eff,
                 "habilitar_sabado": habilitar_sab,
             },

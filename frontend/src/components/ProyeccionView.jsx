@@ -175,8 +175,8 @@ export default function ProyeccionView({ proyeccion, setProyeccion, planificacio
       shadow: 'rgba(37, 99, 235, 0.28)',
     },
     optimizacion_restricciones: {
-      label: 'Distribución Equilibrada',
-      descripcion: 'Asigna lotes enteros distribuyendo la carga de forma equilibrada entre los días.',
+      label: 'Optimización de Restricciones',
+      descripcion: 'Referencia técnica que reparte lotes enteros por restricciones; no reemplaza el plan comercial diario.',
       color: '#7c3aed',
       bg: 'rgba(124, 58, 237, 0.08)',
       shadow: 'rgba(124, 58, 237, 0.28)',

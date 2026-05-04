@@ -64,6 +64,42 @@ def test_respeta_tope_diario_maximo_y_reporta_no_asignados():
     assert "tope diario máximo" in semana.lotes_no_asignados[0].motivo
 
 
+def test_criterio_gerente_respeta_objetivos_comerciales_diarios():
+    ofertas = [
+        _lote(20000, 1, peso=3.10),
+        _lote(18000, 2, peso=3.08),
+        _lote(38000, 3, peso=3.06),
+        _lote(35000, 4, peso=3.04),
+        _lote(35000, 5, peso=3.02),
+        _lote(35000, 6, peso=3.00),
+        _lote(19000, 7, peso=3.50),
+    ]
+    objetivos = [38000, 38000, 35000, 35000, 35000]
+
+    params = Parametros(
+        capacidad_maxima_planta=42000,
+        capacidad_con_horas_extras=45000,
+        pollos_diarios_objetivo_min=33000,
+        pollos_diarios_objetivo_max=38000,
+        edad_min_faena=38,
+        peso_min_faena=2.80,
+    )
+
+    semana = generar_proyeccion(
+        ofertas=ofertas,
+        fecha_inicio_semana=date(2026, 2, 23),
+        dias_faena=5,
+        pollos_por_dia=45000,
+        objetivos_diarios=objetivos,
+        params=params,
+        criterio_gerente=True,
+    )
+
+    assert [dia.total_pollos for dia in semana.dias] == objetivos
+    assert semana.total_pollos_semana == sum(objetivos)
+    assert semana.total_pollos_no_asignados == 19000
+
+
 def test_descuento_sofia_no_afecta_asignacion_diaria():
     ofertas = [
         _lote(23000, 1),

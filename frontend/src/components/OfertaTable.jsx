@@ -61,7 +61,7 @@ const MODOS_PLANIFICACION = {
     label: 'Prioridad por Madurez',
   },
   optimizacion_restricciones: {
-    label: 'Distribución Equilibrada',
+    label: 'Optimización de Restricciones',
   },
 }
 
@@ -84,7 +84,7 @@ function notificarResumenPlanificacion(proyeccion, origen = 'Planificación gene
   }
 
   const notaAlternativa = proyeccion.planificacion_alternativa
-    ? 'También quedó disponible otra estrategia para comparar la distribución.'
+    ? 'También quedó disponible el modo de optimización como referencia técnica.'
     : ''
 
   toast.success(
@@ -96,7 +96,10 @@ function notificarResumenPlanificacion(proyeccion, origen = 'Planificación gene
 export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuardado, onDeficitUsado }) {
   const [fechaInicio, setFechaInicio] = useState('')
   const [pollosPorDia, setPollosPorDia] = useState(35000)
+  const [usarObjetivosDiarios, setUsarObjetivosDiarios] = useState(false)
+  const [objetivosDiarios, setObjetivosDiarios] = useState([35000, 35000, 35000, 35000, 35000])
   const [diasFaena, setDiasFaena] = useState(5)
+  const [habilitarSabado, setHabilitarSabado] = useState(false)
   const [trazabilidad, setTrazabilidad] = useState(null)
   const [trazabilidadLoading, setTrazabilidadLoading] = useState(false)
 
@@ -104,9 +107,19 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
     getParametros().then(params => {
       if (params.pollos_diarios_objetivo_max) {
         setPollosPorDia(params.pollos_diarios_objetivo_max)
+        setObjetivosDiarios(prev => prev.map(() => params.pollos_diarios_objetivo_max))
       }
     }).catch(() => {})
   }, [])
+
+  const cantidadDiasObjetivo = habilitarSabado ? Math.max(diasFaena, 6) : diasFaena
+
+  useEffect(() => {
+    setObjetivosDiarios(prev => {
+      const base = prev.length > 0 ? prev : [pollosPorDia]
+      return Array.from({ length: cantidadDiasObjetivo }, (_, idx) => base[idx] ?? pollosPorDia)
+    })
+  }, [cantidadDiasObjetivo, pollosPorDia])
 
   useEffect(() => {
     let active = true
@@ -128,7 +141,6 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
 
     return () => { active = false }
   }, [oferta?.total_lotes, oferta?.total_pollos])
-  const [habilitarSabado, setHabilitarSabado] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [feriadosSemana, setFeriadosSemana] = useState([])
@@ -248,6 +260,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
         fecha_inicio_semana: fechaInicio,
         dias_faena: diasFaena,
         pollos_por_dia: pollosPorDia,
+        objetivos_diarios: usarObjetivosDiarios ? objetivosDiarios.slice(0, cantidadDiasObjetivo) : null,
         habilitar_sabado: habilitarSabado,
         gallinas: Object.keys(gallinasDia).length > 0 ? gallinasDia : null,
         incluir_deficit: incluirDeficit,
@@ -269,6 +282,16 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
   // Resumen por granja
   const granjas = oferta.granjas || {}
   const diasHabiles = diasFaena - feriadosSemana.length
+  const totalObjetivoPlan = objetivosDiarios
+    .slice(0, cantidadDiasObjetivo)
+    .reduce((acc, val) => acc + (Number(val) || 0), 0)
+  const fechaObjetivoLabel = (idx) => {
+    if (!fechaInicio) return DIAS_SEMANA[idx] || `Día ${idx + 1}`
+    const dt = new Date(fechaInicio + 'T12:00:00')
+    dt.setDate(dt.getDate() + idx)
+    const dia = DIAS_SEMANA[idx] || `Día ${idx + 1}`
+    return `${dia} ${dt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}`
+  }
 
   return (
     <motion.div
@@ -327,6 +350,90 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                 <option value={5}>5 días (Lun-Vie)</option>
               </select>
             </div>
+          </div>
+
+          <div style={{
+            padding: '0.85rem 1rem',
+            background: usarObjetivosDiarios ? 'rgba(22, 101, 52, 0.07)' : '#f8fafc',
+            border: `1px solid ${usarObjetivosDiarios ? 'rgba(22, 101, 52, 0.25)' : 'var(--border)'}`,
+            borderRadius: 8,
+            marginBottom: '1rem',
+          }}>
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: '0.9rem',
+              cursor: 'pointer',
+              marginBottom: usarObjetivosDiarios ? '0.75rem' : 0,
+            }}>
+              <input
+                type="checkbox"
+                checked={usarObjetivosDiarios}
+                onChange={(e) => setUsarObjetivosDiarios(e.target.checked)}
+              />
+              <span style={{ fontWeight: 700, color: usarObjetivosDiarios ? '#166534' : 'var(--text-light)' }}>
+                Usar objetivo comercial por día
+              </span>
+              {usarObjetivosDiarios && (
+                <span style={{
+                  padding: '0.15rem 0.5rem',
+                  background: 'rgba(22, 101, 52, 0.1)',
+                  borderRadius: 12,
+                  fontSize: '0.78rem',
+                  color: '#166534',
+                  fontWeight: 600,
+                }}>
+                  Total semana: {formatNumber(totalObjetivoPlan)}
+                </span>
+              )}
+            </label>
+
+            {usarObjetivosDiarios && (
+              <>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.65rem' }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline"
+                    onClick={() => setObjetivosDiarios(prev => prev.map(() => pollosPorDia))}
+                  >
+                    Igualar a objetivo general
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline"
+                    onClick={() => setObjetivosDiarios(prev => prev.map((_, idx) => (idx <= 1 ? 38000 : 35000)))}
+                  >
+                    Perfil gerente 38/38/35/35/35
+                  </button>
+                </div>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                  gap: '0.65rem',
+                }}>
+                  {objetivosDiarios.slice(0, cantidadDiasObjetivo).map((valor, idx) => (
+                    <div key={idx}>
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-light)', display: 'block', marginBottom: 3 }}>
+                        {fechaObjetivoLabel(idx)}
+                      </label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={valor}
+                        min={0}
+                        step={1000}
+                        onChange={(e) => {
+                          const siguiente = [...objetivosDiarios]
+                          siguiente[idx] = parseInt(e.target.value) || 0
+                          setObjetivosDiarios(siguiente)
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Sábado + Gallinas */}
@@ -664,6 +771,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                     fecha_inicio_semana: fechaInicio,
                     dias_faena: diasFaena,
                     pollos_por_dia: pollosPorDia,
+                    objetivos_diarios: usarObjetivosDiarios ? objetivosDiarios.slice(0, cantidadDiasObjetivo) : null,
                     habilitar_sabado: habilitarSabado,
                     gallinas: Object.keys(gallinasDia).length > 0 ? gallinasDia : null,
                     incluir_deficit: incluirDeficit,
@@ -679,7 +787,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
               {variantesLoading ? (
                 <><span className="spinner" style={{ width: 16, height: 16, marginRight: 6 }}></span> Comparando...</>
               ) : (
-                <><Activity size={16} /> Comparar Estrategias</>
+                <><Activity size={16} /> Comparar Referencias</>
               )}
             </button>
           </div>
@@ -693,7 +801,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                   setVariantesData(null)
                   if (incluirDeficit && onDeficitUsado) onDeficitUsado()
                   onGenerarProyeccion(proyeccion)
-                  notificarResumenPlanificacion(proyeccion, 'Estrategia activada')
+                  notificarResumenPlanificacion(proyeccion, 'Referencia activada')
                 }}
                 onClose={() => setVariantesData(null)}
               />

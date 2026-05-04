@@ -62,7 +62,7 @@ export default function VariantesPicker({ data, onSelect, onClose }) {
       >
         <div className="card-header" style={{ borderBottom: '1px solid var(--border)' }}>
           <h2 style={{ margin: 0, fontSize: '1.1rem' }}>
-            Variantes de Planificación
+            Referencias de Planificación
           </h2>
           <button className="btn btn-sm btn-outline" onClick={onClose}>
             <X size={14} />

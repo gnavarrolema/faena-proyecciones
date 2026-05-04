@@ -23,6 +23,31 @@ PUENTE_VIERNES_TOLERANCIA_PESO_GERENTE = 0.10
 PUENTE_VIERNES_CAPACIDAD_DEFAULT = 15177
 
 
+def _normalizar_objetivos_diarios(
+    objetivos_diarios: Optional[List[int]],
+    num_dias: int,
+) -> Optional[List[int]]:
+    """Valida y recorta objetivos diarios informados por el usuario."""
+    if not objetivos_diarios:
+        return None
+
+    objetivos = []
+    for valor in objetivos_diarios[:num_dias]:
+        try:
+            objetivo = int(valor)
+        except (TypeError, ValueError):
+            objetivo = 0
+        objetivos.append(max(0, objetivo))
+
+    if not any(objetivos):
+        return None
+
+    while len(objetivos) < num_dias:
+        objetivos.append(objetivos[-1])
+
+    return objetivos
+
+
 def normalizar_granja_clave(granja: str) -> str:
     """Normaliza el nombre de granja para matching entre fuentes."""
     valor = " ".join((granja or "").strip().upper().split())
@@ -868,6 +893,7 @@ def _generar_proyeccion_criterio_gerente(
     fecha_inicio_semana: date,
     dias_faena: int,
     pollos_por_dia: int,
+    objetivos_diarios: Optional[List[int]],
     params: Parametros,
     feriados: Optional[dict],
     gallinas: Optional[dict],
@@ -898,6 +924,7 @@ def _generar_proyeccion_criterio_gerente(
     usa_viernes_puente = bool(planificacion_continua and fechas_dias and fechas_dias[0].weekday() == 4)
     fechas_semana_previa = [fecha_dia - timedelta(days=7) for fecha_dia in fechas_dias]
     num_dias = len(fechas_dias)
+    objetivos_plan = _normalizar_objetivos_diarios(objetivos_diarios, num_dias)
 
     def _gallinas_total(fecha_iso: str) -> int:
         val = gallinas.get(fecha_iso, 0)
@@ -926,6 +953,8 @@ def _generar_proyeccion_criterio_gerente(
         fecha = fechas_dias[d_idx]
         es_sabado = fecha.weekday() == 5
         gall = _gallinas_total(fecha.isoformat())
+        if objetivos_plan and d_idx < len(objetivos_plan):
+            return max(0, min(objetivos_plan[d_idx], _capacidad_dia(d_idx)))
         if es_sabado:
             return max(0, params.limite_sabado - gall)
         return max(0, objetivo_preferido - gall)
@@ -1127,16 +1156,19 @@ def _generar_proyeccion_criterio_gerente(
             granjas_viernes_puente.add(normalizar_granja_clave(ofertas[lote_idx].granja))
 
     def _target_dia_dinamico(d_idx: int) -> int:
-        """Target de asignacion en modo gerente: capacidad real (con horas extras).
-        El gerente siempre llena hasta la capacidad maxima disponible (45k en L-V)
-        independientemente de si hay lotes sobreedad o no. La alerta 'HORAS EXTRAS'
-        se activa en la UI cuando se supera capacidad_maxima_planta (42k).
+        """Target de asignacion en modo gerente.
+
+        Si el usuario informa un plan comercial diario, ese plan es la meta
+        de faena. Si no existe, se conserva el comportamiento anterior y se
+        usa la capacidad real disponible para absorber semanas de alta carga.
         """
+        if objetivos_plan and d_idx < len(objetivos_plan):
+            return _objetivo_dia(d_idx)
         return _capacidad_dia(d_idx)
 
     def _llenar_cascada(indices: list[int]):
-        """Llena días secuencialmente con lotes ordenados por madurez."""
-        sorted_indices = sorted(indices, key=_prioridad_madurez)
+        """Llena días secuencialmente; con plan comercial respeta el orden de la oferta."""
+        sorted_indices = indices if objetivos_plan else sorted(indices, key=_prioridad_madurez)
 
         for lote_idx in sorted_indices:
             while pendientes[lote_idx] > 0:
@@ -1144,28 +1176,34 @@ def _generar_proyeccion_criterio_gerente(
                 # Buscar primer día elegible con espacio bajo target dinámico
                 mejor_dia = None
                 mejor_espacio = 0
-                candidatos_ordenados = sorted(
-                    candidatos_por_lote[lote_idx],
-                    key=(
-                        lambda c: (
-                            c["dia_idx"],
-                            c["alertas"],
-                            c["brecha_peso"],
-                            c["brecha_edad"],
-                        )
-                        if usa_viernes_puente
-                        else (
-                            c["alertas"],
-                            c["brecha_peso"],
-                            c["brecha_edad"],
-                            c["distancia_objetivo"] if (
-                                params.planificacion_gerente_priorizar_peso_objetivo
-                                and c["alertas"] == 0
-                            ) else math.inf,
-                            c["dia_idx"],
-                        )
-                    ),
-                )
+                if objetivos_plan:
+                    candidatos_ordenados = sorted(
+                        candidatos_por_lote[lote_idx],
+                        key=lambda c: c["dia_idx"],
+                    )
+                else:
+                    candidatos_ordenados = sorted(
+                        candidatos_por_lote[lote_idx],
+                        key=(
+                            lambda c: (
+                                c["dia_idx"],
+                                c["alertas"],
+                                c["brecha_peso"],
+                                c["brecha_edad"],
+                            )
+                            if usa_viernes_puente
+                            else (
+                                c["alertas"],
+                                c["brecha_peso"],
+                                c["brecha_edad"],
+                                c["distancia_objetivo"] if (
+                                    params.planificacion_gerente_priorizar_peso_objetivo
+                                    and c["alertas"] == 0
+                                ) else math.inf,
+                                c["dia_idx"],
+                            )
+                        ),
+                    )
                 for candidato in candidatos_ordenados:
                     dia_idx = candidato["dia_idx"]
                     if (
@@ -1198,13 +1236,16 @@ def _generar_proyeccion_criterio_gerente(
     lotes_primarios = [i for i in candidatos_por_lote if i not in backlog_previo]
     lotes_respaldo = [i for i in backlog_previo if i in candidatos_por_lote]
 
-    # En modo cascada, los lotes de backlog se incluyen en el sort
-    # principal por madurez. Al ser más pesados/viejos, naturalmente
-    # se asignan primero a los días más tempranos (comportamiento
-    # del gerente). Solo se separan si quedan sin espacio.
-    todos_los_lotes = sorted(
-        list(candidatos_por_lote.keys()),
-        key=_prioridad_madurez,
+    # En modo cascada sin plan comercial, los lotes de backlog se incluyen
+    # en el sort principal por madurez. Con plan comercial diario, la oferta
+    # ya viene ordenada por el criterio operativo del gerente y se respeta.
+    todos_los_lotes = (
+        list(candidatos_por_lote.keys())
+        if objetivos_plan
+        else sorted(
+            list(candidatos_por_lote.keys()),
+            key=_prioridad_madurez,
+        )
     )
 
     _preasignar_viernes_puente()
@@ -1336,6 +1377,7 @@ def generar_proyeccion(
     fecha_inicio_semana: date,
     dias_faena: int = 5,
     pollos_por_dia: int = 35000,
+    objetivos_diarios: Optional[List[int]] = None,
     params: Optional[Parametros] = None,
     feriados: Optional[dict] = None,
     gallinas: Optional[dict] = None,
@@ -1393,6 +1435,7 @@ def generar_proyeccion(
             fecha_inicio_semana=fecha_inicio_semana,
             dias_faena=dias_faena,
             pollos_por_dia=pollos_por_dia,
+            objetivos_diarios=objetivos_diarios,
             params=params,
             feriados=feriados,
             gallinas=gallinas,
@@ -1416,6 +1459,7 @@ def generar_proyeccion(
     )
 
     num_dias = len(fechas_dias)
+    objetivos_plan = _normalizar_objetivos_diarios(objetivos_diarios, num_dias)
 
     # Normalizar gallinas: acepta {fecha: int} o {fecha: {livianas: int, pesadas: int}}
     def _gallinas_total(fecha_iso: str) -> int:
@@ -1438,13 +1482,18 @@ def generar_proyeccion(
         es_sabado = fecha.weekday() == 5
         cap_base = params.limite_sabado if es_sabado else params.capacidad_con_horas_extras
         gall = _gallinas_total(fecha.isoformat())
-        return max(0, cap_base - gall)
+        capacidad = max(0, cap_base - gall)
+        if objetivos_plan and d_idx < len(objetivos_plan):
+            return min(capacidad, objetivos_plan[d_idx])
+        return capacidad
 
     # Objetivo preferido por día (no puede superar la capacidad del día)
     def _objetivo_dia(d_idx: int) -> int:
         fecha = fechas_dias[d_idx]
         es_sabado = fecha.weekday() == 5
         gall = _gallinas_total(fecha.isoformat())
+        if objetivos_plan and d_idx < len(objetivos_plan):
+            return max(0, min(objetivos_plan[d_idx], _capacidad_dia(d_idx)))
         if es_sabado:
             # Sábado: objetivo = limite_sabado (estricto 20k)
             return max(0, params.limite_sabado - gall)
@@ -1659,7 +1708,10 @@ def generar_proyeccion(
         # Sábados no tienen horas extras: mantienen limite_sabado
         cap_base = params.limite_sabado if es_sabado else params.capacidad_con_horas_extras
         gall = _gallinas_total(fecha.isoformat())
-        return max(0, cap_base - gall)
+        capacidad = max(0, cap_base - gall)
+        if objetivos_plan and d_idx < len(objetivos_plan):
+            return min(capacidad, objetivos_plan[d_idx])
+        return capacidad
 
     def _puede_asignarse_extras(lote_idx: int, dia_idx: int) -> bool:
         return pollos_dia[dia_idx] + ofertas[lote_idx].cantidad <= _capacidad_dia_extras(dia_idx)
