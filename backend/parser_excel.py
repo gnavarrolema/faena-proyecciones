@@ -167,7 +167,12 @@ def _leer_oferta_openpyxl(wb, sheet_name: Optional[str]) -> tuple[List[LoteOfert
         else:
             ws = wb.active
 
-    fecha_oferta = _parse_date(ws.cell(row=FILA_FECHA_OFERTA, column=COLUMNA_FECHA_OFERTA + 1).value)
+    # El xlsx del gerente tiene la fecha en fila 1 (col B); algunos formatos la tienen en fila 3.
+    # Se busca primero en fila 1 y se usa fila FILA_FECHA_OFERTA como fallback.
+    fecha_oferta = (
+        _parse_date(ws.cell(row=1, column=COLUMNA_FECHA_OFERTA + 1).value)
+        or _parse_date(ws.cell(row=FILA_FECHA_OFERTA, column=COLUMNA_FECHA_OFERTA + 1).value)
+    )
 
     lotes: List[LoteOferta] = []
     descartadas: List[dict] = []

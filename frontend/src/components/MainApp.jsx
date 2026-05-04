@@ -37,7 +37,7 @@ const tabVariants = {
 
 const MODOS_PLANIFICACION = {
     cascada_madurez: 'Prioridad por Madurez',
-    optimizacion_restricciones: 'Distribución Equilibrada',
+    optimizacion_restricciones: 'Optimización de Restricciones',
 }
 
 const MainApp = () => {
@@ -276,4 +276,3 @@ const MainApp = () => {
 }
 
 export default MainApp
-

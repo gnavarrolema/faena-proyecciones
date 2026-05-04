@@ -108,6 +108,7 @@ export default function ParametrosPanel({ onParametrosUpdated } = {}) {
     {
       section: 'Planificación Gerente', description: 'Ajustes de priorización para el modo gerente dentro del horizonte semanal operativo.', items: [
         { key: 'planificacion_gerente_priorizar_peso_objetivo', label: 'Priorizar peso objetivo entre lotes limpios', type: 'bool', help: 'Si está activo, cuando varios lotes ya cumplen mínimos el modo gerente desempata por cercanía al peso objetivo de recepción antes de favorecer lotes más pesados.' },
+        { key: 'pollos_viernes_puente', label: 'Cap viernes puente (pollos)', step: 100, type: 'int', help: 'Capacidad máxima de pollos asignados al día viernes cuando se activa el viernes puente.' },
       ]
     },
     {
