@@ -290,6 +290,15 @@ def diferencia_edad_ideal(sexo: str, edad_fin: int, params: Parametros) -> int:
         return edad_fin - params.edad_ideal_sin_sexar
 
 
+def diferencia_edad_ideal_criterio_gerente(sexo: str, edad_fin: int) -> int:
+    """Diferencia de edad usada en la planilla del gerente."""
+    if sexo.upper() == "M":
+        return edad_fin - 40
+    if sexo.upper() == "H":
+        return edad_fin - 44
+    return edad_fin - 42
+
+
 def peso_vivo_retiro(
     sexo: str,
     edad_fin: int,
@@ -345,6 +354,13 @@ def cajas_lote(cantidad_pollos: int, calibre: float) -> float:
     if calibre <= 0:
         return 0
     return round(cantidad_pollos / calibre, 0)
+
+
+def cajas_lote_por_peso(cantidad_pollos: int, peso_faen: float, kg_por_caja: float) -> float:
+    """Cajas producidas usando el peso faenado exacto, equivalente a D/(20/O)."""
+    if peso_faen <= 0 or kg_por_caja <= 0:
+        return 0
+    return round(cantidad_pollos * peso_faen / kg_por_caja, 0)
 
 
 def calibre_promedio_ponderado(lotes: List[LoteProyectado]) -> float:
@@ -445,7 +461,7 @@ def calcular_lote_proyectado(
 
     p_faenado = peso_faenado(peso_vivo, params.rendimiento_canal)
     calibre = calibre_promedio(p_faenado, params.kg_por_caja)
-    cajas = cajas_lote(oferta.cantidad, calibre)
+    cajas = cajas_lote_por_peso(oferta.cantidad, p_faenado, params.kg_por_caja)
 
     lote = LoteProyectado(
         granja=oferta.granja,
@@ -504,7 +520,7 @@ def calcular_lote_proyectado_criterio_gerente(
         fecha_base_override=fecha_base,
     )
 
-    dif_edad = diferencia_edad_ideal(oferta.sexo, edad_fin, params)
+    dif_edad = diferencia_edad_ideal_criterio_gerente(oferta.sexo, edad_fin)
     peso_vivo = peso_vivo_retiro(
         oferta.sexo,
         edad_fin,
@@ -515,7 +531,7 @@ def calcular_lote_proyectado_criterio_gerente(
     )
     p_faenado = peso_faenado(peso_vivo, params.rendimiento_canal)
     calibre = calibre_promedio(p_faenado, params.kg_por_caja)
-    cajas = cajas_lote(oferta.cantidad, calibre)
+    cajas = cajas_lote_por_peso(oferta.cantidad, p_faenado, params.kg_por_caja)
 
     lote = LoteProyectado(
         granja=oferta.granja,
@@ -559,7 +575,7 @@ def _crear_fragmento_proyectado(
         else calcular_lote_proyectado(oferta, fecha_fin_retiro, params)
     )
     lote.cantidad = cantidad_fragmento
-    lote.cajas = cajas_lote(cantidad_fragmento, lote.calibre_promedio)
+    lote.cajas = cajas_lote_por_peso(cantidad_fragmento, lote.peso_faenado, params.kg_por_caja)
     lote.fragmentado = total_fragmentos > 1 or cantidad_fragmento != oferta.cantidad
     lote.cantidad_original_lote = cantidad_original_lote or oferta.cantidad
     if lote.fragmentado:
