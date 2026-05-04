@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Factory, UploadCloud, FileSpreadsheet, Trash2, Calendar, TrendingDown, TrendingUp, Loader2, X, ArrowDown, ArrowUp } from 'lucide-react'
+import { Factory, UploadCloud, FileSpreadsheet, Trash2, Calendar, TrendingDown, TrendingUp, Loader2, X, ArrowDown, ArrowUp, CheckCircle2, AlertTriangle, AlertCircle, MinusCircle, Info } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { uploadProduccion, getProduccion, getSimulacionMortalidad, deleteProduccion, getForecastProduccion, getValidacionCruzada } from '../services/api'
 
@@ -30,6 +30,175 @@ function formatDateShort(d) {
   return dt.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })
 }
 
+function getCruceEstado(cohorte) {
+  if (!cohorte) {
+    return {
+      key: 'sin_oferta',
+      label: 'Sin oferta',
+      tone: '#64748b',
+      bg: '#f1f5f9',
+      icon: <MinusCircle size={12} />,
+      esAlerta: false,
+    }
+  }
+
+  const nivel = cohorte.nivel || cohorte.estado_cantidad
+  if (nivel === 'alineada' || nivel === 'en_rango') {
+    return {
+      key: 'alineada',
+      label: 'Coherente',
+      tone: '#047857',
+      bg: '#d1fae5',
+      icon: <CheckCircle2 size={12} />,
+      esAlerta: false,
+    }
+  }
+  if (nivel === 'parcial') {
+    return {
+      key: 'parcial',
+      label: 'Parcial',
+      tone: '#92400e',
+      bg: '#fef3c7',
+      icon: <AlertCircle size={12} />,
+      esAlerta: false,
+    }
+  }
+  if (nivel === 'excedida' || nivel === 'por_encima') {
+    return {
+      key: 'excedida',
+      label: 'Excede',
+      tone: '#b91c1c',
+      bg: '#fee2e2',
+      icon: <AlertTriangle size={12} />,
+      esAlerta: true,
+    }
+  }
+  if (nivel === 'anticipada') {
+    return {
+      key: 'anticipada',
+      label: 'Anticipada',
+      tone: '#b45309',
+      bg: '#ffedd5',
+      icon: <AlertTriangle size={12} />,
+      esAlerta: true,
+    }
+  }
+  if (nivel === 'atrasada') {
+    return {
+      key: 'atrasada',
+      label: 'Atrasada',
+      tone: '#7c3aed',
+      bg: '#ede9fe',
+      icon: <AlertTriangle size={12} />,
+      esAlerta: true,
+    }
+  }
+  if (nivel === 'mixta') {
+    return {
+      key: 'mixta',
+      label: 'Mixta',
+      tone: '#0369a1',
+      bg: '#e0f2fe',
+      icon: <Info size={12} />,
+      esAlerta: true,
+    }
+  }
+
+  return {
+    key: 'sin_dato',
+    label: 'Sin dato',
+    tone: '#64748b',
+    bg: '#f1f5f9',
+    icon: <MinusCircle size={12} />,
+    esAlerta: false,
+  }
+}
+
+function getConfiabilidadCruce(cohorte) {
+  if (!cohorte) return null
+  if (cohorte.estado_fecha === 'alineada') return { label: 'Alta', tone: '#047857' }
+  if (cohorte.desfase_dias != null && Math.abs(cohorte.desfase_dias) <= 3) return { label: 'Media', tone: '#92400e' }
+  if (cohorte.estado_fecha === 'mixta') return { label: 'Media', tone: '#0369a1' }
+  return { label: 'Baja', tone: '#b91c1c' }
+}
+
+function RangoOfertaBar({ cohorte, peorCaso, mejorCaso }) {
+  if (!cohorte || !cohorte.aves_en_oferta || !peorCaso || !mejorCaso) {
+    return <span style={{ color: 'var(--text-light)', fontSize: '0.8rem' }}>-</span>
+  }
+
+  const esperadoMin = cohorte.esperados_faena_min || peorCaso
+  const esperadoMax = cohorte.esperados_faena_max || mejorCaso
+  const oferta = cohorte.aves_en_oferta
+  const escalaMax = Math.max(esperadoMax, oferta, 1)
+  const rangoInicio = Math.max(0, Math.min(100, (esperadoMin / escalaMax) * 100))
+  const rangoAncho = Math.max(3, Math.min(100 - rangoInicio, ((esperadoMax - esperadoMin) / escalaMax) * 100))
+  const ofertaPos = Math.max(0, Math.min(100, (oferta / escalaMax) * 100))
+  const estado = getCruceEstado(cohorte)
+
+  return (
+    <div style={{ minWidth: 170 }}>
+      <div
+        title={`Rango esperado ${formatNumber(esperadoMin)} - ${formatNumber(esperadoMax)} | Oferta ${formatNumber(oferta)}`}
+        style={{
+          position: 'relative',
+          height: 18,
+          borderRadius: 6,
+          background: '#eef2f7',
+          border: '1px solid #dbe3ef',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{
+          position: 'absolute',
+          left: `${rangoInicio}%`,
+          width: `${rangoAncho}%`,
+          top: 3,
+          bottom: 3,
+          borderRadius: 4,
+          background: 'rgba(16, 185, 129, 0.28)',
+          border: '1px solid rgba(16, 185, 129, 0.35)',
+        }} />
+        <div style={{
+          position: 'absolute',
+          left: `calc(${ofertaPos}% - 2px)`,
+          top: 1,
+          bottom: 1,
+          width: 4,
+          borderRadius: 4,
+          background: estado.tone,
+          boxShadow: '0 0 0 2px rgba(255,255,255,0.9)',
+        }} />
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 4, fontSize: '0.68rem', color: 'var(--text-light)' }}>
+        <span>{formatNumber(esperadoMin)}</span>
+        <span>{formatNumber(esperadoMax)}</span>
+      </div>
+    </div>
+  )
+}
+
+function EstadoBadge({ cohorte }) {
+  const estado = getCruceEstado(cohorte)
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 4,
+      padding: '3px 8px',
+      borderRadius: 999,
+      fontWeight: 700,
+      fontSize: '0.72rem',
+      background: estado.bg,
+      color: estado.tone,
+      whiteSpace: 'nowrap',
+    }}>
+      {estado.icon}
+      {estado.label}
+    </span>
+  )
+}
+
 export default function ProduccionView() {
   const [produccion, setProduccion] = useState(null)
   const [simulacion, setSimulacion] = useState(null)
@@ -39,8 +208,29 @@ export default function ProduccionView() {
   const [uploading, setUploading] = useState(false)
   const [file, setFile] = useState(null)
   const [ordenDesc, setOrdenDesc] = useState(true)
+  const [filtroCruce, setFiltroCruce] = useState('todas')
+  const [semanaExpandida, setSemanaExpandida] = useState(null)
   const inputRef = useRef(null)
   const configSim = simulacion?.configuracion || null
+  const cohortesCruzadas = Object.values(ofertaPorSemana)
+  const resumenCruce = cohortesCruzadas.reduce((acc, cohorte) => {
+    const estado = getCruceEstado(cohorte)
+    acc.total += 1
+    acc[estado.key] = (acc[estado.key] || 0) + 1
+    if (estado.esAlerta) acc.alertas += 1
+    return acc
+  }, { total: 0, alertas: 0 })
+  const tieneCruceOferta = cohortesCruzadas.length > 0
+  const simulacionOrdenada = simulacion?.simulacion
+    ? (ordenDesc ? [...simulacion.simulacion].reverse() : [...simulacion.simulacion])
+    : []
+  const simulacionFiltrada = simulacionOrdenada.filter((sem) => {
+    if (filtroCruce === 'todas') return true
+    const estado = getCruceEstado(ofertaPorSemana[sem.fecha_desde])
+    if (filtroCruce === 'alertas') return estado.esAlerta
+    if (filtroCruce === 'sin_oferta') return estado.key === 'sin_oferta'
+    return estado.key === filtroCruce
+  })
 
   useEffect(() => {
     cargarDatos()
@@ -53,6 +243,7 @@ export default function ProduccionView() {
       const mapa = {}
       for (const c of cohortes) {
         mapa[c.fecha_desde] = {
+          ...c,
           aves_en_oferta: c.aves_en_oferta || 0,
           lotes: c.lotes || 0,
           granjas: c.granjas || [],
@@ -61,6 +252,7 @@ export default function ProduccionView() {
       setOfertaPorSemana(mapa)
     } catch {
       // No offer data available
+      setOfertaPorSemana({})
     }
   }
 
@@ -139,6 +331,8 @@ export default function ProduccionView() {
       setProduccion(null)
       setSimulacion(null)
       setForecast(null)
+      setOfertaPorSemana({})
+      setSemanaExpandida(null)
       toast.success('Datos de producción eliminados')
     } catch (err) {
       toast.error('Error: ' + (err.response?.data?.detail || err.message))
@@ -282,11 +476,59 @@ export default function ProduccionView() {
               {' '}
               Los escenarios de merma van de <strong>{configSim?.mortalidad_min ?? simulacion.tasas[0]}%</strong> a <strong>{configSim?.mortalidad_max ?? simulacion.tasas[simulacion.tasas.length - 1]}%</strong>.
               {Object.keys(ofertaPorSemana).length > 0 && (
-                <span> Las columnas <strong>Oferta Actual</strong> y <strong>Cobertura</strong> muestran las aves vinculadas desde el archivo de oferta para cada semana.</span>
+                <span> El cruce compara la oferta actual contra el rango esperado por cohorte.</span>
               )}
             </p>
+            {tieneCruceOferta && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
+                {[
+                  { key: 'total', label: 'Cohortes cruzadas', value: resumenCruce.total, tone: 'var(--text)' },
+                  { key: 'alineada', label: 'Coherentes', value: resumenCruce.alineada || 0, tone: '#047857' },
+                  { key: 'parcial', label: 'Parciales', value: resumenCruce.parcial || 0, tone: '#92400e' },
+                  { key: 'alertas', label: 'Con alerta', value: resumenCruce.alertas || 0, tone: '#b91c1c' },
+                ].map(item => (
+                  <div key={item.key} style={{
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    padding: '0.75rem 0.9rem',
+                    background: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                  }}>
+                    <span style={{ color: 'var(--text-light)', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase' }}>{item.label}</span>
+                    <strong style={{ color: item.tone, fontSize: '1.15rem' }}>{formatNumber(item.value)}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+            {tieneCruceOferta && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                {[
+                  ['todas', 'Todas'],
+                  ['alertas', 'Alertas'],
+                  ['alineada', 'Coherentes'],
+                  ['parcial', 'Parciales'],
+                  ['excedida', 'Excedidas'],
+                  ['sin_oferta', 'Sin oferta'],
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`btn btn-sm ${filtroCruce === key ? 'btn-primary' : 'btn-outline'}`}
+                    onClick={() => setFiltroCruce(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--text-light)', fontWeight: 600 }}>
+                  {simulacionFiltrada.length} fila{simulacionFiltrada.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+            )}
             <div className="table-container" style={{ maxHeight: '60vh', overflowY: 'auto', overflowX: 'auto', borderRadius: '8px', border: '1px solid var(--border)' }}>
-              <table style={{ position: 'relative', width: '100%', borderCollapse: 'collapse' }}>
+              <table style={{ position: 'relative', width: '100%', borderCollapse: 'collapse', minWidth: tieneCruceOferta ? 1380 : undefined }}>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 10, backgroundColor: '#f8fafc', boxShadow: '0 2px 4px rgba(0,0,0,0.06)' }}>
                   <tr>
                     <th>Semana Carga</th>
@@ -307,21 +549,25 @@ export default function ProduccionView() {
                       <>
                         <th className="text-right" style={{ background: 'rgba(59, 130, 246, 0.08)', fontWeight: 700, borderLeft: '2px solid rgba(59, 130, 246, 0.3)' }}>Oferta Actual</th>
                         <th className="text-right" style={{ background: 'rgba(59, 130, 246, 0.08)', fontWeight: 700 }}>Cobertura</th>
+                        <th style={{ background: 'rgba(59, 130, 246, 0.08)', fontWeight: 700 }}>Rango vs Oferta</th>
+                        <th style={{ background: 'rgba(59, 130, 246, 0.08)', fontWeight: 700 }}>Estado</th>
                       </>
                     )}
                   </tr>
                 </thead>
                 <tbody>
-                  {(ordenDesc ? [...simulacion.simulacion].reverse() : simulacion.simulacion).map((sem, idx) => {
+                  {simulacionFiltrada.map((sem, idx) => {
                     const oferta = ofertaPorSemana[sem.fecha_desde]
                     const peorCaso = sem.simulaciones[sem.simulaciones.length - 1]?.pollitos_disponibles || 0
                     const mejorCaso = sem.simulaciones[0]?.pollitos_disponibles || 0
                     const tieneOferta = Object.keys(ofertaPorSemana).length > 0
                     const coberturaPct = oferta && peorCaso > 0 ? Math.round(oferta.aves_en_oferta / peorCaso * 1000) / 10 : null
-                    const enRango = oferta && oferta.aves_en_oferta >= peorCaso && oferta.aves_en_oferta <= mejorCaso
-                    const excede = oferta && oferta.aves_en_oferta > mejorCaso
+                    const estadoCruce = getCruceEstado(oferta)
+                    const confiabilidad = getConfiabilidadCruce(oferta)
+                    const estaExpandida = semanaExpandida === sem.fecha_desde
                     return (
-                      <tr key={idx}>
+                      <React.Fragment key={sem.fecha_desde || idx}>
+                        <tr>
                         <td>
                           <strong>{formatDateShort(sem.fecha_desde)}</strong>
                           <span style={{ color: 'var(--text-light)', fontSize: '0.8rem' }}> – {formatDateShort(sem.fecha_hasta)}</span>
@@ -349,8 +595,8 @@ export default function ProduccionView() {
                               {coberturaPct != null ? (
                                 <span style={{
                                   display: 'inline-block', padding: '2px 8px', borderRadius: 10, fontWeight: 700, fontSize: '0.8rem',
-                                  background: enRango ? '#d1fae5' : excede ? '#fee2e2' : '#fef3c7',
-                                  color: enRango ? '#047857' : excede ? '#b91c1c' : '#92400e',
+                                  background: estadoCruce.bg,
+                                  color: estadoCruce.tone,
                                 }}>
                                   {coberturaPct}%
                                 </span>
@@ -358,9 +604,55 @@ export default function ProduccionView() {
                                 <span style={{ color: 'var(--text-light)', fontSize: '0.8rem' }}>-</span>
                               )}
                             </td>
+                            <td>
+                              <RangoOfertaBar cohorte={oferta} peorCaso={peorCaso} mejorCaso={mejorCaso} />
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <EstadoBadge cohorte={oferta} />
+                                {oferta && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-outline"
+                                    onClick={() => setSemanaExpandida(estaExpandida ? null : sem.fecha_desde)}
+                                    style={{ padding: '0.25rem 0.5rem' }}
+                                  >
+                                    {estaExpandida ? 'Ocultar' : 'Detalle'}
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                           </>
                         )}
                       </tr>
+                      {tieneOferta && oferta && estaExpandida && (
+                        <tr>
+                          <td colSpan={3 + sem.simulaciones.length + 4} style={{ background: '#f8fafc', whiteSpace: 'normal' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '0.75rem', fontSize: '0.8rem' }}>
+                              <div>
+                                <strong>Ventana oferta</strong>
+                                <div style={{ color: 'var(--text-light)' }}>{formatDate(oferta.fecha_objetivo_desde)} - {formatDate(oferta.fecha_objetivo_hasta)}</div>
+                              </div>
+                              <div>
+                                <strong>Faena esperada</strong>
+                                <div style={{ color: 'var(--text-light)' }}>{formatDate(oferta.fecha_faena_esperada_desde)} - {formatDate(oferta.fecha_faena_esperada_hasta)}</div>
+                              </div>
+                              <div>
+                                <strong>Granjas y lotes</strong>
+                                <div style={{ color: 'var(--text-light)' }}>{oferta.granjas?.join(', ') || '-'} - {oferta.lotes || 0} lote{oferta.lotes !== 1 ? 's' : ''}</div>
+                              </div>
+                              <div>
+                                <strong>Confiabilidad</strong>
+                                <div style={{ color: confiabilidad?.tone || 'var(--text-light)', fontWeight: 700 }}>{confiabilidad?.label || '-'}</div>
+                              </div>
+                            </div>
+                            {oferta.motivo && (
+                              <div style={{ marginTop: '0.65rem', color: 'var(--text-light)', fontSize: '0.8rem' }}>{oferta.motivo}</div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                      </React.Fragment>
                     )
                   })}
                 </tbody>
