@@ -100,6 +100,35 @@ def test_criterio_gerente_respeta_objetivos_comerciales_diarios():
     assert semana.total_pollos_no_asignados == 19000
 
 
+def test_formula_gerente_usa_ideal_macho_excel_y_cajas_sin_redondear_calibre():
+    oferta = LoteOferta(
+        fecha_peso=date(2026, 4, 30),
+        fecha_oferta=date(2026, 4, 30),
+        granja="MANANTIALES",
+        galpon=1,
+        nucleo=2,
+        cantidad=13244,
+        sexo="M",
+        edad_proyectada=36,
+        peso_muestreo_proy=3.0,
+        ganancia_diaria=0.09,
+        dias_proyectados=0,
+        edad_real=36,
+        peso_muestreo_real=3.0,
+        fecha_ingreso=date(2026, 3, 25),
+    )
+    params = Parametros(edad_ideal_macho=38)
+
+    lote = calcular_lote_proyectado_criterio_gerente(oferta, date(2026, 5, 4), params)
+
+    assert lote.edad_fin_retiro == 40
+    assert lote.diferencia_edad_ideal == 0
+    assert lote.peso_vivo_retiro == 3.1824
+    assert lote.peso_faenado == 2.76869
+    assert lote.calibre_promedio == 7.22
+    assert lote.cajas == 1833
+
+
 def test_descuento_sofia_no_afecta_asignacion_diaria():
     ofertas = [
         _lote(23000, 1),
