@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { BarChart2, Activity, Home, List, AlertCircle, Download, CalendarOff, Plus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { generarProyeccion, generarEscenarios, getFeriados, addFeriadoCustom, deleteFeriadoCustom, getParametros, getOfertaTrazabilidad } from '../services/api'
+import { generarProyeccion, generarEscenarios, getFeriados, addFeriadoCustom, deleteFeriadoCustom, getParametros, getOfertaTrazabilidad, getReferenciaProduccion } from '../services/api'
 import { exportOfertaPDF } from '../utils/pdfExport'
 import VariantesPicker from './VariantesPicker'
 
@@ -54,6 +54,18 @@ function getDiaNombre(fechaStr) {
 function formatDiasElegibles(dias) {
   if (!dias || dias.length === 0) return '-'
   return dias.map((dia) => getDiaNombre(dia)).join(', ')
+}
+
+function distribuirObjetivoSemanal(total, pesos, cantidadDias) {
+  const totalSeguro = Math.max(0, Math.round(Number(total) || 0))
+  const basePesos = pesos.slice(0, cantidadDias).map(v => Math.max(0, Number(v) || 0))
+  const sumaPesos = basePesos.reduce((acc, val) => acc + val, 0)
+  const pesosFinales = sumaPesos > 0 ? basePesos : Array.from({ length: cantidadDias }, () => 1)
+  const sumaFinal = pesosFinales.reduce((acc, val) => acc + val, 0)
+  const distribucion = pesosFinales.map(peso => Math.round(totalSeguro * peso / sumaFinal))
+  const diferencia = totalSeguro - distribucion.reduce((acc, val) => acc + val, 0)
+  if (distribucion.length > 0) distribucion[distribucion.length - 1] += diferencia
+  return distribucion
 }
 
 const MODOS_PLANIFICACION = {
@@ -151,6 +163,8 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
   const [incluirDeficit, setIncluirDeficit] = useState(false)
   const [variantesData, setVariantesData] = useState(null)
   const [variantesLoading, setVariantesLoading] = useState(false)
+  const [referenciaBB, setReferenciaBB] = useState(null)
+  const [referenciaBBLoading, setReferenciaBBLoading] = useState(false)
   // Gallinas
   const [gallinasDia, setGallinasDia] = useState({}) // {fecha_iso: {livianas: int, pesadas: int}}
   const [gallinasInputFecha, setGallinasInputFecha] = useState('')
@@ -192,6 +206,29 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
     }
     cargarFeriados()
   }, [fechaInicio, diasFaena, habilitarSabado])
+
+  useEffect(() => {
+    let active = true
+    if (!fechaInicio) {
+      setReferenciaBB(null)
+      return () => { active = false }
+    }
+
+    const cargarReferenciaBB = async () => {
+      setReferenciaBBLoading(true)
+      try {
+        const data = await getReferenciaProduccion(fechaInicio)
+        if (active) setReferenciaBB(data)
+      } catch {
+        if (active) setReferenciaBB(null)
+      } finally {
+        if (active) setReferenciaBBLoading(false)
+      }
+    }
+
+    cargarReferenciaBB()
+    return () => { active = false }
+  }, [fechaInicio])
 
   if (!oferta || !oferta.ofertas || oferta.ofertas.length === 0) {
     return (
@@ -285,6 +322,16 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
   const totalObjetivoPlan = objetivosDiarios
     .slice(0, cantidadDiasObjetivo)
     .reduce((acc, val) => acc + (Number(val) || 0), 0)
+  const coberturasBB = referenciaBB?.coberturas || []
+  const coberturaPeorBB = coberturasBB.length > 0 ? coberturasBB[coberturasBB.length - 1] : null
+  const coberturaMejorBB = coberturasBB.length > 0 ? coberturasBB[0] : null
+  const disponibleBBPeor = coberturaPeorBB?.disponibles ?? null
+  const disponibleBBMejor = coberturaMejorBB?.disponibles ?? null
+  const deficitObjetivoBB = disponibleBBPeor != null ? Math.max(0, totalObjetivoPlan - disponibleBBPeor) : 0
+  const excedenteObjetivoBB = disponibleBBPeor != null ? Math.max(0, disponibleBBPeor - totalObjetivoPlan) : 0
+  const coberturaObjetivoBB = disponibleBBPeor && disponibleBBPeor > 0
+    ? Math.round((totalObjetivoPlan / disponibleBBPeor) * 1000) / 10
+    : null
   const fechaObjetivoLabel = (idx) => {
     if (!fechaInicio) return DIAS_SEMANA[idx] || `Día ${idx + 1}`
     const dt = new Date(fechaInicio + 'T12:00:00')
@@ -406,7 +453,77 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                   >
                     Perfil gerente 38/38/35/35/35
                   </button>
+                  {referenciaBB?.encontrada && disponibleBBPeor != null && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline"
+                      onClick={() => {
+                        setObjetivosDiarios(distribuirObjetivoSemanal(disponibleBBPeor, objetivosDiarios, cantidadDiasObjetivo))
+                        toast.success(`Objetivo semanal ajustado a disponibilidad BB estimada: ${formatNumber(disponibleBBPeor)} pollos`)
+                      }}
+                    >
+                      Ajustar a disponibilidad BB
+                    </button>
+                  )}
                 </div>
+                {fechaInicio && (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+                    gap: '0.65rem',
+                    padding: '0.75rem',
+                    marginBottom: '0.75rem',
+                    background: referenciaBB?.encontrada
+                      ? (deficitObjetivoBB > 0 ? 'rgba(251, 146, 60, 0.1)' : 'rgba(34, 197, 94, 0.08)')
+                      : '#f8fafc',
+                    border: `1px solid ${referenciaBB?.encontrada
+                      ? (deficitObjetivoBB > 0 ? 'rgba(251, 146, 60, 0.35)' : 'rgba(34, 197, 94, 0.25)')
+                      : 'var(--border)'}`,
+                    borderRadius: 8,
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', marginBottom: 2 }}>Referencia BB</div>
+                      <div style={{ fontWeight: 700, color: referenciaBB?.encontrada ? 'var(--text)' : 'var(--text-light)' }}>
+                        {referenciaBBLoading
+                          ? 'Consultando...'
+                          : referenciaBB?.encontrada
+                            ? `${formatNumber(disponibleBBPeor)} disp.`
+                            : 'Sin referencia'}
+                      </div>
+                      {referenciaBB?.encontrada && disponibleBBMejor != null && disponibleBBPeor != null && (
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', marginTop: 2 }}>
+                          Rango {formatNumber(disponibleBBPeor)} - {formatNumber(disponibleBBMejor)}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', marginBottom: 2 }}>Cobertura objetivo</div>
+                      <div style={{ fontWeight: 700, color: deficitObjetivoBB > 0 ? '#ea580c' : '#166534' }}>
+                        {coberturaObjetivoBB != null ? `${coberturaObjetivoBB}%` : '-'}
+                      </div>
+                      {referenciaBB?.encontrada && (
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', marginTop: 2 }}>
+                          Contra peor escenario configurado
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', marginBottom: 2 }}>
+                        {deficitObjetivoBB > 0 ? 'Déficit propio' : 'Margen propio'}
+                      </div>
+                      <div style={{ fontWeight: 700, color: deficitObjetivoBB > 0 ? '#ea580c' : '#166534' }}>
+                        {referenciaBB?.encontrada
+                          ? formatNumber(deficitObjetivoBB > 0 ? deficitObjetivoBB : excedenteObjetivoBB)
+                          : '-'}
+                      </div>
+                      {referenciaBB?.encontrada && referenciaBB.total_semanas_referenciadas > 0 && (
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', marginTop: 2 }}>
+                          {referenciaBB.total_semanas_referenciadas} semana{referenciaBB.total_semanas_referenciadas !== 1 ? 's' : ''} BB
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <div style={{
                   display: 'grid',
                   gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
