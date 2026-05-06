@@ -439,6 +439,65 @@ def _oferta_key(granja: str, galpon: int, nucleo: int, sexo: str, fecha_ingreso:
     )
 
 
+def _incluir_deficit_semana_anterior(ofertas: list[LoteOferta]) -> tuple[list[LoteOferta], Optional[dict]]:
+    """Agrega el deficit guardado sin duplicar lotes ya presentes en la oferta actual."""
+    deficit_data = storage.load_deficit()
+    ofertas_guardadas = (deficit_data or {}).get("ofertas_originales") or []
+    if not ofertas_guardadas:
+        return ofertas, None
+
+    ofertas_resultado = list(ofertas)
+    keys_existentes = {
+        _oferta_key(o.granja, o.galpon, o.nucleo, o.sexo, o.fecha_ingreso)
+        for o in ofertas_resultado
+    }
+
+    lotes_agregados = 0
+    pollos_agregados = 0
+    lotes_duplicados = 0
+    lotes_invalidos = 0
+
+    for oferta_data in ofertas_guardadas:
+        try:
+            oferta_deficit = LoteOferta(**oferta_data)
+        except Exception as e:
+            lotes_invalidos += 1
+            logger.warning(f"Error reconstruyendo oferta de deficit: {e}")
+            continue
+
+        key = _oferta_key(
+            oferta_deficit.granja,
+            oferta_deficit.galpon,
+            oferta_deficit.nucleo,
+            oferta_deficit.sexo,
+            oferta_deficit.fecha_ingreso,
+        )
+        if key in keys_existentes:
+            lotes_duplicados += 1
+            continue
+
+        ofertas_resultado.append(oferta_deficit)
+        keys_existentes.add(key)
+        lotes_agregados += 1
+        pollos_agregados += oferta_deficit.cantidad
+
+    metadata = {
+        "incluido": True,
+        "semana_origen": deficit_data.get("semana_origen"),
+        "total_lotes_guardados": deficit_data.get("total_lotes", len(ofertas_guardadas)),
+        "total_pollos_guardados": deficit_data.get("total_pollos", 0),
+        "lotes_agregados": lotes_agregados,
+        "pollos_agregados": pollos_agregados,
+        "lotes_duplicados_omitidos": lotes_duplicados,
+        "lotes_invalidos": lotes_invalidos,
+    }
+    return ofertas_resultado, metadata
+
+
+def _deficit_consumible(metadata: Optional[dict]) -> bool:
+    return bool(metadata) and metadata.get("lotes_invalidos", 0) == 0
+
+
 def _estado_ajuste_martes(oferta_jueves: LoteOferta, oferta_martes: Optional[LoteOferta]) -> str:
     if oferta_martes is None:
         return "sin_ajuste"
@@ -1521,21 +1580,16 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
         raise HTTPException(400, "No hay oferta cargada. Suba un archivo primero.")
 
     # Inyectar lotes del déficit de la semana anterior si corresponde
+    deficit_semana_anterior = None
     if req.incluir_deficit:
-        deficit_data = storage.load_deficit()
-        if deficit_data and deficit_data.get("ofertas_originales"):
-            ofertas_deficit = []
-            for od in deficit_data["ofertas_originales"]:
-                try:
-                    ofertas_deficit.append(LoteOferta(**od))
-                except Exception as e:
-                    logger.warning(f"Error reconstruyendo oferta de déficit: {e}")
-            if ofertas_deficit:
-                logger.info(
-                    f"Incluyendo {len(ofertas_deficit)} lotes del déficit "
-                    f"de semana {deficit_data.get('semana_origen', '?')}"
-                )
-                ofertas = ofertas + ofertas_deficit
+        ofertas, deficit_semana_anterior = _incluir_deficit_semana_anterior(ofertas)
+        if deficit_semana_anterior:
+            logger.info(
+                "Incluyendo deficit de semana %s: %s lotes agregados, %s duplicados omitidos",
+                deficit_semana_anterior.get("semana_origen", "?"),
+                deficit_semana_anterior.get("lotes_agregados", 0),
+                deficit_semana_anterior.get("lotes_duplicados_omitidos", 0),
+            )
 
     params = req.parametros or _get_parametros()
 
@@ -1617,6 +1671,8 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
     proyeccion_principal["fecha_inicio_planificacion_real"] = fecha_inicio_planificacion.isoformat()
     proyeccion_principal["dias_faena_reales"] = dias_faena_planificacion
     proyeccion_principal["objetivos_diarios"] = req.objetivos_diarios
+    if deficit_semana_anterior:
+        proyeccion_principal["deficit_semana_anterior"] = deficit_semana_anterior
     storage.save_proyeccion(proyeccion_principal)
     if alternativa_dict:
         alternativa_dict["modo_planificacion"] = modo_alternativo
@@ -1645,6 +1701,8 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
         "gallinas": req.gallinas,
         "feriados_custom": [f.isoformat() for f in req.feriados_custom] if req.feriados_custom else None,
     })
+    if _deficit_consumible(deficit_semana_anterior):
+        storage.delete_deficit()
 
     # ── Factibilidad: cruzar plan propio vs producción propia ──
     factibilidad = _calcular_factibilidad_proyeccion(semana)
@@ -1656,6 +1714,8 @@ def generar_proyeccion_endpoint(req: ProyeccionRequest, current_user: TokenData 
     result["fecha_inicio_planificacion_real"] = fecha_inicio_planificacion.isoformat()
     result["dias_faena_reales"] = dias_faena_planificacion
     result["objetivos_diarios"] = req.objetivos_diarios
+    if deficit_semana_anterior:
+        result["deficit_semana_anterior"] = deficit_semana_anterior
     if alternativa_dict:
         result["planificacion_alternativa"] = alternativa_dict
     return result
@@ -3474,16 +3534,10 @@ def generar_escenarios_endpoint(
         feriados_custom=feriados_custom_list if feriados_custom_list else None,
     )
 
-    # Inyectar déficit si corresponde
     ofertas_base = ofertas
+    deficit_semana_anterior = None
     if req.incluir_deficit:
-        deficit_data = storage.load_deficit()
-        if deficit_data and deficit_data.get("ofertas_originales"):
-            for od in deficit_data["ofertas_originales"]:
-                try:
-                    ofertas_base = ofertas_base + [LoteOferta(**od)]
-                except Exception:
-                    pass
+        ofertas_base, deficit_semana_anterior = _incluir_deficit_semana_anterior(ofertas_base)
 
     # Detectar si la semana es compleja
     tiene_feriados = bool(feriados)
@@ -3514,6 +3568,8 @@ def generar_escenarios_endpoint(
             minimos_como_alerta=req.minimos_como_alerta,
         )
         proy_dict = semana.model_dump()
+        if deficit_semana_anterior:
+            proy_dict["deficit_semana_anterior"] = deficit_semana_anterior
         usa_horas_extras = any(d.get("nivel_carga") == "horas_extras" for d in proy_dict.get("dias", []))
         usa_sabado = any(d.get("es_sabado") for d in proy_dict.get("dias", []))
         max_carga = max((d.get("total_pollos", 0) for d in proy_dict.get("dias", [])), default=0)
@@ -3593,6 +3649,7 @@ def generar_escenarios_endpoint(
             "gallinas": tiene_gallinas,
             "carga_excedida": carga_excedida,
         },
+        "deficit_semana_anterior": deficit_semana_anterior,
         "variantes": variantes,
     }
 
@@ -3606,9 +3663,12 @@ def aplicar_variante_endpoint(
     Persiste una variante de proyección seleccionada por el usuario.
     Recibe la proyección completa (SemanaFaena) y la guarda como activa.
     """
+    deficit_semana_anterior = proyeccion_data.get("deficit_semana_anterior")
     storage.save_proyeccion(proyeccion_data)
     params = _get_parametros()
     storage.save_parametros(params.model_dump())
+    if _deficit_consumible(deficit_semana_anterior):
+        storage.delete_deficit()
     return proyeccion_data
 
 
