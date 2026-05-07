@@ -2612,6 +2612,7 @@ def get_simulacion_mortalidad(current_user: TokenData = Depends(get_current_user
 @app.get("/produccion/referencia")
 def get_referencia_produccion(
     fecha_faena: date,
+    usar_proyeccion: bool = True,
     current_user: TokenData = Depends(get_current_user),
 ) -> ReferenciaProduccionResponse:
     """
@@ -2630,7 +2631,7 @@ def get_referencia_produccion(
 
     semanas = [SemanaProduccion(**s) for s in data]
     config = _get_produccion_reference_config()
-    proyeccion = _get_proyeccion()
+    proyeccion = _get_proyeccion() if usar_proyeccion else None
     total_oferta = proyeccion.total_pollos_semana if proyeccion else 0
     total_compra_terceros = 0
     metodo_cruce = "macro_faena"
