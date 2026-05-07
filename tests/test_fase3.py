@@ -359,3 +359,29 @@ def test_referencia_produccion_consolida_cohortes_planificadas(client, auth_head
     assert data["semana_produccion"]["total_semanas"] == 2
     assert data["coberturas"][-1]["disponibles"] == 92500
     assert data["coberturas"][-1]["cobertura_pct"] == round(100000 / 92500 * 100, 1)
+
+
+def test_referencia_produccion_puede_ignorar_proyeccion_activa(client, auth_headers):
+    """La pantalla de oferta puede pedir referencia macro sin heredar cohortes del plan activo."""
+    sem1 = date(2026, 2, 2)
+    sem2 = date(2026, 2, 9)
+    storage.save_produccion([
+        SemanaProduccion(fecha_desde=sem1, fecha_hasta=sem1 + timedelta(days=6), pollitos_cargados=50000).model_dump(),
+        SemanaProduccion(fecha_desde=sem2, fecha_hasta=sem2 + timedelta(days=6), pollitos_cargados=50000).model_dump(),
+    ])
+
+    fecha_faena = sem1 + timedelta(days=DIAS_HASTA_FAENA)
+    _crear_proyeccion_cohortes(fecha_faena, [(sem1, 50000), (sem2, 50000)], compra_terceros=8000)
+
+    r = client.get(
+        f"/produccion/referencia?fecha_faena={fecha_faena.isoformat()}&usar_proyeccion=false",
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    data = r.json()
+
+    assert data["metodo_cruce"] == "macro_faena"
+    assert data["total_semanas_referenciadas"] == 1
+    assert data["semana_produccion"]["pollitos_cargados"] == 50000
+    assert data["semana_produccion"]["total_semanas"] == 1
+    assert data["coberturas"][-1]["disponibles"] == 46250
