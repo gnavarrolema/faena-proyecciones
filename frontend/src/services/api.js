@@ -166,8 +166,11 @@ export const cargarEscenario = (id) =>
 
 // ─── Producción: referencia cruzada ────────────────────────────────────────────
 
-export const getReferenciaProduccion = (fechaFaena) =>
-  api.get(`/produccion/referencia?fecha_faena=${fechaFaena}`).then(r => r.data);
+export const getReferenciaProduccion = (fechaFaena, options = {}) => {
+  const params = new URLSearchParams({ fecha_faena: fechaFaena });
+  if (options.usarProyeccion === false) params.set('usar_proyeccion', 'false');
+  return api.get(`/produccion/referencia?${params.toString()}`).then(r => r.data);
+};
 
 // ─── Redistribuir día ──────────────────────────────────────────────────────────
 

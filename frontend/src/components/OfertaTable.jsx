@@ -237,7 +237,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
     const cargarReferenciaBB = async () => {
       setReferenciaBBLoading(true)
       try {
-        const data = await getReferenciaProduccion(fechaInicio)
+        const data = await getReferenciaProduccion(fechaInicio, { usarProyeccion: false })
         if (active) setReferenciaBB(data)
       } catch {
         if (active) setReferenciaBB(null)
