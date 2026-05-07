@@ -56,16 +56,34 @@ function formatDiasElegibles(dias) {
   return dias.map((dia) => getDiaNombre(dia)).join(', ')
 }
 
-function distribuirObjetivoSemanal(total, pesos, cantidadDias) {
-  const totalSeguro = Math.max(0, Math.round(Number(total) || 0))
-  const basePesos = pesos.slice(0, cantidadDias).map(v => Math.max(0, Number(v) || 0))
-  const sumaPesos = basePesos.reduce((acc, val) => acc + val, 0)
-  const pesosFinales = sumaPesos > 0 ? basePesos : Array.from({ length: cantidadDias }, () => 1)
-  const sumaFinal = pesosFinales.reduce((acc, val) => acc + val, 0)
-  const distribucion = pesosFinales.map(peso => Math.round(totalSeguro * peso / sumaFinal))
-  const diferencia = totalSeguro - distribucion.reduce((acc, val) => acc + val, 0)
-  if (distribucion.length > 0) distribucion[distribucion.length - 1] += diferencia
-  return distribucion
+function distribuirObjetivoConTopes(total, pesos, topes) {
+  let restante = Math.max(0, Math.round(Number(total) || 0))
+  const topesFinales = topes.map(v => Math.max(0, Math.round(Number(v) || 0)))
+  const resultado = topesFinales.map(() => 0)
+  const activos = new Set(topesFinales.map((_, idx) => idx).filter(idx => topesFinales[idx] > 0))
+  const pesosFinales = pesos.slice(0, topesFinales.length).map(v => Math.max(0, Number(v) || 0))
+
+  while (restante > 0 && activos.size > 0) {
+    const indices = Array.from(activos)
+    const sumaPesos = indices.reduce((acc, idx) => acc + pesosFinales[idx], 0)
+    let asignado = 0
+
+    for (const idx of indices) {
+      const peso = sumaPesos > 0 ? pesosFinales[idx] : 1
+      const divisor = sumaPesos > 0 ? sumaPesos : indices.length
+      const cupo = topesFinales[idx] - resultado[idx]
+      const sugerido = Math.max(1, Math.round(restante * peso / divisor))
+      const valor = Math.min(cupo, sugerido)
+      resultado[idx] += valor
+      asignado += valor
+      if (resultado[idx] >= topesFinales[idx]) activos.delete(idx)
+    }
+
+    restante -= asignado
+    if (asignado <= 0) break
+  }
+
+  return resultado
 }
 
 const MODOS_PLANIFICACION = {
@@ -114,9 +132,11 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
   const [habilitarSabado, setHabilitarSabado] = useState(false)
   const [trazabilidad, setTrazabilidad] = useState(null)
   const [trazabilidadLoading, setTrazabilidadLoading] = useState(false)
+  const [parametrosPlan, setParametrosPlan] = useState(null)
 
   useEffect(() => {
     getParametros().then(params => {
+      setParametrosPlan(params)
       if (params.pollos_diarios_objetivo_max) {
         setPollosPorDia(params.pollos_diarios_objetivo_max)
         setObjetivosDiarios(prev => prev.map(() => params.pollos_diarios_objetivo_max))
@@ -332,6 +352,22 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
   const coberturaObjetivoBB = disponibleBBPeor && disponibleBBPeor > 0
     ? Math.round((totalObjetivoPlan / disponibleBBPeor) * 1000) / 10
     : null
+  const capacidadConHorasExtras = parametrosPlan?.capacidad_con_horas_extras || pollosPorDia
+  const limiteSabado = parametrosPlan?.limite_sabado || 20000
+  const topesObjetivo = Array.from({ length: cantidadDiasObjetivo }, (_, idx) => {
+    if (idx === 5) return habilitarSabado ? limiteSabado : 0
+    return pollosPorDia
+  })
+  const topesHorasExtras = Array.from({ length: cantidadDiasObjetivo }, (_, idx) => {
+    if (idx === 5) return habilitarSabado ? limiteSabado : 0
+    return capacidadConHorasExtras
+  })
+  const capacidadSemanalObjetivo = topesObjetivo.reduce((acc, val) => acc + val, 0)
+  const capacidadSemanalHorasExtras = topesHorasExtras.reduce((acc, val) => acc + val, 0)
+  const objetivoSugeridoBB = disponibleBBPeor != null
+    ? Math.min(disponibleBBPeor, capacidadSemanalObjetivo)
+    : capacidadSemanalObjetivo
+  const bbSuperaCapacidad = disponibleBBPeor != null && disponibleBBPeor > capacidadSemanalObjetivo
   const fechaObjetivoLabel = (idx) => {
     if (!fechaInicio) return DIAS_SEMANA[idx] || `Día ${idx + 1}`
     const dt = new Date(fechaInicio + 'T12:00:00')
@@ -458,11 +494,11 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                       type="button"
                       className="btn btn-sm btn-outline"
                       onClick={() => {
-                        setObjetivosDiarios(distribuirObjetivoSemanal(disponibleBBPeor, objetivosDiarios, cantidadDiasObjetivo))
-                        toast.success(`Objetivo semanal ajustado a disponibilidad BB estimada: ${formatNumber(disponibleBBPeor)} pollos`)
+                        setObjetivosDiarios(distribuirObjetivoConTopes(objetivoSugeridoBB, objetivosDiarios, topesObjetivo))
+                        toast.success(`Objetivo semanal ajustado a ${formatNumber(objetivoSugeridoBB)} pollos`)
                       }}
                     >
-                      Ajustar a disponibilidad BB
+                      Ajustar sugerido
                     </button>
                   )}
                 </div>
@@ -474,10 +510,10 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                     padding: '0.75rem',
                     marginBottom: '0.75rem',
                     background: referenciaBB?.encontrada
-                      ? (deficitObjetivoBB > 0 ? 'rgba(251, 146, 60, 0.1)' : 'rgba(34, 197, 94, 0.08)')
+                      ? (deficitObjetivoBB > 0 ? 'rgba(251, 146, 60, 0.1)' : (bbSuperaCapacidad ? 'rgba(59, 130, 246, 0.08)' : 'rgba(34, 197, 94, 0.08)'))
                       : '#f8fafc',
                     border: `1px solid ${referenciaBB?.encontrada
-                      ? (deficitObjetivoBB > 0 ? 'rgba(251, 146, 60, 0.35)' : 'rgba(34, 197, 94, 0.25)')
+                      ? (deficitObjetivoBB > 0 ? 'rgba(251, 146, 60, 0.35)' : (bbSuperaCapacidad ? 'rgba(59, 130, 246, 0.25)' : 'rgba(34, 197, 94, 0.25)'))
                       : 'var(--border)'}`,
                     borderRadius: 8,
                   }}>
@@ -508,12 +544,21 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                       )}
                     </div>
                     <div>
-                      <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', marginBottom: 2 }}>
-                        {deficitObjetivoBB > 0 ? 'Déficit propio' : 'Margen propio'}
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', marginBottom: 2 }}>Capacidad semanal</div>
+                      <div style={{ fontWeight: 700, color: bbSuperaCapacidad ? '#1d4ed8' : 'var(--text)' }}>
+                        {formatNumber(capacidadSemanalObjetivo)}
                       </div>
-                      <div style={{ fontWeight: 700, color: deficitObjetivoBB > 0 ? '#ea580c' : '#166534' }}>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', marginTop: 2 }}>
+                        Sugerido: {formatNumber(objetivoSugeridoBB)} · Máx. con HE: {formatNumber(capacidadSemanalHorasExtras)}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-light)', marginBottom: 2 }}>
+                        {bbSuperaCapacidad ? 'BB sobre capacidad' : (deficitObjetivoBB > 0 ? 'Déficit propio' : 'Margen propio')}
+                      </div>
+                      <div style={{ fontWeight: 700, color: deficitObjetivoBB > 0 ? '#ea580c' : (bbSuperaCapacidad ? '#1d4ed8' : '#166534') }}>
                         {referenciaBB?.encontrada
-                          ? formatNumber(deficitObjetivoBB > 0 ? deficitObjetivoBB : excedenteObjetivoBB)
+                          ? formatNumber(bbSuperaCapacidad ? disponibleBBPeor - capacidadSemanalObjetivo : (deficitObjetivoBB > 0 ? deficitObjetivoBB : excedenteObjetivoBB))
                           : '-'}
                       </div>
                       {referenciaBB?.encontrada && referenciaBB.total_semanas_referenciadas > 0 && (
