@@ -226,6 +226,94 @@ def test_semana2_recupera_lotes_fuera_rango_de_s1(client, auth_headers):
     assert data["proyeccion"]["total_pollos_fuera_rango"] == 0
 
 
+def test_semana2_arranca_lunes_cuando_s1_tiene_viernes_puente(client, auth_headers):
+    """
+    Regresion: cuando S1 incluia un viernes puente (fecha_inicio = Vie),
+    S2 se calculaba como Vie + 7 = Vie siguiente, solapando con el ultimo
+    dia de S1 y arrastrando Sabado/Domingo dentro de la semana.
+    Ahora S2 arranca siempre el lunes posterior al ultimo dia de S1.
+    """
+    storage.save_ofertas([
+        # 5 lotes para el puente del 8/5
+        {
+            "fecha_peso": "2026-05-07", "fecha_oferta": "2026-05-07",
+            "granja": "MANANTIALES", "galpon": g, "nucleo": 2,
+            "cantidad": 8000, "sexo": "H", "edad_proyectada": 38,
+            "peso_muestreo_proy": 2.85, "ganancia_diaria": 0.079,
+            "dias_proyectados": 0, "edad_real": 38, "peso_muestreo_real": 2.85,
+            "fecha_ingreso": "2026-03-30",
+        }
+        for g in (1, 2, 3, 4, 5)
+    ] + [
+        # 5 lotes para Lun-Vie
+        {
+            "fecha_peso": "2026-05-07", "fecha_oferta": "2026-05-07",
+            "granja": "MANANTIALES", "galpon": g, "nucleo": 3,
+            "cantidad": 14000, "sexo": "H", "edad_proyectada": 37,
+            "peso_muestreo_proy": 2.75, "ganancia_diaria": 0.079,
+            "dias_proyectados": 0, "edad_real": 37, "peso_muestreo_real": 2.75,
+            "fecha_ingreso": "2026-03-31",
+        }
+        for g in (1, 2, 3, 4, 5)
+    ])
+    storage.save_parametros({
+        "pollos_diarios_objetivo_max": 42000,
+        "capacidad_con_horas_extras": 45000,
+        "pollos_viernes_puente": 0,
+        "edad_min_faena": 37,
+        "edad_max_faena": 45,
+        "peso_min_faena": 2.70,
+        "peso_max_faena": 3.20,
+    })
+
+    # S1 con viernes puente: dias_faena=6, oferta del jueves 7/5, inicio Lun 11/5.
+    resp = client.post(
+        "/proyeccion/generar",
+        json={
+            "fecha_inicio_semana": "2026-05-11",
+            "dias_faena": 6,
+            "pollos_por_dia": 42000,
+            "criterio_gerente": True,
+            "objetivos_diarios": [38000, 40000, 40000, 40000, 35000, 35000],
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    s1 = resp.json()
+    # Verifica que S1 efectivamente arranca el viernes puente
+    assert s1["dias"][0]["fecha"] == "2026-05-08"
+    assert s1["dias"][-1]["fecha"] == "2026-05-15"
+
+    # Diferir un lote para que S2 tenga material y pueda generarse.
+    dia_idx, lote_idx = _primer_lote_planificado(s1)
+    client.post(
+        "/proyeccion/diferir-lote",
+        json={"dia_index": dia_idx, "lote_index": lote_idx},
+        headers=auth_headers,
+    )
+
+    resp = client.get("/proyeccion/semana2", headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["tiene_datos"] is True
+    proyeccion = data["proyeccion"]
+    # S2 arranca el lunes 18/5, no el viernes 15/5.
+    assert proyeccion["fecha_inicio"] == "2026-05-18", (
+        f"S2 deberia arrancar el lunes 18/5, arranco en {proyeccion['fecha_inicio']}"
+    )
+    # Ningun dia de S2 cae en sabado o domingo.
+    from datetime import date as _date
+    for dia in proyeccion["dias"]:
+        wd = _date.fromisoformat(dia["fecha"]).weekday()
+        assert wd not in (5, 6), (
+            f"S2 incluye {dia['fecha']} (weekday {wd}), no debe haber sab/dom"
+        )
+    # No solapa con el ultimo dia de S1 (15/5).
+    fechas_s2 = {dia["fecha"] for dia in proyeccion["dias"]}
+    assert "2026-05-15" not in fechas_s2
+
+
 def test_lotes_diferidos_endpoint(client, auth_headers):
     """Verificar endpoint de listar lotes diferidos."""
     proy = _crear_oferta_y_proyeccion(client, auth_headers)

@@ -4093,10 +4093,11 @@ def get_semana2(current_user: TokenData = Depends(get_current_user)):
     ofertas_s2: list[LoteOferta] = []
     params = _get_parametros()
     config_s1 = storage.load_proyeccion_config() or {}
-    dias_faena_s2 = config_s1.get("dias_faena", 5)
     pollos_por_dia_s2 = config_s1.get("pollos_por_dia", params.pollos_diarios_objetivo_max)
-    if config_s1.get("habilitar_sabado") and dias_faena_s2 < 6:
-        dias_faena_s2 = 6
+    # S2 es una semana regular Lun-Vie (o Lun-Sab si el usuario habilita sabado
+    # explicitamente). NO heredamos dias_faena de S1: si S1 incluyo un viernes
+    # puente, ese +1 no aplica en S2 porque no hay puente.
+    dias_faena_s2 = 6 if config_s1.get("habilitar_sabado") else 5
 
     def _lote_key(granja: str, galpon: int, nucleo: int, sexo: str, fecha_ingreso: Optional[date]) -> tuple:
         return (
@@ -4181,8 +4182,13 @@ def get_semana2(current_user: TokenData = Depends(get_current_user)):
             "mensaje": "No hay lotes diferidos, no asignados ni fuera de rango recuperables para proyectar en semana 2.",
         }
 
-    # Fecha inicio semana 2: siguiente lunes después de semana 1
-    fecha_inicio_s2 = semana.fecha_inicio + timedelta(days=7)
+    # Fecha inicio semana 2: el lunes siguiente al ultimo dia de S1.
+    # Calcularlo a partir de semana.fecha_inicio + 7 falla cuando S1 arranca
+    # el viernes puente (queda en viernes + 7 = viernes, arrastrando Sab/Dom).
+    ultimo_dia_s1 = max((dia.fecha for dia in semana.dias), default=semana.fecha_inicio)
+    fecha_inicio_s2 = ultimo_dia_s1 + timedelta(days=1)
+    while fecha_inicio_s2.weekday() != 0:  # 0 = lunes
+        fecha_inicio_s2 += timedelta(days=1)
 
     # Obtener feriados para el rango de semana 2 (L-S)
     fecha_fin_s2 = fecha_inicio_s2 + timedelta(days=5)
