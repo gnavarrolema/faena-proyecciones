@@ -1,0 +1,99 @@
+# ─── Cleanup: borra Cloud Run preview services huérfanos ──────────────────
+# Detecta servicios proyeccion-faena-{api,web}-pr-N cuyo PR esta cerrado en
+# GitHub y los elimina. Sirve de red de seguridad si el job cleanup-preview
+# del workflow CD no se ejecuta (por ejemplo, si el PR se cierra antes de
+# que el workflow tuviera ese job, o si el job falla puntualmente).
+name: Cleanup orphaned previews
+
+on:
+  schedule:
+    # Domingos 03:00 UTC.
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+  BACKEND_SERVICE_BASE: proyeccion-faena-api
+  FRONTEND_SERVICE_BASE: proyeccion-faena-web
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: read
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Delete orphaned PR services
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Lista todos los Cloud Run services del proyecto en la region.
+          mapfile -t services < <(
+            gcloud run services list --region "$REGION" \
+              --format='value(metadata.name)' 2>/dev/null
+          )
+
+          deleted=0
+          kept=0
+          for service in "${services[@]}"; do
+            # Solo nos interesan los previews con sufijo -pr-NUMERO.
+            if [[ "$service" =~ ^(${BACKEND_SERVICE_BASE}|${FRONTEND_SERVICE_BASE})-pr-([0-9]+)$ ]]; then
+              pr_number="${BASH_REMATCH[2]}"
+
+              # Consultar estado del PR en GitHub.
+              pr_state=$(gh api "repos/${GH_REPO}/pulls/${pr_number}" --jq '.state' 2>/dev/null || echo "")
+              if [[ "$pr_state" == "closed" ]]; then
+                echo "[delete] ${service} (PR #${pr_number} cerrado)"
+                gcloud run services delete "$service" --region "$REGION" --quiet || true
+                deleted=$((deleted + 1))
+              elif [[ "$pr_state" == "open" ]]; then
+                echo "[keep]   ${service} (PR #${pr_number} abierto)"
+                kept=$((kept + 1))
+              else
+                echo "[skip]   ${service} (no se pudo consultar PR #${pr_number}: '${pr_state}')"
+              fi
+            fi
+          done
+
+          echo
+          echo "Resumen: ${deleted} servicios borrados, ${kept} preservados (PRs abiertos)."
+
+      - name: Delete orphaned GCS preview prefixes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+        run: |
+          set -euo pipefail
+
+          # Lista los prefijos preview/pr-NUMERO/ y compara contra GitHub.
+          prefix_root="gs://${GCS_BUCKET_NAME}/preview/"
+          mapfile -t prefixes < <(
+            gcloud storage ls "$prefix_root" 2>/dev/null | grep -oE 'pr-[0-9]+/' | sort -u
+          )
+
+          for p in "${prefixes[@]}"; do
+            pr_number="${p#pr-}"; pr_number="${pr_number%/}"
+            pr_state=$(gh api "repos/${GH_REPO}/pulls/${pr_number}" --jq '.state' 2>/dev/null || echo "")
+            if [[ "$pr_state" == "closed" ]]; then
+              echo "[delete] ${prefix_root}${p} (PR #${pr_number} cerrado)"
+              gcloud storage rm --recursive "${prefix_root}${p}" || true
+            else
+              echo "[keep]   ${prefix_root}${p} (PR #${pr_number} estado: ${pr_state:-desconocido})"
+            fi
+          done
