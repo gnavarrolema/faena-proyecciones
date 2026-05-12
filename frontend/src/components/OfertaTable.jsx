@@ -86,7 +86,8 @@ function distribuirObjetivoConTopes(total, pesos, topes) {
   return resultado
 }
 
-const TOPE_VIERNES_PUENTE_DEFAULT = 15177
+// 0 = sin cap configurado. El input del puente arranca con el objetivo regular del dia.
+const TOPE_VIERNES_PUENTE_DEFAULT = 0
 
 function toIsoDateString(dt) {
   const y = dt.getFullYear()
@@ -161,13 +162,22 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
         setPollosPorDia(params.pollos_diarios_objetivo_max)
         setObjetivosDiarios(prev => prev.map(() => params.pollos_diarios_objetivo_max))
       }
-      if (params.pollos_viernes_puente) {
+      // Inicializa el objetivo del puente: si hay cap configurado lo usa, si no
+      // toma el objetivo regular del dia para que el gerente arranque desde un
+      // valor util y no desde 0 / el viejo cap de 15177.
+      if (params.pollos_viernes_puente && params.pollos_viernes_puente > 0) {
         setObjetivoPuente(params.pollos_viernes_puente)
+      } else if (params.pollos_diarios_objetivo_max) {
+        setObjetivoPuente(params.pollos_diarios_objetivo_max)
       }
     }).catch(() => {})
   }, [])
 
-  const topePuente = parametrosPlan?.pollos_viernes_puente ?? TOPE_VIERNES_PUENTE_DEFAULT
+  const capPuenteConfigurado = parametrosPlan?.pollos_viernes_puente && parametrosPlan.pollos_viernes_puente > 0
+    ? parametrosPlan.pollos_viernes_puente
+    : null
+  const topePuente = capPuenteConfigurado ?? pollosPorDia
+  const topePuenteHE = capPuenteConfigurado ?? (parametrosPlan?.capacidad_con_horas_extras || pollosPorDia)
 
   const fechaOfertaGlobalIso = useMemo(() => {
     const fechas = (oferta?.ofertas || [])
@@ -406,7 +416,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
   const topesRegulares = Array.from({ length: cantidadRegulares }, (_, idx) => topeRegular(idx))
   const topesRegularesHE = Array.from({ length: cantidadRegulares }, (_, idx) => topeRegularHE(idx))
   const topesObjetivo = puenteActivo ? [topePuente, ...topesRegulares] : topesRegulares
-  const topesHorasExtras = puenteActivo ? [topePuente, ...topesRegularesHE] : topesRegularesHE
+  const topesHorasExtras = puenteActivo ? [topePuenteHE, ...topesRegularesHE] : topesRegularesHE
   const capacidadSemanalObjetivo = topesObjetivo.reduce((acc, val) => acc + val, 0)
   const capacidadSemanalHorasExtras = topesHorasExtras.reduce((acc, val) => acc + val, 0)
   const objetivoSugeridoBB = disponibleBBPeor != null
@@ -512,7 +522,10 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
             }}>
               <AlertCircle size={16} style={{ flexShrink: 0 }} />
               <span>
-                Oferta del <strong>{new Date(fechaOfertaGlobalIso + 'T12:00:00').toLocaleDateString('es-AR')}</strong>: se incluye el viernes <strong>{new Date(fechaPuenteIso + 'T12:00:00').toLocaleDateString('es-AR')}</strong> como día puente (tope {formatNumber(topePuente)} aves).
+                Oferta del <strong>{new Date(fechaOfertaGlobalIso + 'T12:00:00').toLocaleDateString('es-AR')}</strong>: se incluye el viernes <strong>{new Date(fechaPuenteIso + 'T12:00:00').toLocaleDateString('es-AR')}</strong> como día puente
+                {capPuenteConfigurado
+                  ? <> (tope {formatNumber(capPuenteConfigurado)} aves desde Parámetros).</>
+                  : <>. Sin cap específico configurado: usa la capacidad regular del día. Ajustable en Parámetros &rarr; Planificación Gerente.</>}
               </span>
             </div>
           )}
@@ -562,7 +575,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                     className="btn btn-sm btn-outline"
                     onClick={() => {
                       setObjetivosDiarios(prev => prev.map(() => pollosPorDia))
-                      if (puenteActivo) setObjetivoPuente(topePuente)
+                      if (puenteActivo) setObjetivoPuente(capPuenteConfigurado ?? pollosPorDia)
                     }}
                   >
                     Igualar a objetivo general
@@ -572,7 +585,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                     className="btn btn-sm btn-outline"
                     onClick={() => {
                       setObjetivosDiarios(prev => prev.map((_, idx) => (idx <= 1 ? 38000 : 35000)))
-                      if (puenteActivo) setObjetivoPuente(topePuente)
+                      if (puenteActivo) setObjetivoPuente(capPuenteConfigurado ?? pollosPorDia)
                     }}
                   >
                     Perfil gerente 38/38/35/35/35

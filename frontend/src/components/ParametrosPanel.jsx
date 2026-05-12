@@ -98,6 +98,7 @@ export default function ParametrosPanel({ onParametrosUpdated } = {}) {
         { key: 'capacidad_maxima_planta', label: 'Capacidad máx. planta (sin horas extras)', step: 1000, type: 'int', help: 'Capacidad real de la planta en jornada normal. Por encima se requieren horas extras.' },
         { key: 'capacidad_con_horas_extras', label: 'Capacidad máx. con horas extras', step: 1000, type: 'int', help: 'Límite absoluto de faena diaria incluyendo horas extras.' },
         { key: 'limite_sabado', label: 'Límite sábado (estricto)', step: 1000, type: 'int', help: 'Máximo de pollos que se pueden faenar los sábados.' },
+        { key: 'descuento_sofia', label: 'Descuento Sofía (pollos)', step: 1000, type: 'int', help: 'Cantidad fija que se descuenta del total semanal en el resumen para reflejar lo destinado a Sofía.' },
       ]
     },
     {
@@ -108,7 +109,9 @@ export default function ParametrosPanel({ onParametrosUpdated } = {}) {
     {
       section: 'Planificación Gerente', description: 'Ajustes de priorización para el modo gerente dentro del horizonte semanal operativo.', items: [
         { key: 'planificacion_gerente_priorizar_peso_objetivo', label: 'Priorizar peso objetivo entre lotes limpios', type: 'bool', help: 'Si está activo, cuando varios lotes ya cumplen mínimos el modo gerente desempata por cercanía al peso objetivo de recepción antes de favorecer lotes más pesados.' },
-        { key: 'pollos_viernes_puente', label: 'Cap viernes puente (pollos)', step: 100, type: 'int', help: 'Capacidad máxima de pollos asignados al día viernes cuando se activa el viernes puente.' },
+        { key: 'planificacion_continua_gerente', label: 'Planificación continua gerente', type: 'bool', help: 'Activa el horizonte continuo (multi-semana) en lugar del semanal clásico. Útil cuando la oferta abarca varias semanas y se desean reservar lotes para faenas posteriores.' },
+        { key: 'planificacion_continua_dias_habiles', label: 'Días hábiles del horizonte continuo', step: 1, type: 'int', help: 'Cantidad de días hábiles que cubre el modo continuo. Solo aplica si la planificación continua está activa.' },
+        { key: 'pollos_viernes_puente', label: 'Cap viernes puente (pollos)', step: 100, type: 'int', help: 'Capacidad máxima del viernes puente cuando se activa. Dejar en 0 para usar la capacidad regular del día (sin cap específico). Un valor positivo lo acota explícitamente por debajo del objetivo regular.' },
       ]
     },
     {
