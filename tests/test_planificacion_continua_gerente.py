@@ -223,6 +223,64 @@ def test_manager_mode_starts_after_global_offer_date_when_it_precedes_selected_m
     ]
 
 
+def test_puente_friday_respects_user_objetivo_diario(client, auth_headers):
+    """
+    Regresion: antes _preasignar_viernes_puente llenaba el dia con
+    _capacidad_dia(0) ignorando el objetivo del usuario, asi que con cap=0
+    (sin tope legacy) terminaba en 45k aunque el usuario pidiese 38k.
+    """
+    storage.save_ofertas([
+        {
+            "fecha_peso": "2026-05-07",
+            "fecha_oferta": "2026-05-07",
+            "granja": "MANANTIALES",
+            "galpon": g,
+            "nucleo": 1,
+            "cantidad": 15000,
+            "sexo": "M",
+            "edad_proyectada": 40,
+            "peso_muestreo_proy": 2.85,
+            "ganancia_diaria": 0.09,
+            "dias_proyectados": 0,
+            "edad_real": 40,
+            "peso_muestreo_real": 2.85,
+            "fecha_ingreso": "2026-03-28",
+        }
+        for g in (1, 2, 3, 4, 5)
+    ])
+    # Sin cap legacy del puente (el flujo actual deja default = 0).
+    storage.save_parametros({
+        "pollos_diarios_objetivo_max": 42000,
+        "capacidad_con_horas_extras": 45000,
+        "pollos_viernes_puente": 0,
+        "edad_min_faena": 37,
+        "edad_max_faena": 45,
+        "peso_min_faena": 2.70,
+        "peso_max_faena": 3.20,
+    })
+
+    r = client.post(
+        "/proyeccion/generar",
+        json={
+            "fecha_inicio_semana": "2026-05-11",
+            "dias_faena": 6,  # 1 puente + 5 Lun-Vie
+            "pollos_por_dia": 42000,
+            "criterio_gerente": True,
+            "objetivos_diarios": [38000, 40000, 40000, 40021, 35000, 35000],
+        },
+        headers=auth_headers,
+    )
+
+    assert r.status_code == 200
+    data = r.json()
+    fechas = [dia["fecha"] for dia in data["dias"]]
+    assert fechas[0] == "2026-05-08", f"Primer dia deberia ser el viernes puente, no {fechas[0]}"
+    total_puente = data["dias"][0]["total_pollos"]
+    assert total_puente <= 38000, (
+        f"El viernes puente excedio el objetivo del usuario (38000): {total_puente}"
+    )
+
+
 def test_continuous_manager_keeps_weekly_config_for_followup_flows(client, auth_headers):
     _guardar_ofertas_y_parametros()
 

@@ -1131,11 +1131,19 @@ def _generar_proyeccion_criterio_gerente(
     granjas_viernes_puente: set[str] = set()
 
     def _preasignar_viernes_puente():
-        """Reserva el viernes puente como día reducido antes de llenar la semana normal."""
+        """Reserva el viernes puente como día reducido antes de llenar la semana normal.
+
+        Si el usuario informó un plan comercial diario (objetivos_plan), la
+        pre-asignación se topea a ese objetivo. Sin plan se respeta la
+        capacidad real disponible para conservar el comportamiento histórico.
+        """
         if not usa_viernes_puente or num_dias == 0:
             return
 
-        capacidad_puente = _capacidad_dia(0)
+        if objetivos_plan and len(objetivos_plan) > 0:
+            capacidad_puente = _objetivo_dia(0)
+        else:
+            capacidad_puente = _capacidad_dia(0)
         if capacidad_puente <= 0:
             return
 
