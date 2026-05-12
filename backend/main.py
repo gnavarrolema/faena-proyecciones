@@ -198,6 +198,17 @@ def _build_fuentes_validacion(ofertas: list[LoteOferta], produccion_data: Option
     }
 
 
+def _build_planificacion_validacion() -> Optional[dict]:
+    proyeccion = _get_proyeccion()
+    if not proyeccion:
+        return None
+    return {
+        "fecha_inicio": proyeccion.fecha_inicio.isoformat(),
+        "fecha_fin": proyeccion.fecha_fin.isoformat(),
+        "total_pollos_semana": proyeccion.total_pollos_semana,
+    }
+
+
 def _get_proyeccion() -> Optional[SemanaFaena]:
     """Lee proyección desde storage. Devuelve None si no existe."""
     data = storage.load_proyeccion()
@@ -4754,13 +4765,17 @@ def get_validacion_cruzada(current_user: TokenData = Depends(get_current_user)):
     insights = _generar_insights_validacion(validacion)
 
     fuentes = _build_fuentes_validacion(ofertas, produccion_data)
+    planificacion = _build_planificacion_validacion()
 
     return {
         "tiene_oferta": tiene_oferta,
         "tiene_produccion": tiene_produccion,
+        "total_ofertas": len(ofertas),
+        "total_semanas_produccion": len(produccion_data or []),
         "validacion": validacion,
         "insights": insights,
         "fuentes": fuentes,
+        "planificacion": planificacion,
     }
 
 

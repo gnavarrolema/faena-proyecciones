@@ -218,7 +218,7 @@ export default function ValidacionCruzadaView() {
     )
   }
 
-  const { validacion, insights, fuentes, tiene_oferta, tiene_produccion, total_ofertas, total_semanas_produccion } = data
+  const { validacion, insights, fuentes, planificacion, tiene_oferta, tiene_produccion, total_ofertas, total_semanas_produccion } = data
   const cohortes = validacion?.mortalidad_cohortes
   const consist = validacion?.consistencia_edad
   const concentracion = validacion?.concentracion_granjas
@@ -229,12 +229,15 @@ export default function ValidacionCruzadaView() {
   const totalOfertaCohortes = cohortesList.reduce((acc, c) => acc + (c.aves_en_oferta || 0), 0)
   const totalEsperadoMinCohortes = cohortesList.reduce((acc, c) => acc + (c.esperados_faena_min || 0), 0)
   const balanceCohortes = totalOfertaCohortes - totalEsperadoMinCohortes
-  const proximaSemanaPlan = cohortesList.length > 0
+  const fechaInicioPlanificacion = planificacion?.fecha_inicio
+  const proximaSemanaPlan = fechaInicioPlanificacion || (cohortesList.length > 0
     ? cohortesList
       .map(c => c.fecha_objetivo_desde || c.fecha_faena_esperada_desde)
       .filter(Boolean)
       .sort()[0]
-    : null
+    : null)
+  const proximaSemanaPlanEsActiva = Boolean(fechaInicioPlanificacion)
+  const proximaSemanaPlanLabel = proximaSemanaPlan ? formatWeekRange(proximaSemanaPlan) : '-'
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="show">
@@ -311,7 +314,9 @@ export default function ValidacionCruzadaView() {
               {cohortesEnVentana.length > 0 && <span> Actualmente <strong>{cohortesEnVentana.length}</strong> {cohortesEnVentana.length !== 1 ? 'se encuentran' : 'se encuentra'} dentro de la ventana óptima de faena</span>} 
               {cohortesReprogramar.length > 0 && <span>, mientras que <strong style={{ color: 'var(--warning)' }}>{cohortesReprogramar.length}</strong> {cohortesReprogramar.length !== 1 ? 'requieren' : 'requiere'} reprogramación de tiempos</span>} 
               {cohortesPrioridad.length > 0 && <span> y <strong style={{ color: 'var(--danger)' }}>{cohortesPrioridad.length}</strong> {cohortesPrioridad.length !== 1 ? 'necesitan' : 'necesita'} intervención prioritaria</span>}. 
-              {proximaSemanaPlan && <span> La programación más inminente inicia la semana del <strong style={{ color: 'var(--primary)' }}>{formatWeekRange(proximaSemanaPlan)}</strong>.</span>}
+              {proximaSemanaPlan && (
+                <span> {proximaSemanaPlanEsActiva ? 'La planificación activa inicia' : 'La programación más inminente inicia'} la semana del <strong style={{ color: 'var(--primary)' }}>{proximaSemanaPlanLabel}</strong>.</span>
+              )}
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
               <KpiCard icon={<CheckCircle2 size={16} />} label="En Ventana Óptima" value={formatNumber(cohortesEnVentana.length)} color="var(--success)" />
@@ -324,7 +329,7 @@ export default function ValidacionCruzadaView() {
                 value={formatSignedNumber(balanceCohortes)}
                 color={balanceCohortes >= 0 ? 'var(--success)' : 'var(--warning)'}
               />
-              <KpiCard icon={<Target size={16} />} label="Focus Próxima Sem." value={proximaSemanaPlan ? formatWeekRange(proximaSemanaPlan) : '-'} color="var(--primary-dark)" />
+              <KpiCard icon={<Target size={16} />} label={proximaSemanaPlanEsActiva ? "Semana Planificada" : "Focus Próxima Sem."} value={proximaSemanaPlanLabel} color="var(--primary-dark)" />
             </div>
           </div>
         </motion.div>

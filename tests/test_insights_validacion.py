@@ -247,6 +247,25 @@ class TestEndpointValidacionCruzada:
         assert "factibilidad" in data["validacion"]
         assert len(data["insights"]) > 0
 
+    def test_incluye_planificacion_activa(self, auth_header):
+        fecha_prod = date(2026, 2, 2)
+        fecha_faena = fecha_prod + timedelta(days=DIAS_HASTA_FAENA)
+        _guardar_produccion(fecha_prod, 100000)
+
+        ofertas = [_lote(cantidad=80000, fecha_peso=fecha_faena, fecha_ingreso=fecha_prod)]
+        storage.save_ofertas([o.model_dump() for o in ofertas])
+        storage.save_proyeccion({
+            "fecha_inicio": date(2026, 5, 11),
+            "fecha_fin": date(2026, 5, 16),
+            "dias": [],
+        })
+
+        resp = client.get("/validacion-cruzada", headers=auth_header)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["planificacion"]["fecha_inicio"] == "2026-05-11"
+        assert data["planificacion"]["fecha_fin"] == "2026-05-16"
+
     def test_con_deficit_genera_insight_critico(self, auth_header):
         fecha_prod = date(2026, 2, 2)
         fecha_faena = fecha_prod + timedelta(days=DIAS_HASTA_FAENA)
