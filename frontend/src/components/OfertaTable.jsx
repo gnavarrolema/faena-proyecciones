@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { BarChart2, Activity, Home, List, AlertCircle, Download, CalendarOff, Plus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -86,6 +86,25 @@ function distribuirObjetivoConTopes(total, pesos, topes) {
   return resultado
 }
 
+const TOPE_VIERNES_PUENTE_DEFAULT = 15177
+
+function toIsoDateString(dt) {
+  const y = dt.getFullYear()
+  const m = String(dt.getMonth() + 1).padStart(2, '0')
+  const d = String(dt.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
+function nextBusinessDayIso(isoDate) {
+  if (!isoDate) return null
+  const dt = new Date(isoDate + 'T12:00:00')
+  if (Number.isNaN(dt.getTime())) return null
+  do {
+    dt.setDate(dt.getDate() + 1)
+  } while (dt.getDay() === 0 || dt.getDay() === 6)
+  return toIsoDateString(dt)
+}
+
 const MODOS_PLANIFICACION = {
   cascada_madurez: {
     label: 'Prioridad por Madurez',
@@ -128,6 +147,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
   const [pollosPorDia, setPollosPorDia] = useState(35000)
   const [usarObjetivosDiarios, setUsarObjetivosDiarios] = useState(false)
   const [objetivosDiarios, setObjetivosDiarios] = useState([35000, 35000, 35000, 35000, 35000])
+  const [objetivoPuente, setObjetivoPuente] = useState(TOPE_VIERNES_PUENTE_DEFAULT)
   const [diasFaena, setDiasFaena] = useState(5)
   const [habilitarSabado, setHabilitarSabado] = useState(false)
   const [trazabilidad, setTrazabilidad] = useState(null)
@@ -141,17 +161,43 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
         setPollosPorDia(params.pollos_diarios_objetivo_max)
         setObjetivosDiarios(prev => prev.map(() => params.pollos_diarios_objetivo_max))
       }
+      if (params.pollos_viernes_puente) {
+        setObjetivoPuente(params.pollos_viernes_puente)
+      }
     }).catch(() => {})
   }, [])
 
-  const cantidadDiasObjetivo = habilitarSabado ? Math.max(diasFaena, 6) : diasFaena
+  const topePuente = parametrosPlan?.pollos_viernes_puente ?? TOPE_VIERNES_PUENTE_DEFAULT
+
+  const fechaOfertaGlobalIso = useMemo(() => {
+    const fechas = (oferta?.ofertas || [])
+      .map(o => o?.fecha_oferta)
+      .filter(Boolean)
+    if (fechas.length === 0) return null
+    return fechas.reduce((acc, f) => (acc > f ? acc : f))
+  }, [oferta?.ofertas])
+
+  const fechaPuenteIso = useMemo(() => {
+    if (!fechaOfertaGlobalIso || !fechaInicio) return null
+    const inicioDt = new Date(fechaInicio + 'T12:00:00')
+    if (Number.isNaN(inicioDt.getTime()) || inicioDt.getDay() !== 1) return null
+    const next = nextBusinessDayIso(fechaOfertaGlobalIso)
+    if (!next || next >= fechaInicio) return null
+    const expected = new Date(inicioDt)
+    expected.setDate(expected.getDate() - 3)
+    if (next !== toIsoDateString(expected)) return null
+    return next
+  }, [fechaOfertaGlobalIso, fechaInicio])
+
+  const puenteActivo = !!fechaPuenteIso
+  const cantidadRegulares = habilitarSabado ? Math.max(diasFaena, 6) : diasFaena
 
   useEffect(() => {
     setObjetivosDiarios(prev => {
       const base = prev.length > 0 ? prev : [pollosPorDia]
-      return Array.from({ length: cantidadDiasObjetivo }, (_, idx) => base[idx] ?? pollosPorDia)
+      return Array.from({ length: cantidadRegulares }, (_, idx) => base[idx] ?? pollosPorDia)
     })
-  }, [cantidadDiasObjetivo, pollosPorDia])
+  }, [cantidadRegulares, pollosPorDia])
 
   useEffect(() => {
     let active = true
@@ -315,9 +361,9 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
     try {
       const data = await generarProyeccion({
         fecha_inicio_semana: fechaInicio,
-        dias_faena: diasFaena,
+        dias_faena: diasFaena + (puenteActivo ? 1 : 0),
         pollos_por_dia: pollosPorDia,
-        objetivos_diarios: usarObjetivosDiarios ? objetivosDiarios.slice(0, cantidadDiasObjetivo) : null,
+        objetivos_diarios: usarObjetivosDiarios ? objetivosCombinados : null,
         habilitar_sabado: habilitarSabado,
         gallinas: Object.keys(gallinasDia).length > 0 ? gallinasDia : null,
         incluir_deficit: incluirDeficit,
@@ -339,9 +385,10 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
   // Resumen por granja
   const granjas = oferta.granjas || {}
   const diasHabiles = diasFaena - feriadosSemana.length
-  const totalObjetivoPlan = objetivosDiarios
-    .slice(0, cantidadDiasObjetivo)
-    .reduce((acc, val) => acc + (Number(val) || 0), 0)
+  const objetivosCombinados = puenteActivo
+    ? [objetivoPuente, ...objetivosDiarios.slice(0, cantidadRegulares)]
+    : objetivosDiarios.slice(0, cantidadRegulares)
+  const totalObjetivoPlan = objetivosCombinados.reduce((acc, val) => acc + (Number(val) || 0), 0)
   const coberturasBB = referenciaBB?.coberturas || []
   const coberturaPeorBB = coberturasBB.length > 0 ? coberturasBB[coberturasBB.length - 1] : null
   const coberturaMejorBB = coberturasBB.length > 0 ? coberturasBB[0] : null
@@ -354,14 +401,12 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
     : null
   const capacidadConHorasExtras = parametrosPlan?.capacidad_con_horas_extras || pollosPorDia
   const limiteSabado = parametrosPlan?.limite_sabado || 20000
-  const topesObjetivo = Array.from({ length: cantidadDiasObjetivo }, (_, idx) => {
-    if (idx === 5) return habilitarSabado ? limiteSabado : 0
-    return pollosPorDia
-  })
-  const topesHorasExtras = Array.from({ length: cantidadDiasObjetivo }, (_, idx) => {
-    if (idx === 5) return habilitarSabado ? limiteSabado : 0
-    return capacidadConHorasExtras
-  })
+  const topeRegular = (idx) => (idx === 5 ? (habilitarSabado ? limiteSabado : 0) : pollosPorDia)
+  const topeRegularHE = (idx) => (idx === 5 ? (habilitarSabado ? limiteSabado : 0) : capacidadConHorasExtras)
+  const topesRegulares = Array.from({ length: cantidadRegulares }, (_, idx) => topeRegular(idx))
+  const topesRegularesHE = Array.from({ length: cantidadRegulares }, (_, idx) => topeRegularHE(idx))
+  const topesObjetivo = puenteActivo ? [topePuente, ...topesRegulares] : topesRegulares
+  const topesHorasExtras = puenteActivo ? [topePuente, ...topesRegularesHE] : topesRegularesHE
   const capacidadSemanalObjetivo = topesObjetivo.reduce((acc, val) => acc + val, 0)
   const capacidadSemanalHorasExtras = topesHorasExtras.reduce((acc, val) => acc + val, 0)
   const objetivoSugeridoBB = disponibleBBPeor != null
@@ -370,10 +415,27 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
   const bbSuperaCapacidad = disponibleBBPeor != null && disponibleBBPeor > capacidadSemanalObjetivo
   const fechaObjetivoLabel = (idx) => {
     if (!fechaInicio) return DIAS_SEMANA[idx] || `Día ${idx + 1}`
+    if (puenteActivo && idx === 0) {
+      const dtPuente = new Date(fechaPuenteIso + 'T12:00:00')
+      const fechaCorta = dtPuente.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })
+      return `Vie ${fechaCorta} (puente)`
+    }
+    const offset = puenteActivo ? idx - 1 : idx
     const dt = new Date(fechaInicio + 'T12:00:00')
-    dt.setDate(dt.getDate() + idx)
-    const dia = DIAS_SEMANA[idx] || `Día ${idx + 1}`
+    dt.setDate(dt.getDate() + offset)
+    const dia = DIAS_SEMANA[offset] || `Día ${offset + 1}`
     return `${dia} ${dt.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}`
+  }
+  const aplicarObjetivosCombinados = (valores) => {
+    if (puenteActivo) {
+      setObjetivoPuente(valores[0] ?? topePuente)
+      setObjetivosDiarios(prev => {
+        const cola = valores.slice(1)
+        return Array.from({ length: cantidadRegulares }, (_, idx) => cola[idx] ?? prev[idx] ?? pollosPorDia)
+      })
+    } else {
+      setObjetivosDiarios(prev => Array.from({ length: cantidadRegulares }, (_, idx) => valores[idx] ?? prev[idx] ?? pollosPorDia))
+    }
   }
 
   return (
@@ -435,6 +497,26 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
             </div>
           </div>
 
+          {puenteActivo && (
+            <div style={{
+              padding: '0.75rem 1rem',
+              marginBottom: '1rem',
+              background: 'rgba(124, 58, 237, 0.08)',
+              border: '1px solid rgba(124, 58, 237, 0.25)',
+              borderRadius: 8,
+              fontSize: '0.85rem',
+              color: '#5b21b6',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}>
+              <AlertCircle size={16} style={{ flexShrink: 0 }} />
+              <span>
+                Oferta del <strong>{new Date(fechaOfertaGlobalIso + 'T12:00:00').toLocaleDateString('es-AR')}</strong>: se incluye el viernes <strong>{new Date(fechaPuenteIso + 'T12:00:00').toLocaleDateString('es-AR')}</strong> como día puente (tope {formatNumber(topePuente)} aves).
+              </span>
+            </div>
+          )}
+
           <div style={{
             padding: '0.85rem 1rem',
             background: usarObjetivosDiarios ? 'rgba(22, 101, 52, 0.07)' : '#f8fafc',
@@ -478,14 +560,20 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                   <button
                     type="button"
                     className="btn btn-sm btn-outline"
-                    onClick={() => setObjetivosDiarios(prev => prev.map(() => pollosPorDia))}
+                    onClick={() => {
+                      setObjetivosDiarios(prev => prev.map(() => pollosPorDia))
+                      if (puenteActivo) setObjetivoPuente(topePuente)
+                    }}
                   >
                     Igualar a objetivo general
                   </button>
                   <button
                     type="button"
                     className="btn btn-sm btn-outline"
-                    onClick={() => setObjetivosDiarios(prev => prev.map((_, idx) => (idx <= 1 ? 38000 : 35000)))}
+                    onClick={() => {
+                      setObjetivosDiarios(prev => prev.map((_, idx) => (idx <= 1 ? 38000 : 35000)))
+                      if (puenteActivo) setObjetivoPuente(topePuente)
+                    }}
                   >
                     Perfil gerente 38/38/35/35/35
                   </button>
@@ -494,7 +582,7 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                       type="button"
                       className="btn btn-sm btn-outline"
                       onClick={() => {
-                        setObjetivosDiarios(distribuirObjetivoConTopes(objetivoSugeridoBB, objetivosDiarios, topesObjetivo))
+                        aplicarObjetivosCombinados(distribuirObjetivoConTopes(objetivoSugeridoBB, objetivosCombinados, topesObjetivo))
                         toast.success(`Objetivo semanal ajustado a ${formatNumber(objetivoSugeridoBB)} pollos`)
                       }}
                     >
@@ -574,25 +662,34 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                   gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
                   gap: '0.65rem',
                 }}>
-                  {objetivosDiarios.slice(0, cantidadDiasObjetivo).map((valor, idx) => (
-                    <div key={idx}>
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-light)', display: 'block', marginBottom: 3 }}>
-                        {fechaObjetivoLabel(idx)}
-                      </label>
-                      <input
-                        type="number"
-                        className="form-control"
-                        value={valor}
-                        min={0}
-                        step={1000}
-                        onChange={(e) => {
-                          const siguiente = [...objetivosDiarios]
-                          siguiente[idx] = parseInt(e.target.value) || 0
-                          setObjetivosDiarios(siguiente)
-                        }}
-                      />
-                    </div>
-                  ))}
+                  {objetivosCombinados.map((valor, idx) => {
+                    const esPuente = puenteActivo && idx === 0
+                    return (
+                      <div key={idx}>
+                        <label style={{ fontSize: '0.75rem', color: esPuente ? '#7c3aed' : 'var(--text-light)', display: 'block', marginBottom: 3, fontWeight: esPuente ? 600 : 400 }}>
+                          {fechaObjetivoLabel(idx)}
+                        </label>
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={valor}
+                          min={0}
+                          step={1000}
+                          onChange={(e) => {
+                            const nuevoValor = parseInt(e.target.value) || 0
+                            if (esPuente) {
+                              setObjetivoPuente(nuevoValor)
+                            } else {
+                              const regularIdx = puenteActivo ? idx - 1 : idx
+                              const siguiente = [...objetivosDiarios]
+                              siguiente[regularIdx] = nuevoValor
+                              setObjetivosDiarios(siguiente)
+                            }
+                          }}
+                        />
+                      </div>
+                    )
+                  })}
                 </div>
               </>
             )}
@@ -931,9 +1028,9 @@ export default function OfertaTable({ oferta, onGenerarProyeccion, deficitGuarda
                 try {
                   const data = await generarEscenarios({
                     fecha_inicio_semana: fechaInicio,
-                    dias_faena: diasFaena,
+                    dias_faena: diasFaena + (puenteActivo ? 1 : 0),
                     pollos_por_dia: pollosPorDia,
-                    objetivos_diarios: usarObjetivosDiarios ? objetivosDiarios.slice(0, cantidadDiasObjetivo) : null,
+                    objetivos_diarios: usarObjetivosDiarios ? objetivosCombinados : null,
                     habilitar_sabado: habilitarSabado,
                     gallinas: Object.keys(gallinasDia).length > 0 ? gallinasDia : null,
                     incluir_deficit: incluirDeficit,
