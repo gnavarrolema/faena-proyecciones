@@ -20,7 +20,11 @@ PESO_TOLERANCIA_GERENTE = 0.75
 # (ganancia_diaria_macho=0.090, ganancia_diaria_hembra=0.079)
 # para mantener consistencia con la planilla Excel del gerente.
 PUENTE_VIERNES_TOLERANCIA_PESO_GERENTE = 0.10
-PUENTE_VIERNES_CAPACIDAD_DEFAULT = 15177
+# 0 = sin cap especifico para el viernes puente (se usa la capacidad regular del dia).
+# Historico: 15177 era un cap operativo legado que limitaba el plan del gerente
+# por debajo del objetivo real. Los usuarios pueden setear un valor positivo
+# desde el panel de parametros si necesitan acotar el viernes puente.
+PUENTE_VIERNES_CAPACIDAD_DEFAULT = 0
 
 
 def _normalizar_objetivos_diarios(
