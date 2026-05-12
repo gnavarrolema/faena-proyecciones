@@ -1234,8 +1234,14 @@ def _generar_proyeccion_criterio_gerente(
                     )
                 for candidato in candidatos_ordenados:
                     dia_idx = candidato["dia_idx"]
+                    # Heurística "no repetir granja consecutiva tras el puente":
+                    # solo aplica cuando el usuario NO informó objetivos diarios.
+                    # Con objetivos explícitos, el usuario ya decidió cómo
+                    # distribuir las granjas y la regla no debe pisarlo (sino
+                    # quedan lotes sin asignar y el lunes vacío).
                     if (
                         usa_viernes_puente
+                        and not objetivos_plan
                         and dia_idx == 1
                         and normalizar_granja_clave(ofertas[lote_idx].granja) in granjas_viernes_puente
                     ):

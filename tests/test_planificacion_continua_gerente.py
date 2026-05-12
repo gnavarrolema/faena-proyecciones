@@ -281,6 +281,75 @@ def test_puente_friday_respects_user_objetivo_diario(client, auth_headers):
     )
 
 
+def test_puente_no_bloquea_lunes_para_misma_granja_con_objetivos(client, auth_headers):
+    """
+    Regresion: la heuristica "no repetir granja consecutiva tras el puente"
+    bloqueaba MANANTIALES en el lunes cuando ya estaba en el puente. Si la
+    oferta es toda de una sola granja eso dejaba el lunes vacio aunque el
+    usuario hubiera pedido 40k para ese dia.
+    """
+    storage.save_ofertas([
+        # Lotes mas chicos / mas livianos -> caen al puente.
+        {
+            "fecha_peso": "2026-05-07", "fecha_oferta": "2026-05-07",
+            "granja": "MANANTIALES", "galpon": g, "nucleo": 2,
+            "cantidad": 8000, "sexo": "H", "edad_proyectada": 38,
+            "peso_muestreo_proy": 2.85, "ganancia_diaria": 0.079,
+            "dias_proyectados": 0, "edad_real": 38, "peso_muestreo_real": 2.85,
+            "fecha_ingreso": "2026-03-30",
+        }
+        for g in (1, 2, 3, 4, 5)
+    ] + [
+        # Lotes mas grandes / mas pesados -> deberian llenar lunes en adelante.
+        {
+            "fecha_peso": "2026-05-07", "fecha_oferta": "2026-05-07",
+            "granja": "MANANTIALES", "galpon": g, "nucleo": 3,
+            "cantidad": 14000, "sexo": "H", "edad_proyectada": 37,
+            "peso_muestreo_proy": 2.75, "ganancia_diaria": 0.079,
+            "dias_proyectados": 0, "edad_real": 37, "peso_muestreo_real": 2.75,
+            "fecha_ingreso": "2026-03-31",
+        }
+        for g in (1, 2, 3, 4, 5)
+    ])
+    storage.save_parametros({
+        "pollos_diarios_objetivo_max": 42000,
+        "capacidad_con_horas_extras": 45000,
+        "pollos_viernes_puente": 0,
+        "edad_min_faena": 37,
+        "edad_max_faena": 45,
+        "peso_min_faena": 2.70,
+        "peso_max_faena": 3.20,
+    })
+
+    r = client.post(
+        "/proyeccion/generar",
+        json={
+            "fecha_inicio_semana": "2026-05-11",
+            "dias_faena": 6,
+            "pollos_por_dia": 42000,
+            "criterio_gerente": True,
+            "objetivos_diarios": [38000, 40000, 40000, 40000, 35000, 35000],
+        },
+        headers=auth_headers,
+    )
+
+    assert r.status_code == 200
+    data = r.json()
+    dias_por_fecha = {dia["fecha"]: dia for dia in data["dias"]}
+
+    puente = dias_por_fecha["2026-05-08"]
+    lunes = dias_por_fecha["2026-05-11"]
+
+    assert puente["total_pollos"] > 0, "Puente debe recibir asignaciones"
+    assert lunes["total_pollos"] > 0, (
+        f"Lunes quedo vacio cuando hay objetivo 40k: {lunes['total_pollos']}"
+    )
+    granjas_lunes = {lote["granja"] for lote in lunes["lotes"]}
+    assert "MANANTIALES" in granjas_lunes, (
+        f"Lunes no recibio MANANTIALES pese a ser la unica granja: {granjas_lunes}"
+    )
+
+
 def test_continuous_manager_keeps_weekly_config_for_followup_flows(client, auth_headers):
     _guardar_ofertas_y_parametros()
 
