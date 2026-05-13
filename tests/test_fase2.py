@@ -164,6 +164,39 @@ def test_forecast_compara_oferta_de_la_semana(client, auth_headers):
     assert sem["oferta"]["cobertura_pct_peor"] == 100.5
 
 
+def test_forecast_vincula_oferta_por_cohorte_bb(client, auth_headers):
+    """El forecast BB cruza oferta por fecha de ingreso aunque la fecha objetivo sea anterior."""
+    fecha_inicio = date(2026, 5, 13)
+    lunes = date(2026, 5, 11)
+    fecha_prod = lunes - timedelta(days=DIAS_HASTA_FAENA)
+    _guardar_produccion(fecha_prod, 100000)
+    oferta = LoteOferta(
+        fecha_peso=date(2026, 5, 7),
+        granja="GRANJA TEST",
+        galpon=1,
+        nucleo=1,
+        cantidad=93000,
+        sexo="M",
+        edad_proyectada=38,
+        peso_muestreo_proy=2.8,
+        ganancia_diaria=0.09,
+        dias_proyectados=0,
+        edad_real=38,
+        peso_muestreo_real=2.8,
+        fecha_ingreso=fecha_prod + timedelta(days=2),
+    )
+    storage.save_ofertas([oferta.model_dump()])
+
+    r = client.get(f"/produccion/forecast?semanas=1&fecha_inicio={fecha_inicio.isoformat()}", headers=auth_headers)
+    assert r.status_code == 200
+    sem = r.json()["semanas"][0]
+
+    assert sem["oferta"]["aves"] == 93000
+    assert sem["oferta"]["estado"] == "en_rango"
+    assert sem["oferta"]["estado_fecha"] == "anticipada"
+    assert sem["oferta"]["nivel"] == "anticipada"
+
+
 def test_forecast_sin_match(client, auth_headers):
     """Datos lejanos → semanas sin match, mejor/peor caso null."""
     _guardar_produccion(date(2020, 1, 1), 50000)

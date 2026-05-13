@@ -201,6 +201,22 @@ function EstadoBadge({ cohorte }) {
 
 function getForecastOfertaEstado(oferta) {
   if (!oferta) return null
+  const nivel = oferta.nivel || oferta.estado_fecha || oferta.estado
+  if (nivel === 'anticipada') {
+    return { label: 'Anticipada', tone: '#b45309', bg: '#ffedd5' }
+  }
+  if (nivel === 'atrasada') {
+    return { label: 'Atrasada', tone: '#7c3aed', bg: '#ede9fe' }
+  }
+  if (nivel === 'mixta') {
+    return { label: 'Mixta', tone: '#0369a1', bg: '#e0f2fe' }
+  }
+  if (nivel === 'parcial') {
+    return { label: 'Parcial', tone: '#92400e', bg: '#fef3c7' }
+  }
+  if (nivel === 'excedida') {
+    return { label: 'Excede', tone: '#b91c1c', bg: '#fee2e2' }
+  }
   if (oferta.estado === 'en_rango') {
     return { label: 'Suficiente', tone: '#047857', bg: '#d1fae5' }
   }
@@ -765,7 +781,7 @@ export default function ProduccionView() {
                     <th className="text-right">Pollitos Cargados</th>
                     <th className="text-right">Mejor Caso</th>
                     <th className="text-right">Peor Caso</th>
-                    <th className="text-right">Oferta</th>
+                    <th className="text-right">Oferta Actual</th>
                     <th>Estado</th>
                     <th className="text-right">Rango</th>
                   </tr>

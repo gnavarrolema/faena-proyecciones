@@ -920,6 +920,9 @@ def _buscar_semanas_produccion_referenciadas(
 ) -> list[SemanaProduccion]:
     """Encuentra las semanas de producción relevantes para un cruce."""
     semanas_encontradas: list[SemanaProduccion] = []
+    semanas_ordenadas = sorted(semanas, key=lambda sem: sem.fecha_desde)
+    fecha_min_produccion = semanas_ordenadas[0].fecha_desde if semanas_ordenadas else None
+    fecha_max_produccion = semanas_ordenadas[-1].fecha_hasta if semanas_ordenadas else None
     fechas_referencia = [f for f in (fechas_ingreso or []) if f is not None]
     if not fechas_referencia and ofertas:
         fechas_referencia = [
@@ -929,7 +932,7 @@ def _buscar_semanas_produccion_referenciadas(
     if fechas_referencia:
         seen: set[str] = set()
         for fecha_ingreso in fechas_referencia:
-            for sem in semanas:
+            for sem in semanas_ordenadas:
                 key = sem.fecha_desde.isoformat()
                 if key in seen:
                     continue
@@ -938,7 +941,14 @@ def _buscar_semanas_produccion_referenciadas(
                     semanas_encontradas.append(sem)
                     break
             else:
-                for sem in semanas:
+                if (
+                    fecha_min_produccion is None
+                    or fecha_max_produccion is None
+                    or fecha_ingreso < fecha_min_produccion
+                    or fecha_ingreso > fecha_max_produccion
+                ):
+                    continue
+                for sem in semanas_ordenadas:
                     key = sem.fecha_desde.isoformat()
                     if key in seen:
                         continue
@@ -2914,6 +2924,20 @@ def forecast_produccion(
     hoy = fecha_inicio or date.today()
     tolerancia = config["tolerancia_dias"]
     ofertas = _get_ofertas()
+    cohortes_oferta_por_semana: dict[str, dict] = {}
+    if ofertas:
+        validacion_oferta = validar_mortalidad_oferta(
+            ofertas,
+            [s.model_dump() for s in semanas_prod],
+            dias_hasta_faena=config["dias_hasta_faena"],
+            tolerancia_dias=tolerancia,
+            merma_min=min(config["tasas_mortalidad"]),
+            merma_max=max(config["tasas_mortalidad"]),
+        )
+        cohortes_oferta_por_semana = {
+            c["fecha_desde"]: c
+            for c in validacion_oferta.get("cohortes", [])
+        }
 
     # Pre-calcular rangos de cada semana de forecast (lunes a domingo)
     # Buscar el lunes de la semana actual (weekday(): 0=lunes, 6=domingo)
@@ -2951,17 +2975,16 @@ def forecast_produccion(
         mejor_disponible = int(total_cargados * (1 - mejor_tasa)) if total_cargados > 0 else 0
         peor_disponible = int(total_cargados * (1 - peor_tasa)) if total_cargados > 0 else 0
 
-        oferta_semana = 0
-        lotes_oferta = 0
+        cohortes_vinculadas = [
+            cohortes_oferta_por_semana[s.fecha_desde.isoformat()]
+            for s in matched
+            if s.fecha_desde.isoformat() in cohortes_oferta_por_semana
+        ]
+        oferta_semana = sum(c.get("aves_en_oferta", 0) for c in cohortes_vinculadas)
+        lotes_oferta = sum(c.get("lotes", 0) for c in cohortes_vinculadas)
         granjas_oferta: set[str] = set()
-        for oferta in ofertas:
-            if not oferta.fecha_peso:
-                continue
-            fecha_objetivo = oferta.fecha_peso + timedelta(days=max(oferta.dias_proyectados, 0))
-            if inicio_sem <= fecha_objetivo <= fin_sem:
-                oferta_semana += oferta.cantidad
-                lotes_oferta += 1
-                granjas_oferta.add(oferta.granja)
+        for cohorte in cohortes_vinculadas:
+            granjas_oferta.update(cohorte.get("granjas") or [])
 
         if oferta_semana <= 0:
             estado_oferta = "sin_oferta"
@@ -2973,6 +2996,17 @@ def forecast_produccion(
             estado_oferta = "por_encima"
         else:
             estado_oferta = "en_rango"
+
+        nivel_oferta = estado_oferta
+        for nivel in ("anticipada", "atrasada", "mixta", "excedida", "parcial", "alineada"):
+            if any(c.get("nivel") == nivel for c in cohortes_vinculadas):
+                nivel_oferta = nivel
+                break
+        estado_fecha = None
+        for estado in ("anticipada", "atrasada", "mixta", "alineada", "sin_dato"):
+            if any(c.get("estado_fecha") == estado for c in cohortes_vinculadas):
+                estado_fecha = estado
+                break
 
         result_semanas.append({
             "inicio": inicio_sem.isoformat(),
@@ -3006,6 +3040,9 @@ def forecast_produccion(
                 "lotes": lotes_oferta,
                 "granjas": sorted(granjas_oferta),
                 "estado": estado_oferta,
+                "estado_fecha": estado_fecha,
+                "nivel": nivel_oferta,
+                "cohortes": cohortes_vinculadas,
                 "cobertura_pct_peor": round(oferta_semana / peor_disponible * 100, 1) if peor_disponible > 0 and oferta_semana > 0 else None,
                 "diferencia_vs_peor": oferta_semana - peor_disponible if oferta_semana > 0 and peor_disponible > 0 else None,
             } if ofertas else None,

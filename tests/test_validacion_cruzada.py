@@ -3,7 +3,7 @@ from datetime import date, timedelta
 
 import pytest
 from backend.main import _validar_cruce_oferta, _validar_cruce_produccion
-from backend.calculo import LoteOferta, Parametros
+from backend.calculo import LoteOferta, Parametros, validar_mortalidad_oferta
 from backend.parser_produccion import SemanaProduccion, DIAS_HASTA_FAENA, calcular_fecha_faena_estimada
 from backend import storage
 
@@ -126,6 +126,32 @@ def test_cruce_oferta_detecta_desfase_temporal_anticipado():
     assert cohorte["estado_fecha"] == "anticipada"
     assert cohorte["nivel"] == "anticipada"
     assert result["mortalidad_cohortes"]["alertas"] == 1
+
+
+def test_cruce_no_arrastra_ingresos_posteriores_al_ultimo_rango():
+    """La tolerancia no debe inflar la ultima cohorte si falta la semana siguiente."""
+    semana = SemanaProduccion(
+        fecha_desde=date(2026, 4, 18),
+        fecha_hasta=date(2026, 4, 24),
+        pollitos_cargados=100000,
+    )
+    ofertas = [
+        _lote(
+            cantidad=50000,
+            fecha_peso=date(2026, 5, 7),
+            fecha_ingreso=date(2026, 4, 27),
+            edad_real=10,
+            edad_proyectada=10,
+        ),
+    ]
+
+    result = validar_mortalidad_oferta(
+        ofertas,
+        [semana.model_dump()],
+        tolerancia_dias=3,
+    )
+
+    assert result["cohortes"] == []
 
 
 def test_cruce_oferta_consistencia_edad_ok():

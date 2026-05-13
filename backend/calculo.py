@@ -2590,12 +2590,22 @@ def validar_mortalidad_oferta(
             "fecha_hasta": hasta,
             "pollitos_cargados": s["pollitos_cargados"],
         })
+    semanas.sort(key=lambda sem: sem["fecha_desde"])
+    fecha_min_produccion = semanas[0]["fecha_desde"] if semanas else None
+    fecha_max_produccion = semanas[-1]["fecha_hasta"] if semanas else None
 
     def buscar_semana(fecha_ingreso: date):
         """Busca la semana de producción que contiene la fecha de ingreso."""
         for sem in semanas:
             if sem["fecha_desde"] <= fecha_ingreso <= sem["fecha_hasta"]:
                 return sem
+        if (
+            fecha_min_produccion is None
+            or fecha_max_produccion is None
+            or fecha_ingreso < fecha_min_produccion
+            or fecha_ingreso > fecha_max_produccion
+        ):
+            return None
         # Tolerancia configurable: buscar ±N días si no hay match exacto
         for sem in semanas:
             if abs((fecha_ingreso - sem["fecha_desde"]).days) <= tolerancia_dias:
