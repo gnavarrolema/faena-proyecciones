@@ -77,19 +77,25 @@ else
 fi
 
 # ─── 2. Borrar TODOS los repos de Artifact Registry ─────────────────────────
+# Nota: en algunas versiones de gcloud el campo 'location' del formato value()
+# viene vacío, por eso extraemos repo y location del path completo del 'name':
+#   projects/<proj>/locations/<location>/repositories/<repo>
 log "Buscando repositorios de Artifact Registry en todas las regiones..."
-mapfile -t AR_REPOS < <(
-  gcloud artifacts repositories list --format='value(name,location)' 2>/dev/null
+mapfile -t AR_PATHS < <(
+  gcloud artifacts repositories list --format='value(name)' 2>/dev/null
 )
 
-if [[ "${#AR_REPOS[@]}" -eq 0 ]]; then
+if [[ "${#AR_PATHS[@]}" -eq 0 ]]; then
   warn "No hay repositorios de Artifact Registry para borrar"
 else
-  for entry in "${AR_REPOS[@]}"; do
-    # 'name' viene como path completo: projects/X/locations/Y/repositories/Z
-    repo_name="${entry##*/}"
-    repo_name="${repo_name%%	*}"   # quita la columna 'location' si quedó pegada
-    location=$(echo "$entry" | awk '{print $2}')
+  for path in "${AR_PATHS[@]}"; do
+    repo_name="${path##*/repositories/}"        # último segmento
+    location="${path##*/locations/}"            # quita prefijo hasta locations/
+    location="${location%%/*}"                  # se queda con el primer segmento
+    if [[ -z "$repo_name" || -z "$location" ]]; then
+      warn "No se pudo parsear el repo de: $path (se omite)"
+      continue
+    fi
     log "Borrando AR repo: $repo_name (en $location)"
     run "gcloud artifacts repositories delete '$repo_name' --location='$location' --quiet"
   done
